@@ -1,0 +1,100 @@
+/* Responsive & Mobile Touch Optimizations */
+
+@media (max-width: 1024px) {
+  .main-content {
+    padding: 1rem;
+    gap: 1rem;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .navbar {
+    padding: 0.75rem 1rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .nav-links {
+    order: 3;
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+    justify-content: flex-start;
+  }
+
+  .nav-item-btn {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    padding: 1rem;
+    border-radius: var(--radius-md);
+  }
+
+  .modal-box {
+    margin: 0.5rem;
+    max-height: 95vh;
+  }
+
+  .btn {
+    min-height: 48px; /* High touch target for mobile thumb */
+    font-size: 0.95rem;
+  }
+
+  .form-input, .form-select, .form-textarea {
+    font-size: 16px; /* Prevents auto-zoom in iOS Safari */
+    min-height: 48px;
+  }
+
+  .scanner-viewport-wrapper {
+    height: 240px;
+  }
+}
+
+/* Accessibility and Touch state feedback */
+@media (hover: none) and (pointer: coarse) {
+  .btn:active {
+    transform: scale(0.97);
+  }
+
+  .nav-item-btn:active {
+    background: var(--bg-card-hover);
+  }
+
+  .data-table td {
+    padding: 0.75rem 0.5rem;
+  }
+}
+
+/* Print Styles */
+@media print {
+  .navbar, .ambient-glow, .ambient-glow-2, .btn, .nav-links, #toast-container {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+    color: black;
+  }
+
+  .card {
+    border: 1px solid #ccc;
+    box-shadow: none;
+    background: transparent;
+  }
+
+  .data-table th, .data-table td {
+    border-color: #ddd;
+    color: black;
+  }
+}

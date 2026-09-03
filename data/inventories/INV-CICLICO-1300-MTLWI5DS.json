@@ -1,0 +1,32 @@
+{
+  "id": "INV-CICLICO-1300-MTLWI5DS",
+  "name": "Inventario Test 1300 creado por Juan Carlos",
+  "type": "CICLICO",
+  "center": "1300",
+  "status": "EN_PROGRESO",
+  "createdAt": "2026-09-03T19:11:22.048Z",
+  "createdBy": "Jcarlos",
+  "assignedAuxiliars": [],
+  "items": [
+    {
+      "id": "ITEM-1-mtlwi5ds",
+      "SKU": "JD-TEST-1300",
+      "Codigo_Barras": "789001300",
+      "Descripcion": "Filtro Test 1300",
+      "Ubicacion": "A-02",
+      "Categoria": "",
+      "Clasificacion_ABC": "C",
+      "Unidad": "PZA",
+      "Costo_Unitario": 20,
+      "Stock_Sistema": 8,
+      "Stock_Fisico": null,
+      "Diferencia": 0,
+      "Costo_Diferencia": 0,
+      "Fecha_Ultimo_Conteo": null,
+      "Responsable": "",
+      "Estado": "Pendiente",
+      "Mal_estado": 0,
+      "Comentario": ""
+    }
+  ]
+}

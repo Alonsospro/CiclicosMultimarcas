@@ -1,0 +1,30 @@
+{
+  "id": "INV-CICLICO-BLIND-TEST",
+  "name": "Inventario Test Conteo Ciego",
+  "type": "CICLICO",
+  "center": "WARNES",
+  "status": "EN_PROGRESO",
+  "assignedAuxiliars": [
+    "auxiliar_warnes"
+  ],
+  "items": [
+    {
+      "id": "ITEM-TEST-01",
+      "SKU": "JD-AH12345",
+      "Codigo_Barras": "78912345601",
+      "Descripcion": "Filtro Test",
+      "Ubicacion": "RACK-A1-01",
+      "Categoria": "FILTROS",
+      "Clasificacion_ABC": "A",
+      "Unidad": "PZA",
+      "Costo_Unitario": 45.5,
+      "Stock_Sistema": 10,
+      "Stock_Fisico": null,
+      "Diferencia": 0,
+      "Costo_Diferencia": 0,
+      "Responsable": "auxiliar_warnes",
+      "Estado": "Pendiente",
+      "Mal_estado": 0
+    }
+  ]
+}

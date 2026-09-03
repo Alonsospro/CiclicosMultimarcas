@@ -1,0 +1,28 @@
+{
+  "id": "INV-ZERO-TEST",
+  "name": "Inventario Test Cero",
+  "type": "CICLICO",
+  "center": "WARNES",
+  "status": "EN_PROGRESO",
+  "assignedAuxiliars": [
+    "auxiliar_warnes"
+  ],
+  "items": [
+    {
+      "id": "ITEM-Z1",
+      "SKU": "JD-Z001",
+      "Descripcion": "Item con conteo cero",
+      "Ubicacion": "RACK-Z1",
+      "Stock_Sistema": 5,
+      "Stock_Fisico": 0,
+      "Diferencia": -5,
+      "Costo_Unitario": 20,
+      "Responsable": "auxiliar_warnes",
+      "Costo_Diferencia": -100,
+      "Fecha_Ultimo_Conteo": "2026-09-03T19:11:13.702Z",
+      "Estado": "Contado",
+      "Mal_estado": 0,
+      "locked": true
+    }
+  ]
+}

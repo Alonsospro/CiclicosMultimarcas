@@ -1,0 +1,18 @@
+{
+  "id": "JUST-CICLICO-JD-AH12345-WARNES",
+  "inventoryId": "INV-TEST-DRIVE-WARNES-001",
+  "sku": "JD-AH12345",
+  "descripcion": "Filtro de Aceite Motor",
+  "ubicacion": "RACK-A1-01",
+  "stockSistema": 10,
+  "stockFisico": 8,
+  "diferencia": -2,
+  "justification": "Diferencia justificada por ajuste de merma",
+  "reasonType": "MERMA_ROTURA",
+  "photoUrl": "/api/photos/sample.jpg",
+  "reviewedBy": "ALONSO",
+  "reviewedAt": "2026-09-03T19:11:13.934Z",
+  "center": "WARNES",
+  "type": "CICLICO",
+  "status": "REVISADO"
+}

@@ -1,0 +1,45 @@
+{
+  "id": "INV-MULTI-LOC-1788462674014",
+  "name": "Inventario Test Multi Ubicacion",
+  "type": "CICLICO",
+  "center": "WARNES",
+  "status": "EN_PROGRESO",
+  "assignedAuxiliars": [
+    "auxiliar_warnes"
+  ],
+  "items": [
+    {
+      "id": "ITEM-ORIG-01",
+      "SKU": "JD-TEST-LOC",
+      "Codigo_Barras": "11223344",
+      "Descripcion": "Item Multi Ubicacion",
+      "Ubicacion": "RACK-A1-01",
+      "Stock_Sistema": 10,
+      "Stock_Fisico": null,
+      "Diferencia": 0,
+      "Costo_Unitario": 50,
+      "Responsable": "auxiliar_warnes"
+    },
+    {
+      "id": "ITEM-NEW-LOC-1788462674020-km9j",
+      "SKU": "JD-TEST-LOC",
+      "Codigo_Barras": "11223344",
+      "Descripcion": "Item Multi Ubicacion",
+      "Ubicacion": "RACK-Z9-99",
+      "Costo_Unitario": 50,
+      "Stock_Sistema": 0,
+      "Stock_Fisico": 3,
+      "Diferencia": 3,
+      "Costo_Diferencia": 150,
+      "Fecha_Ultimo_Conteo": "2026-09-03T19:11:14.020Z",
+      "Responsable": "auxiliar_warnes",
+      "Estado": "Contado",
+      "Mal_estado": 0,
+      "Comentario": "",
+      "foto_mal_estado": null,
+      "isAdditionalLocation": true,
+      "originalItemId": "ITEM-ORIG-01",
+      "locked": true
+    }
+  ]
+}
