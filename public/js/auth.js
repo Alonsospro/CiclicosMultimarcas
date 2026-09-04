@@ -97,6 +97,15 @@ window.Auth = {
       el.style.display = canCreateInv ? '' : 'none';
     });
 
+    const invSubtitle = document.getElementById('inv-header-subtitle');
+    if (invSubtitle) {
+      if (role === 'AUXILIAR') {
+        invSubtitle.textContent = `Inventarios asignados a su usuario (${centerLabel})`;
+      } else {
+        invSubtitle.textContent = 'Listado de inventarios según centro y permisos';
+      }
+    }
+
     // For Auxiliares and Encargados, lock / constrain center dropdowns to their own center
     if (!isAdmin) {
       const userCenter = this.currentUser.center;

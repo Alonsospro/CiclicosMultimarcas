@@ -43,10 +43,9 @@
       <nav>
         <ul class="nav-links" id="nav-links">
           <li><button class="nav-item-btn active" data-view="inventories"><i class="fa-solid fa-list-check"></i> Inventarios</button></li>
-          <li><button class="nav-item-btn" data-view="barrido" style="color: #38bdf8;"><i class="fa-solid fa-barcode"></i> Modo Barrido</button></li>
           <li class="role-encargado-admin"><button class="nav-item-btn" data-view="assignments"><i class="fa-solid fa-user-tag"></i> Asignaciones</button></li>
           <li class="role-admin-only"><button class="nav-item-btn" data-view="justifications" style="color: #f59e0b;"><i class="fa-solid fa-clipboard-check"></i> Justificaciones</button></li>
-          <li><button class="nav-item-btn" data-view="history"><i class="fa-solid fa-clock-rotate-left"></i> Historial Drive</button></li>
+          <li class="role-encargado-admin"><button class="nav-item-btn" data-view="history"><i class="fa-solid fa-clock-rotate-left"></i> Historial Drive</button></li>
           <li class="role-encargado-admin"><button class="nav-item-btn" data-view="dashboard"><i class="fa-solid fa-chart-pie"></i> Métricas & ERU</button></li>
           <li class="role-superadmin-alonso-only"><button class="nav-item-btn" data-view="users"><i class="fa-solid fa-users-gear"></i> Accesos</button></li>
         </ul>
@@ -220,8 +219,11 @@
         <div class="card" style="border-top: 4px solid #38bdf8;">
           <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <div>
+              <button class="btn btn-secondary btn-sm" id="btn-back-from-barrido" style="margin-bottom: 0.5rem;">
+                <i class="fa-solid fa-arrow-left"></i> Volver a Inventarios
+              </button>
               <h2 class="card-title" style="color: #38bdf8;">
-                <i class="fa-solid fa-barcode"></i> Modo Barrido en Pasillo / Racks
+                <i class="fa-solid fa-barcode"></i> Entorno de Modo Barrido (Pasillo / Racks)
               </h2>
               <p class="stat-subtext">Lectura continua con cámara/lector láser y consulta directa en Google Sheets</p>
             </div>
@@ -236,7 +238,7 @@
             </div>
           </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;" id="barrido-split-grid">
+          <div class="barrido-responsive-grid" id="barrido-split-grid">
             <!-- Left Panel: Scanner HUD & Search Input -->
             <div style="display: flex; flex-direction: column; gap: 1rem;">
               <div class="scanner-viewport-wrapper" id="barrido-scanner-box">

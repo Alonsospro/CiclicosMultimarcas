@@ -8,8 +8,16 @@ window.InventoryView = {
   },
 
   setupListeners() {
-    // Filter changes
-    document.getElementById('filter-inv-type')?.addEventListener('change', () => this.loadInventories());
+    // Filter changes - opening Barrido directly when chosen in the dropdown as requested
+    document.getElementById('filter-inv-type')?.addEventListener('change', (e) => {
+      const selectedType = e.target.value;
+      if (selectedType === 'BARRIDO') {
+        window.Router.navigate('barrido');
+        e.target.value = 'TODOS';
+        return;
+      }
+      this.loadInventories();
+    });
     document.getElementById('filter-inv-center')?.addEventListener('change', () => this.loadInventories());
 
     // Back to list button
@@ -315,8 +323,27 @@ window.InventoryView = {
         } catch (e) {}
       }
 
+      // If user is AUXILIAR, strictly ensure only assigned inventories are shown
+      if (window.Auth.currentUser?.role === 'AUXILIAR') {
+        const u = String(window.Auth.currentUser.username || '').toLowerCase();
+        const c = String(window.Auth.currentUser.clave || '').toLowerCase();
+        const d = String(window.Auth.currentUser.displayName || '').toLowerCase();
+
+        list = list.filter(inv => {
+          const assignedList = Array.isArray(inv.assignedAuxiliars) ? inv.assignedAuxiliars.map(a => String(a).toLowerCase()) : [];
+          const isDirectlyAssigned = assignedList.includes(u) || (c && assignedList.includes(c)) || (d && assignedList.includes(d));
+
+          const hasAssignedItems = Array.isArray(inv.items) && inv.items.some(it => {
+            const resp = String(it.Responsable || '').toLowerCase();
+            return resp === u || (c && resp === c) || (d && resp.includes(d));
+          });
+
+          return isDirectlyAssigned || hasAssignedItems;
+        });
+      }
+
       if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem; color: var(--text-dim);">No se encontraron inventarios disponibles.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem; color: var(--text-dim);">No se encontraron inventarios asignados a su usuario.</td></tr>';
         return;
       }
 
@@ -410,6 +437,16 @@ window.InventoryView = {
       }
 
       this.currentInventory = inv;
+
+      // If opening an inventory of type BARRIDO, open its dedicated environment
+      if (inv && inv.type === 'BARRIDO') {
+        window.Router.navigate('barrido');
+        if (inv.center) {
+          const centerSelect = document.getElementById('barrido-select-center');
+          if (centerSelect) centerSelect.value = inv.center;
+        }
+        return;
+      }
 
       document.getElementById('view-inventories').classList.remove('active');
       document.getElementById('view-count').classList.add('active');

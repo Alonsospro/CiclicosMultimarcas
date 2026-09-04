@@ -10,8 +10,24 @@ window.Router = {
     }
 
     // Role protection
+    if (window.Auth.currentUser?.role === 'AUXILIAR' && !['inventories', 'count', 'barrido', 'login'].includes(viewName)) {
+      window.Toast.warning('Acceso restringido: Solo puede visualizar sus inventarios asignados.');
+      this.navigate('inventories');
+      return;
+    }
+
     if (viewName === 'justifications' && !window.Auth.hasRole(['ADMIN'])) {
       window.Toast.warning('Acceso exclusivo para administradores');
+      return;
+    }
+
+    if (viewName === 'history' && !window.Auth.hasRole(['ADMIN', 'ENCARGADO'])) {
+      window.Toast.warning('Acceso exclusivo para encargados y administradores');
+      return;
+    }
+
+    if (viewName === 'dashboard' && !window.Auth.hasRole(['ADMIN', 'ENCARGADO'])) {
+      window.Toast.warning('Acceso exclusivo para encargados y administradores');
       return;
     }
 

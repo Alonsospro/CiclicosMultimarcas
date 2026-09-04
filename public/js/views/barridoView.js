@@ -57,6 +57,14 @@ window.BarridoView = {
   },
 
   setupListeners() {
+    // Back to inventories button
+    document.getElementById('btn-back-from-barrido')?.addEventListener('click', () => {
+      if (this.isCameraActive) {
+        this.toggleCamera();
+      }
+      window.Router.navigate('inventories');
+    });
+
     // Center selector change
     document.getElementById('barrido-select-center')?.addEventListener('change', () => {
       this.resetBarridoForm();

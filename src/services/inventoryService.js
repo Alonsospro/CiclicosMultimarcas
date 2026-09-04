@@ -300,11 +300,17 @@ class InventoryService {
     // 2. Hide columns H, I, K, L, O (Blind Count)
     if (user.role === 'AUXILIAR') {
       const isConteoPhase = inv.status !== 'REVISADO';
+      const isAssignedToInv = Array.isArray(inv.assignedAuxiliars) && (
+        inv.assignedAuxiliars.includes(user.username) ||
+        inv.assignedAuxiliars.includes(user.clave) ||
+        inv.assignedAuxiliars.includes(user.displayName)
+      );
+
       const userItems = inv.items.filter(it =>
         it.Responsable === user.username ||
         it.Responsable === user.clave ||
         it.Responsable === user.displayName ||
-        !it.Responsable
+        (isAssignedToInv && !it.Responsable)
       );
 
       return {
