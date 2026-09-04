@@ -56,11 +56,21 @@ class StoragePath {
     // On Vercel, copy packaged initial users and seed files from read-only package to /tmp
     if (process.env.VERCEL && this.initialDataDir && fs.existsSync(this.initialDataDir)) {
       try {
-        const usersSrc = path.join(this.initialDataDir, 'users.json');
-        const usersDest = path.join(this.baseDir, 'users.json');
-        if (fs.existsSync(usersSrc) && !fs.existsSync(usersDest)) {
-          fs.copyFileSync(usersSrc, usersDest);
-        }
+        const copySeedDir = (src, dest) => {
+          if (!fs.existsSync(src)) return;
+          if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
+          const entries = fs.readdirSync(src, { withFileTypes: true });
+          for (const entry of entries) {
+            const srcPath = path.join(src, entry.name);
+            const destPath = path.join(dest, entry.name);
+            if (entry.isDirectory()) {
+              copySeedDir(srcPath, destPath);
+            } else if (!fs.existsSync(destPath)) {
+              fs.copyFileSync(srcPath, destPath);
+            }
+          }
+        };
+        copySeedDir(this.initialDataDir, this.baseDir);
       } catch (e) {
         console.warn('[storagePath] Seed copy notice:', e.message);
       }
@@ -196,6 +206,22 @@ class StoragePath {
         });
       }
     } catch (e) {}
+
+    // 1b. Fallback files from initialDataDir if running in Vercel
+    if (this.initialDataDir && dirPath.startsWith(this.baseDir)) {
+      try {
+        const relative = path.relative(this.baseDir, dirPath);
+        const fallbackDir = path.join(this.initialDataDir, relative);
+        if (fs.existsSync(fallbackDir)) {
+          const fallbackFiles = fs.readdirSync(fallbackDir);
+          fallbackFiles.forEach(f => {
+            if (!fileMap.has(f.toLowerCase())) {
+              fileMap.set(f.toLowerCase(), f);
+            }
+          });
+        }
+      } catch (e) {}
+    }
 
     // 2. Files from memory listings
     if (this.dirListings.has(dirKey)) {

@@ -90,11 +90,42 @@ router.get('/', authenticate, restrictCenter, async (req, res) => {
 });
 
 // GET /api/history/:fileId (Detail)
-router.get('/:fileId', authenticate, (req, res) => {
+router.get('/:fileId', authenticate, async (req, res) => {
   try {
     const historyDir = storagePath.getHistoryDirectory();
     const filePath = path.join(historyDir, `${req.params.fileId}.json`);
-    const record = storagePath.readJson(filePath, null);
+    let record = storagePath.readJson(filePath, null);
+
+    if (!record) {
+      // Fallback: search in Google Drive / Google Sheets via GAS
+      try {
+        const gasHistory = await gasService.getHistoryFromGAS('CICLICO', null);
+        if (Array.isArray(gasHistory)) {
+          const match = gasHistory.find(h =>
+            h.fileId === req.params.fileId ||
+            h.fileName === req.params.fileId ||
+            (h.fileId && req.params.fileId.includes(h.fileId))
+          );
+          if (match) {
+            record = {
+              fileId: match.fileId,
+              fileName: match.fileName,
+              type: match.type || 'CICLICO',
+              center: match.center || '1120',
+              closedBy: match.closedBy || 'Administrador',
+              closedAt: match.closedAt,
+              totalItems: Number(match.totalItems || 0),
+              driveUrl: match.driveUrl || match.spreadsheetUrl,
+              spreadsheetUrl: match.spreadsheetUrl,
+              reviewNotes: match.notes || 'Registrado en Google Drive / Google Sheets',
+              items: match.items || []
+            };
+          }
+        }
+      } catch (gasErr) {
+        console.warn('[historyRoutes] GAS lookup fallback notice:', gasErr.message);
+      }
+    }
 
     if (!record) {
       return res.status(404).json({ success: false, message: 'Registro histórico no encontrado' });

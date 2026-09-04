@@ -171,8 +171,38 @@ class InventoryService {
     return inv;
   }
 
-  getInventories(user, filterCenter = null, filterType = null) {
-    const files = this.getAllInventoryFiles();
+  async getInventories(user, filterCenter = null, filterType = null) {
+    let files = this.getAllInventoryFiles();
+
+    // If local storage is empty (Vercel cold start or cache eviction), auto-discover/hydrate active inventory from Google Drive
+    if (files.length === 0) {
+      const targetCenter = (user.role !== 'ADMIN' && !user.isSuperadmin) ? user.center : (filterCenter && filterCenter !== 'TODOS' && filterCenter !== 'GLOBAL' ? filterCenter : '1120');
+      const targetType = (filterType && filterType !== 'TODOS') ? filterType : 'CICLICO';
+      try {
+        const cleanCenter = config.getCenterCode ? config.getCenterCode(targetCenter) : targetCenter;
+        const fetchedItems = await gasService.fetchProductsFromScript(targetType, cleanCenter);
+        if (fetchedItems && fetchedItems.length > 0) {
+          const centerObj = config.findCenter ? config.findCenter(cleanCenter) : null;
+          const invId = `INV-${targetType}-${cleanCenter}-DRIVE`;
+          const autoInv = {
+            id: invId,
+            name: `Inventario ${targetType} - ${centerObj ? centerObj.name : cleanCenter}`,
+            type: targetType,
+            center: cleanCenter,
+            status: 'EN_PROGRESO',
+            createdAt: new Date().toISOString(),
+            createdBy: 'Google Drive Sync',
+            assignedAuxiliars: [],
+            items: fetchedItems
+          };
+          this.saveInventory(autoInv);
+          files = this.getAllInventoryFiles();
+        }
+      } catch (err) {
+        console.warn('[inventoryService] Notice during cold-start hydration from Google Drive:', err.message);
+      }
+    }
+
     let list = [];
 
     files.forEach(file => {
@@ -222,8 +252,40 @@ class InventoryService {
     return list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   }
 
-  getInventoryById(id, user) {
-    const inv = this.getInventoryRaw(id);
+  async getInventoryById(id, user) {
+    let inv = this.getInventoryRaw(id);
+    if (!inv) {
+      // Hydrate directly from Google Apps Script / Google Sheets in Google Drive
+      try {
+        const parts = String(id).split('-');
+        let invType = 'CICLICO';
+        let center = '1120';
+        if (parts.length >= 3) {
+          invType = parts[1] || 'CICLICO';
+          center = parts[2] || '1120';
+        }
+        const cleanCenter = config.getCenterCode ? config.getCenterCode(center) : center;
+        const fetchedItems = await gasService.fetchProductsFromScript(invType, cleanCenter);
+        if (fetchedItems && fetchedItems.length > 0) {
+          const centerObj = config.findCenter ? config.findCenter(cleanCenter) : null;
+          inv = {
+            id,
+            name: `Inventario ${invType} - ${centerObj ? centerObj.name : cleanCenter}`,
+            type: invType,
+            center: cleanCenter,
+            status: 'EN_PROGRESO',
+            createdAt: new Date().toISOString(),
+            createdBy: 'Google Drive Sync',
+            assignedAuxiliars: [],
+            items: fetchedItems
+          };
+          this.saveInventory(inv);
+        }
+      } catch (hydrateErr) {
+        console.warn(`[inventoryService] Notice hydrating inventory from Google Drive: ${hydrateErr.message}`);
+      }
+    }
+
     if (!inv) {
       throw new Error(`Inventario con ID '${id}' no encontrado`);
     }
@@ -504,6 +566,28 @@ class InventoryService {
       reason: reason || (isNewLocation ? 'Nueva ubicación detectada' : (previousQty !== null ? 'Modificación de conteo previo' : 'Conteo físico confirmado'))
     });
 
+    // Real-time synchronization to Google Drive / Sheets via Google Apps Script (Primary cloud storage)
+    try {
+      gasService.upsertCountToGAS(inv.type, {
+        center: inv.center,
+        sku: targetItem.SKU,
+        barcode: targetItem.Codigo_Barras,
+        location: targetItem.Ubicacion,
+        isNewLocation,
+        stockFisico: targetItem.Stock_Fisico,
+        malEstado: targetItem.Mal_estado || 0,
+        comentario: targetItem.Comentario || '',
+        fechaUltimoConteo: targetItem.Fecha_Ultimo_Conteo,
+        responsable: user.displayName || user.username,
+        estado: targetItem.Estado || 'Contado',
+        photoBase64: photoUrl || targetItem.foto_mal_estado || ''
+      }).catch(err => {
+        console.warn(`[inventoryService] Notice syncing count to Google Drive: ${err.message}`);
+      });
+    } catch (gasErr) {
+      console.warn(`[inventoryService] Notice triggering GAS sync: ${gasErr.message}`);
+    }
+
     return {
       success: true,
       item: targetItem,
@@ -665,6 +749,23 @@ class InventoryService {
 
     item.Estado = 'Justificado';
     this.saveInventory(inv);
+
+    // Sync justification to Google Sheets in Google Drive
+    try {
+      gasService.upsertCountToGAS(inv.type, {
+        center: inv.center,
+        sku: item.SKU,
+        barcode: item.Codigo_Barras,
+        location: item.Ubicacion,
+        stockFisico: item.Stock_Fisico,
+        malEstado: item.Mal_estado || 0,
+        comentario: `[Justificado: ${reasonType || 'Ajuste'}] ${justification}`,
+        fechaUltimoConteo: item.Fecha_Ultimo_Conteo,
+        responsable: user.displayName || user.username,
+        estado: 'Justificado',
+        photoBase64: photoUrl || item.foto_mal_estado || ''
+      }).catch(e => console.warn('[inventoryService] Justification GAS sync notice:', e.message));
+    } catch (e) {}
 
     auditService.logJustification({
       inventoryId: inv.id,

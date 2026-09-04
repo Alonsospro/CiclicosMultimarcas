@@ -3,6 +3,7 @@ const path = require('path');
 const storagePath = require('./storagePath');
 const config = require('../config');
 const auditService = require('./auditService');
+const gasService = require('./gasService');
 
 function parseDateParam(val, isEndOfDay = false) {
   if (!val || val === 'undefined' || val === 'null' || val === '') return null;
@@ -24,7 +25,7 @@ class MetricsService {
     this.historyDir = storagePath.getHistoryDirectory();
   }
 
-  getAllInventoriesData() {
+  async getAllInventoriesData() {
     let activeFiles = [];
     let historyFiles = [];
 
@@ -43,6 +44,7 @@ class MetricsService {
     const seenIds = new Set();
     const allInventories = [];
 
+    // 1. Files from active local memory / cache
     activeFiles.forEach(f => {
       const inv = storagePath.readJson(path.join(this.invDir, f), null);
       if (inv && Array.isArray(inv.items)) {
@@ -53,6 +55,7 @@ class MetricsService {
       }
     });
 
+    // 2. Files from local history cache
     historyFiles.forEach(f => {
       const hist = storagePath.readJson(path.join(this.historyDir, f), null);
       if (hist && Array.isArray(hist.items)) {
@@ -74,17 +77,95 @@ class MetricsService {
       }
     });
 
+    // 3. Query live history directly from Google Drive / Sheets via Google Apps Script
+    try {
+      const gasHistory = await gasService.getHistoryFromGAS('CICLICO', null);
+      if (Array.isArray(gasHistory) && gasHistory.length > 0) {
+        gasHistory.forEach(item => {
+          if (!item) return;
+          const id = item.fileId || item.fileName || item.inventoryId;
+          const dedupeKey = String(id || '').toLowerCase();
+          if (dedupeKey && !seenIds.has(dedupeKey)) {
+            seenIds.add(dedupeKey);
+            const total = Number(item.totalItems || item.processed || 0);
+            const diffs = Number(item.itemsWithDiff || 0);
+
+            // Construct items array for metrics calculations
+            let items = Array.isArray(item.items) ? item.items : [];
+            if (items.length === 0 && total > 0) {
+              for (let i = 0; i < total; i++) {
+                const hasDiff = i < diffs;
+                items.push({
+                  SKU: `DRIVE-${item.fileId || 'ITEM'}-${i + 1}`,
+                  Stock_Sistema: 1,
+                  Stock_Fisico: hasDiff ? 0 : 1,
+                  Diferencia: hasDiff ? -1 : 0,
+                  Costo_Diferencia: 0,
+                  Costo_Unitario: 0,
+                  Estado: 'Contado',
+                  Fecha_Ultimo_Conteo: item.closedAt || new Date().toISOString(),
+                  Responsable: item.closedBy || 'Administrador'
+                });
+              }
+            }
+
+            allInventories.push({
+              id: item.fileId || `DRIVE-${Date.now()}`,
+              name: item.fileName || `Inventario ${item.type || 'CICLICO'} - ${item.center || '1120'}`,
+              type: item.type || 'CICLICO',
+              center: item.center || '1120',
+              status: 'REVISADO',
+              isHistory: true,
+              createdAt: item.closedAt || new Date().toISOString(),
+              closedAt: item.closedAt,
+              closedBy: item.closedBy || 'Administrador',
+              driveUrl: item.driveUrl || item.spreadsheetUrl,
+              spreadsheetUrl: item.spreadsheetUrl,
+              items
+            });
+          }
+        });
+      }
+    } catch (gasErr) {
+      console.warn('[metricsService] Notice querying live history from Google Drive:', gasErr.message);
+    }
+
+    // 4. If no active inventory in local storage (cold start), auto-fetch live items from Google Sheets
+    if (activeFiles.length === 0) {
+      try {
+        const liveItems = await gasService.fetchProductsFromScript('CICLICO', '1120');
+        if (Array.isArray(liveItems) && liveItems.length > 0) {
+          const activeId = 'INV-CICLICO-1120-DRIVE';
+          if (!seenIds.has(activeId.toLowerCase())) {
+            seenIds.add(activeId.toLowerCase());
+            allInventories.push({
+              id: activeId,
+              name: 'Inventario Cíclico - 1120 (Google Drive Live)',
+              type: 'CICLICO',
+              center: '1120',
+              status: 'EN_PROGRESO',
+              createdAt: new Date().toISOString(),
+              items: liveItems,
+              isHistory: false
+            });
+          }
+        }
+      } catch (liveErr) {
+        console.warn('[metricsService] Notice fetching live sheet counts:', liveErr.message);
+      }
+    }
+
     return allInventories;
   }
 
-  getDashboardMetrics({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', period = 'TODO', startDate = null, endDate = null }) {
+  async getDashboardMetrics({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', period = 'TODO', startDate = null, endDate = null }) {
     // Sanitize input values
     const cleanType = (!type || type === 'undefined' || type === 'null') ? 'TODOS' : type;
     const cleanCenter = (!center || center === 'undefined' || center === 'null') ? 'TODOS' : center;
     const cleanInventoryId = (!inventoryId || inventoryId === 'undefined' || inventoryId === 'null') ? 'TODOS' : inventoryId;
     const cleanPeriod = (!period || period === 'undefined' || period === 'null') ? 'TODO' : period;
 
-    const inventories = this.getAllInventoriesData();
+    const inventories = await this.getAllInventoriesData();
 
     // Compute start and end dates based on period preset if provided
     let effectiveStartDate = parseDateParam(startDate, false);

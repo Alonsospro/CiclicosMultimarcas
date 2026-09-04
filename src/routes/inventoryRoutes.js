@@ -6,11 +6,11 @@ const { authenticate, requireRole, requireInventoryCreator } = require('../middl
 const { restrictCenter } = require('../middlewares/centerMiddleware');
 
 // GET /api/inventories (List)
-router.get('/', authenticate, restrictCenter, (req, res) => {
+router.get('/', authenticate, restrictCenter, async (req, res) => {
   try {
     const { center, type } = req.query;
     const targetCenter = (req.user.role === 'ADMIN' || req.user.isSuperadmin) ? center : req.user.center;
-    const list = inventoryService.getInventories(req.user, targetCenter, type);
+    const list = await inventoryService.getInventories(req.user, targetCenter, type);
     res.json({ success: true, inventories: list });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -18,9 +18,9 @@ router.get('/', authenticate, restrictCenter, (req, res) => {
 });
 
 // GET /api/inventories/:id (Detail + Blind count filter for Auxiliar)
-router.get('/:id', authenticate, (req, res) => {
+router.get('/:id', authenticate, async (req, res) => {
   try {
-    const inv = inventoryService.getInventoryById(req.params.id, req.user);
+    const inv = await inventoryService.getInventoryById(req.params.id, req.user);
     res.json({ success: true, inventory: inv });
   } catch (err) {
     res.status(404).json({ success: false, message: err.message });
@@ -68,11 +68,11 @@ router.post('/fetch-from-gas', authenticate, requireInventoryCreator, async (req
 });
 
 // POST /api/inventories/:id/count (Register physical count)
-router.post('/:id/count', authenticate, (req, res) => {
+router.post('/:id/count', authenticate, async (req, res) => {
   try {
     const { itemId, sku, stockFisico, malEstado, location, isNewLocation, reason, photoUrl, locked } = req.body;
 
-    const result = inventoryService.updateCount({
+    const result = await inventoryService.updateCount({
       inventoryId: req.params.id,
       itemId,
       sku,

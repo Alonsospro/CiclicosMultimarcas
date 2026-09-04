@@ -49,7 +49,7 @@ router.post('/count', authenticate, restrictCenter, async (req, res) => {
     const targetCenter = config.getCenterCode ? config.getCenterCode(requestedCenter) : requestedCenter;
     const targetInvId = inventoryId || `INV-BARRIDO-${targetCenter}-001`;
 
-    const result = inventoryService.updateCount({
+    const result = await inventoryService.updateCount({
       inventoryId: targetInvId,
       itemId,
       sku,

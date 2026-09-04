@@ -317,40 +317,7 @@ class DriveService {
     });
     this.pruneCache();
 
-    // 2. Save in data/photos/ (if writable)
-    try {
-      if (!fs.existsSync(this.photosDir)) {
-        fs.mkdirSync(this.photosDir, { recursive: true });
-      }
-      fs.writeFileSync(legacyPath, fileBuffer);
-    } catch (e) {
-      // Serverless read-only mode fallback
-    }
-
-    // 3. Save in organized structured path: data/photos/{category}/{date}/{centerName}/{sku}.jpg
-    try {
-      const structuredDir = path.join(this.photosDir, details.category, details.date, details.centerName);
-      if (!fs.existsSync(structuredDir)) {
-        fs.mkdirSync(structuredDir, { recursive: true });
-      }
-      const structuredPath = path.join(structuredDir, details.fileName);
-      fs.writeFileSync(structuredPath, fileBuffer);
-    } catch (e) {
-      // Serverless read-only mode fallback
-    }
-
-    // 4. Save in root nibol structure: nibol/ciclicos/fotos/{category}/{date}/{centerName}/{sku}.jpg
-    try {
-      const nibolBaseDir = path.resolve(__dirname, '..', '..', 'nibol', 'ciclicos', 'fotos', details.category, details.date, details.centerName);
-      if (!fs.existsSync(nibolBaseDir)) {
-        fs.mkdirSync(nibolBaseDir, { recursive: true });
-      }
-      fs.writeFileSync(path.join(nibolBaseDir, details.fileName), fileBuffer);
-    } catch (e) {
-      // Serverless read-only mode fallback
-    }
-
-    // 5. Sync to Google Drive via Google Apps Script (Primary cloud storage)
+    // 2. Primary cloud storage: Sync immediately to Google Drive via Google Apps Script
     try {
       await gasService.syncPhotoToGAS({
         category: details.category,
@@ -365,6 +332,18 @@ class DriveService {
       });
     } catch (err) {
       console.warn('[driveService] Notice during GAS photo sync:', err.message);
+    }
+
+    // 3. Save single local copy only if NOT running on Vercel to preserve disk space and avoid /tmp limits
+    if (!process.env.VERCEL) {
+      try {
+        if (!fs.existsSync(this.photosDir)) {
+          fs.mkdirSync(this.photosDir, { recursive: true });
+        }
+        fs.writeFileSync(legacyPath, fileBuffer);
+      } catch (e) {
+        // Safe fallback
+      }
     }
 
     return {

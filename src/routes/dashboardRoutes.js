@@ -5,7 +5,7 @@ const auditService = require('../services/auditService');
 const { authenticate } = require('../middlewares/authMiddleware');
 
 // GET /api/dashboard/metrics
-router.get('/metrics', authenticate, (req, res) => {
+router.get('/metrics', authenticate, async (req, res) => {
   try {
     let { type, center, inventoryId, period, startDate, endDate } = req.query;
 
@@ -18,7 +18,7 @@ router.get('/metrics', authenticate, (req, res) => {
 
     const targetCenter = (req.user.role === 'ADMIN' || req.user.isSuperadmin) ? center : req.user.center;
 
-    const data = metricsService.getDashboardMetrics({
+    const data = await metricsService.getDashboardMetrics({
       type: type || 'TODOS',
       center: targetCenter || 'TODOS',
       inventoryId: inventoryId || 'TODOS',
