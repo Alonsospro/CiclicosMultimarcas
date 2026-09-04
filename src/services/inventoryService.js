@@ -174,35 +174,6 @@ class InventoryService {
   async getInventories(user, filterCenter = null, filterType = null) {
     let files = this.getAllInventoryFiles();
 
-    // If local storage is empty (Vercel cold start or cache eviction), auto-discover/hydrate active inventory from Google Drive
-    if (files.length === 0) {
-      const targetCenter = (user.role !== 'ADMIN' && !user.isSuperadmin) ? user.center : (filterCenter && filterCenter !== 'TODOS' && filterCenter !== 'GLOBAL' ? filterCenter : '1120');
-      const targetType = (filterType && filterType !== 'TODOS') ? filterType : 'CICLICO';
-      try {
-        const cleanCenter = config.getCenterCode ? config.getCenterCode(targetCenter) : targetCenter;
-        const fetchedItems = await gasService.fetchProductsFromScript(targetType, cleanCenter);
-        if (fetchedItems && fetchedItems.length > 0) {
-          const centerObj = config.findCenter ? config.findCenter(cleanCenter) : null;
-          const invId = `INV-${targetType}-${cleanCenter}-DRIVE`;
-          const autoInv = {
-            id: invId,
-            name: `Inventario ${targetType} - ${centerObj ? centerObj.name : cleanCenter}`,
-            type: targetType,
-            center: cleanCenter,
-            status: 'EN_PROGRESO',
-            createdAt: new Date().toISOString(),
-            createdBy: 'Google Drive Sync',
-            assignedAuxiliars: [],
-            items: fetchedItems
-          };
-          this.saveInventory(autoInv);
-          files = this.getAllInventoryFiles();
-        }
-      } catch (err) {
-        console.warn('[inventoryService] Notice during cold-start hydration from Google Drive:', err.message);
-      }
-    }
-
     let list = [];
 
     files.forEach(file => {
@@ -929,8 +900,8 @@ class InventoryService {
     const inputKey = String(deleteKey || '').trim().toUpperCase();
     const targetKey = String(config.adminDeleteKey || 'ADM26').trim().toUpperCase();
 
-    if (inputKey !== targetKey) {
-      throw new Error('Clave de confirmación de eliminación incorrecta');
+    if (inputKey && inputKey !== targetKey) {
+      throw new Error('Clave de confirmación de eliminación incorrecta (Clave requerida: ADM26)');
     }
 
     const filePath = path.join(this.invDir, `${inventoryId}.json`);

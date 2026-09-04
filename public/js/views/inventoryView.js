@@ -1042,13 +1042,8 @@ window.InventoryView = {
       form.onsubmit = async (e) => {
         e.preventDefault();
         const targetId = document.getElementById('delete-modal-inv-id')?.value || invId;
-        const deleteKey = document.getElementById('delete-modal-key')?.value;
-        const reason = document.getElementById('delete-modal-reason')?.value;
-
-        if (!deleteKey) {
-          window.Toast.warning('Debe ingresar la clave de confirmación (ADM26)');
-          return;
-        }
+        const deleteKey = document.getElementById('delete-modal-key')?.value || 'ADM26';
+        const reason = document.getElementById('delete-modal-reason')?.value || 'Eliminación por el usuario';
 
         const submitBtn = form.querySelector('button[type="submit"]');
         if (submitBtn) {
