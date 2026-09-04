@@ -19,6 +19,10 @@ function isValidDate(d) {
   return d instanceof Date && !isNaN(d.getTime());
 }
 
+let cachedGasHistory = null;
+let cachedGasHistoryTime = 0;
+const GAS_HISTORY_CACHE_TTL = 60000; // 60 seconds
+
 class MetricsService {
   constructor() {
     this.invDir = storagePath.getInventoriesDirectory();
@@ -49,7 +53,7 @@ class MetricsService {
       const inv = storagePath.readJson(path.join(this.invDir, f), null);
       if (inv && Array.isArray(inv.items)) {
         const id = inv.id || f.replace(/\.json$/, '');
-        seenIds.add(id);
+        seenIds.add(String(id).toLowerCase().trim());
         const createdAt = inv.createdAt || inv.created_at || inv.date || (inv.items.find(i => i.Fecha_Ultimo_Conteo)?.Fecha_Ultimo_Conteo) || new Date().toISOString();
         allInventories.push({ ...inv, id, createdAt, isHistory: false });
       }
@@ -60,8 +64,9 @@ class MetricsService {
       const hist = storagePath.readJson(path.join(this.historyDir, f), null);
       if (hist && Array.isArray(hist.items)) {
         const id = hist.inventoryId || hist.fileId || f.replace(/\.json$/, '');
-        if (!seenIds.has(id)) {
-          seenIds.add(id);
+        const normId = String(id).toLowerCase().trim();
+        if (!seenIds.has(normId)) {
+          seenIds.add(normId);
           const createdAt = hist.closedAt || hist.createdAt || new Date().toISOString();
           allInventories.push({
             id,
@@ -77,14 +82,25 @@ class MetricsService {
       }
     });
 
-    // 3. Query live history directly from Google Drive / Sheets via Google Apps Script
+    // 3. Query live history directly from Google Drive / Sheets via Google Apps Script (with 60s cache)
     try {
-      const gasHistory = await gasService.getHistoryFromGAS('CICLICO', null);
+      const now = Date.now();
+      let gasHistory = null;
+      if (cachedGasHistory && (now - cachedGasHistoryTime < GAS_HISTORY_CACHE_TTL)) {
+        gasHistory = cachedGasHistory;
+      } else {
+        gasHistory = await gasService.getHistoryFromGAS('CICLICO', null);
+        if (Array.isArray(gasHistory)) {
+          cachedGasHistory = gasHistory;
+          cachedGasHistoryTime = now;
+        }
+      }
+
       if (Array.isArray(gasHistory) && gasHistory.length > 0) {
         gasHistory.forEach(item => {
           if (!item) return;
           const id = item.fileId || item.fileName || item.inventoryId;
-          const dedupeKey = String(id || '').toLowerCase();
+          const dedupeKey = String(id || '').toLowerCase().trim();
           if (dedupeKey && !seenIds.has(dedupeKey)) {
             seenIds.add(dedupeKey);
             const total = Number(item.totalItems || item.processed || 0);
@@ -476,7 +492,21 @@ class MetricsService {
         // Worker stats tracking
         const workerName = item.Responsable || 'Sin Asignar';
         if (!workerStatsMap[workerName]) {
-          const workerEditData = workerEditsMap[workerName] || { totalReEdits: 0, reEditedItemsMap: {}, reEditHistory: [] };
+          const normWorker = workerName.toLowerCase().trim();
+          let workerEditData = workerEditsMap[workerName];
+          if (!workerEditData) {
+            for (const [key, val] of Object.entries(workerEditsMap)) {
+              const k = key.toLowerCase().trim();
+              if (k === normWorker || normWorker.includes(k) || k.includes(normWorker)) {
+                workerEditData = val;
+                break;
+              }
+            }
+          }
+          if (!workerEditData) {
+            workerEditData = { totalReEdits: 0, reEditedItemsMap: {}, reEditHistory: [] };
+          }
+
           workerStatsMap[workerName] = {
             worker: workerName,
             center: invCenter,
@@ -537,12 +567,12 @@ class MetricsService {
     // 1. ERI (Exactitud de Registro de Inventario %)
     const eriPercent = totalItemsAudited > 0
       ? ((totalExactItems / totalItemsAudited) * 100).toFixed(2)
-      : '100.00';
+      : '0.00';
 
     // 2. ERU (Exactitud de Registro de Ubicación % - evaluando cada ubicación individual y adicional)
     const eruPercent = totalLocationsEvaluated > 0
       ? ((exactMatchingLocations / totalLocationsEvaluated) * 100).toFixed(2)
-      : '100.00';
+      : '0.00';
 
     // Multi-location accuracy
     const multiLocCount = multiLocationSkusList.length;
@@ -551,8 +581,8 @@ class MetricsService {
 
     // 3. Center Stats with ERI & ERU
     const centerStats = Object.values(centerBreakdown).map(cb => {
-      const eri = cb.totalAudited > 0 ? ((cb.exact / cb.totalAudited) * 100).toFixed(1) : '100.0';
-      const eru = cb.locationsEvaluated > 0 ? ((cb.locationsExact / cb.locationsEvaluated) * 100).toFixed(1) : '100.0';
+      const eri = cb.totalAudited > 0 ? ((cb.exact / cb.totalAudited) * 100).toFixed(1) : '0.0';
+      const eru = cb.locationsEvaluated > 0 ? ((cb.locationsExact / cb.locationsEvaluated) * 100).toFixed(1) : '0.0';
       return {
         ...cb,
         eri: parseFloat(eri),
@@ -566,10 +596,10 @@ class MetricsService {
 
     // 4. Exactitud y Confiabilidad del Contador (Tracking de cuántas veces pidió modificar o re-editó un ítem ya contado)
     const workerStats = Object.values(workerStatsMap).map(ws => {
-      const rawAcc = ws.totalCounted > 0 ? (ws.exactCounted / ws.totalCounted) * 100 : 100;
+      const rawAcc = ws.totalCounted > 0 ? (ws.exactCounted / ws.totalCounted) * 100 : 0;
       
       const firstPassCounted = Math.max(0, ws.totalCounted - ws.reEditedItemsCount);
-      const firstPassRate = ws.totalCounted > 0 ? parseFloat(((firstPassCounted / ws.totalCounted) * 100).toFixed(1)) : 100.0;
+      const firstPassRate = ws.totalCounted > 0 ? parseFloat(((firstPassCounted / ws.totalCounted) * 100).toFixed(1)) : 0.0;
       const reEditRate = ws.totalCounted > 0 ? parseFloat(((ws.reEditCount / ws.totalCounted) * 100).toFixed(1)) : 0.0;
 
       // Calculate adjusted reliability accuracy considering modifications on counted items:
@@ -583,7 +613,11 @@ class MetricsService {
       let ratingDescription = 'Alta confiabilidad. Conteo certero al 1er intento sin rectificaciones.';
       const eff = parseFloat(effectiveAccuracy);
 
-      if (eff < 75) {
+      if (ws.totalCounted === 0) {
+        rating = '⚪ Sin Conteos';
+        ratingClass = 'badge-neutral';
+        ratingDescription = 'No registra conteos en este periodo o filtro.';
+      } else if (eff < 75) {
         rating = '🚨 Requiere Supervisión';
         ratingClass = 'badge-danger';
         ratingDescription = 'Baja confiabilidad. Alta tasa de desvío o reiteradas correcciones.';
@@ -649,6 +683,9 @@ class MetricsService {
         eruPercent: parseFloat(eruPercent),
         totalLocationsEvaluated,
         exactMatchingLocations,
+        multiLocationCount: multiLocCount,
+        multiLocationExactCount: multiLocExactCount,
+        multiLocationAccuracy: parseFloat(multiLocAccuracy),
         multiLocation: {
           totalMultiLocSkus: multiLocCount,
           exactMultiLocSkus: multiLocExactCount,
@@ -657,13 +694,23 @@ class MetricsService {
 
         // 3. Ítems Cuadrados (Concuerdan cantidad)
         totalExactItems,
-        exactItemsPercent: totalItemsAudited > 0 ? parseFloat(((totalExactItems / totalItemsAudited) * 100).toFixed(1)) : 100.0,
+        exactItemsCount: totalExactItems,
+        exactItemsPercent: totalItemsAudited > 0 ? parseFloat(((totalExactItems / totalItemsAudited) * 100).toFixed(1)) : 0.0,
         exactItemsTotalUnits,
+        exactItemsUnits: exactItemsTotalUnits,
         exactItemsTotalValue: Math.round(exactItemsTotalValue * 100) / 100,
+        exactItemsValue: Math.round(exactItemsTotalValue * 100) / 100,
 
         // 4. Discrepancias Totales (Sobrantes y Faltantes)
         totalDiscrepancies: totalDiscrepantItems,
+        discrepantItemsCount: totalDiscrepantItems,
         discrepanciesPercent: totalItemsAudited > 0 ? parseFloat(((totalDiscrepantItems / totalItemsAudited) * 100).toFixed(1)) : 0.0,
+        sobrantesItemsCount,
+        sobrantesUnits,
+        sobrantesCost: Math.round(sobrantesCost * 100) / 100,
+        faltantesItemsCount,
+        faltantesUnits,
+        faltantesCost: Math.round(faltantesCost * 100) / 100,
         discrepancias: {
           totalCount: totalDiscrepantItems,
           sobrantes: {
@@ -693,13 +740,15 @@ class MetricsService {
           damagedItemsCount: totalDamagedItems
         },
 
-        // Legacy compatibility properties
+        // Direct compatibility properties
         totalPositiveDiff: sobrantesUnits,
         totalNegativeDiff: faltantesUnits,
         totalAbsoluteDiffCost: Math.round(totalAbsoluteDiffCost * 100) / 100,
         totalNetDiffCost: Math.round(totalNetDiffCost * 100) / 100,
         totalDamagedItems,
-        totalDamagedCost: Math.round(totalDamagedCost * 100) / 100
+        damagedItemsCount: totalDamagedItems,
+        totalDamagedCost: Math.round(totalDamagedCost * 100) / 100,
+        damagedCost: Math.round(totalDamagedCost * 100) / 100
       },
       abcBreakdown: {
         A: {

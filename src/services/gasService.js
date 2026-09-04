@@ -231,10 +231,15 @@ class GasService {
     }
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
+
       const response = await fetch(targetUrl.toString(), {
         method: 'GET',
-        headers: { 'Accept': 'application/json' }
+        headers: { 'Accept': 'application/json' },
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
 
       if (!response.ok) return [];
       const parsed = await response.json();

@@ -200,24 +200,28 @@ window.DashboardView = {
   renderKPIs(summary, workerStats = []) {
     if (!summary) return;
 
+    const totalAudited = summary.totalItemsAudited || 0;
+    const eriVal = totalAudited > 0 ? (summary.eriPercent !== undefined && summary.eriPercent !== null ? Number(summary.eriPercent) : 0) : 0;
+    const eruVal = (summary.totalLocationsEvaluated || 0) > 0 ? (summary.eruPercent !== undefined && summary.eruPercent !== null ? Number(summary.eruPercent) : 0) : 0;
+
     // 1. ERI (Exactitud de Registro)
     const elEri = document.getElementById('stat-eri');
-    if (elEri) elEri.textContent = `${(summary.eriPercent || 100).toFixed(1)}%`;
+    if (elEri) elEri.textContent = `${eriVal.toFixed(1)}%`;
     const elEriDetail = document.getElementById('stat-eri-detail');
     if (elEriDetail) {
-      elEriDetail.textContent = `${summary.totalExactItems || 0} exactos de ${summary.totalItemsAudited || 0} auditados`;
+      elEriDetail.textContent = `${summary.totalExactItems || 0} exactos de ${totalAudited} auditados`;
     }
 
     // 2. ERU (Exactitud de Ubicación)
     const elEru = document.getElementById('stat-eru');
-    if (elEru) elEru.textContent = `${(summary.eruPercent || 100).toFixed(1)}%`;
+    if (elEru) elEru.textContent = `${eruVal.toFixed(1)}%`;
     const elEruDetail = document.getElementById('stat-eru-detail');
     if (elEruDetail) {
       elEruDetail.textContent = `${summary.totalLocationsEvaluated || 0} ubicaciones evaluadas`;
     }
     const elEruBadge = document.getElementById('stat-eru-multiloc-badge');
     if (elEruBadge) {
-      const multiCount = summary.multiLocation?.totalMultiLocSkus || 0;
+      const multiCount = summary.multiLocation?.totalMultiLocSkus || summary.multiLocationCount || 0;
       elEruBadge.textContent = multiCount > 0 ? `${multiCount} multi-racks` : 'Ubic. Estándar';
     }
 
@@ -226,19 +230,20 @@ window.DashboardView = {
     if (elSqCount) elSqCount.textContent = (summary.totalExactItems || 0).toLocaleString();
     const elSqDetail = document.getElementById('stat-squared-detail');
     if (elSqDetail) {
-      elSqDetail.textContent = `${(summary.exactItemsPercent || 100).toFixed(1)}% de concordancia`;
+      const exactPct = totalAudited > 0 ? (summary.exactItemsPercent !== undefined ? Number(summary.exactItemsPercent) : 0) : 0;
+      elSqDetail.textContent = `${exactPct.toFixed(1)}% de concordancia`;
     }
     const elSqVal = document.getElementById('stat-squared-val-badge');
     if (elSqVal) {
-      elSqVal.textContent = `$${(summary.exactItemsTotalValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+      elSqVal.textContent = `$${(summary.exactItemsTotalValue || summary.exactItemsValue || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
     }
 
     // 4. Discrepancias Totales (Sobrantes & Faltantes)
     const elDiscCount = document.getElementById('stat-discrepancies-count');
     if (elDiscCount) elDiscCount.textContent = (summary.totalDiscrepancies || 0).toLocaleString();
 
-    const sobrantes = summary.discrepancias?.sobrantes || { units: 0, cost: 0, itemsCount: 0 };
-    const faltantes = summary.discrepancias?.faltantes || { units: 0, cost: 0, itemsCount: 0 };
+    const sobrantes = summary.discrepancias?.sobrantes || { units: summary.sobrantesUnits || 0, cost: summary.sobrantesCost || 0, itemsCount: summary.sobrantesItemsCount || 0 };
+    const faltantes = summary.discrepancias?.faltantes || { units: summary.faltantesUnits || 0, cost: summary.faltantesCost || 0, itemsCount: summary.faltantesItemsCount || 0 };
 
     const elSobVal = document.getElementById('stat-sobrantes-val');
     if (elSobVal) {
@@ -253,17 +258,19 @@ window.DashboardView = {
     const fin = summary.impactoFinanciero || {};
     const elDiffCost = document.getElementById('stat-diff-cost');
     if (elDiffCost) {
-      elDiffCost.textContent = `$${(fin.totalAbsoluteDiffCost || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+      const absCost = fin.totalAbsoluteDiffCost !== undefined ? fin.totalAbsoluteDiffCost : (summary.totalAbsoluteDiffCost || 0);
+      elDiffCost.textContent = `$${absCost.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
     }
     const elNetCost = document.getElementById('stat-net-diff-cost');
     if (elNetCost) {
-      const net = fin.totalNetDiffCost || 0;
+      const net = fin.totalNetDiffCost !== undefined ? fin.totalNetDiffCost : (summary.totalNetDiffCost || 0);
       const sign = net > 0 ? '+' : '';
       elNetCost.textContent = `Neto: ${sign}$${net.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
     }
     const elDamCost = document.getElementById('stat-damaged-cost-badge');
     if (elDamCost) {
-      elDamCost.textContent = `Averías: $${(fin.damagedCost || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+      const damCost = fin.damagedCost !== undefined ? fin.damagedCost : (summary.totalDamagedCost || summary.damagedCost || 0);
+      elDamCost.textContent = `Averías: $${damCost.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
     }
 
     // 6. Rendimiento de Contadores
@@ -272,7 +279,7 @@ window.DashboardView = {
     const elWorkerRating = document.getElementById('stat-worker-rating-badge');
 
     if (workerStats.length > 0) {
-      const avgEff = workerStats.reduce((acc, w) => acc + (w.effectiveAccuracy || 100), 0) / workerStats.length;
+      const avgEff = workerStats.reduce((acc, w) => acc + (w.effectiveAccuracy !== undefined && w.effectiveAccuracy !== null ? Number(w.effectiveAccuracy) : 0), 0) / workerStats.length;
       const totalEdits = workerStats.reduce((acc, w) => acc + (w.reEditCount || 0), 0);
 
       if (elWorkerAcc) elWorkerAcc.textContent = `${avgEff.toFixed(1)}%`;
@@ -295,11 +302,11 @@ window.DashboardView = {
         }
       }
     } else {
-      if (elWorkerAcc) elWorkerAcc.textContent = '100.0%';
+      if (elWorkerAcc) elWorkerAcc.textContent = '0.0%';
       if (elWorkerEdits) elWorkerEdits.textContent = '0 re-ediciones registradas';
       if (elWorkerRating) {
         elWorkerRating.className = 'badge badge-reedit zero';
-        elWorkerRating.textContent = 'Sin Datos';
+        elWorkerRating.textContent = 'Sin Conteos';
       }
     }
   },
@@ -321,10 +328,13 @@ window.DashboardView = {
     const damagedCount = summary.totalDamagedItems > 0 ? 1 : 0;
 
     // 1. Donut Chart: ERI vs ERU vs Cuadrados vs Discrepancias
-    const ctxDonut = document.getElementById('chart-accuracy-donut')?.getContext('2d');
-    if (ctxDonut) {
+    const canvasDonut = document.getElementById('chart-accuracy-donut');
+    if (canvasDonut) {
       if (this.chartAccuracyDonut) this.chartAccuracyDonut.destroy();
+      const existing = Chart.getChart(canvasDonut);
+      if (existing) existing.destroy();
 
+      const ctxDonut = canvasDonut.getContext('2d');
       this.chartAccuracyDonut = new Chart(ctxDonut, {
         type: 'doughnut',
         data: {
@@ -332,7 +342,7 @@ window.DashboardView = {
           datasets: [
             {
               data: [
-                exactCount > 0 ? exactCount : (summary.totalItemsAudited === 0 ? 1 : 0),
+                exactCount,
                 sobrantesCount,
                 faltantesCount,
                 damagedCount
@@ -358,7 +368,7 @@ window.DashboardView = {
                 label: (context) => {
                   const val = context.raw || 0;
                   const total = (context.dataset.data || []).reduce((a, b) => a + b, 0);
-                  const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 100;
+                  const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
                   return ` ${context.label}: ${val} (${pct}%)`;
                 }
               }
@@ -369,10 +379,13 @@ window.DashboardView = {
     }
 
     // 2. Bar Chart: Discrepancies Distribution
-    const ctxBar = document.getElementById('chart-discrepancies-bar')?.getContext('2d');
-    if (ctxBar) {
+    const canvasBar = document.getElementById('chart-discrepancies-bar');
+    if (canvasBar) {
       if (this.chartDiscrepanciesBar) this.chartDiscrepanciesBar.destroy();
+      const existing = Chart.getChart(canvasBar);
+      if (existing) existing.destroy();
 
+      const ctxBar = canvasBar.getContext('2d');
       this.chartDiscrepanciesBar = new Chart(ctxBar, {
         type: 'bar',
         data: {
@@ -408,10 +421,13 @@ window.DashboardView = {
     }
 
     // 3. ABC Financial Impact Chart
-    const ctxAbc = document.getElementById('chart-abc')?.getContext('2d');
-    if (ctxAbc) {
+    const canvasAbc = document.getElementById('chart-abc');
+    if (canvasAbc) {
       if (this.chartAbc) this.chartAbc.destroy();
+      const existing = Chart.getChart(canvasAbc);
+      if (existing) existing.destroy();
 
+      const ctxAbc = canvasAbc.getContext('2d');
       this.chartAbc = new Chart(ctxAbc, {
         type: 'bar',
         data: {
@@ -467,14 +483,17 @@ window.DashboardView = {
     }
 
     // 4. Centers Performance Chart (ERI vs ERU)
-    const ctxCenters = document.getElementById('chart-centers')?.getContext('2d');
-    if (ctxCenters) {
+    const canvasCenters = document.getElementById('chart-centers');
+    if (canvasCenters) {
       if (this.chartCenters) this.chartCenters.destroy();
+      const existing = Chart.getChart(canvasCenters);
+      if (existing) existing.destroy();
 
       const labels = centerStats.map(c => c.centerName || c.center);
-      const eriData = centerStats.map(c => parseFloat(c.eri || c.accuracy || 100));
-      const eruData = centerStats.map(c => parseFloat(c.eru || 100));
+      const eriData = centerStats.map(c => parseFloat(c.eri !== undefined ? c.eri : (c.accuracy || 0)));
+      const eruData = centerStats.map(c => parseFloat(c.eru !== undefined ? c.eru : 0));
 
+      const ctxCenters = canvasCenters.getContext('2d');
       this.chartCenters = new Chart(ctxCenters, {
         type: 'bar',
         data: {
@@ -482,13 +501,13 @@ window.DashboardView = {
           datasets: [
             {
               label: 'ERI % (Registro)',
-              data: eriData.length > 0 ? eriData : [100, 100, 100],
+              data: eriData.length > 0 ? eriData : [0, 0, 0],
               backgroundColor: '#10b981',
               borderRadius: 6
             },
             {
               label: 'ERU % (Ubicación)',
-              data: eruData.length > 0 ? eruData : [100, 100, 100],
+              data: eruData.length > 0 ? eruData : [0, 0, 0],
               backgroundColor: '#38bdf8',
               borderRadius: 6
             }
