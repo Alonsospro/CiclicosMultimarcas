@@ -57,11 +57,11 @@ function doGet(e) {
       });
     }
 
-    if (action === 'getItems') {
+    if (action === 'getItems' || action === 'getProducts' || action === 'readItems') {
       const center = p.center || p.centro || CFG.defaultCenterIfMissing;
       const sh = getCenterSheet_(center);
       const rows = readRowsAsObjects_(sh);
-      return json_({ success: true, center, total: rows.length, items: rows });
+      return json_({ success: true, status: 'success', center, total: rows.length, items: rows, products: rows, rows: rows });
     }
 
     if (action === 'getReferencePhoto') {
@@ -87,6 +87,10 @@ function doPost(e) {
     const raw = (e && e.postData && e.postData.contents) || '{}';
     const body = JSON.parse(raw);
     const action = body.action || '';
+
+    if (action === 'ping') {
+      return json_({ success: true, message: 'GAS POST webhook activo', timestamp: new Date().toISOString() });
+    }
 
     if (action === 'upsertCount') {
       const result = upsertCount_(body);

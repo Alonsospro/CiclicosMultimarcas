@@ -26,6 +26,7 @@ window.LoginView = {
         window.Toast.success(`Bienvenido/a, ${user.displayName || user.username}`);
         form.reset();
         window.Router.navigate('inventories');
+        window.updateGasHealthStatus?.(false);
       } catch (err) {
         window.Toast.danger(err.message || 'Error en autenticación');
       } finally {

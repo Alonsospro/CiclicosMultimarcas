@@ -145,6 +145,50 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.Auth.logout(true);
   });
 
+  // GAS Health Monitor
+  window.updateGasHealthStatus = async function(showToast = false) {
+    const btn = document.getElementById('btn-gas-health');
+    const icon = document.getElementById('gas-status-icon');
+    const text = document.getElementById('gas-status-text');
+    if (!btn || !icon || !text) return;
+
+    if (showToast) {
+      icon.className = 'fa-solid fa-spinner fa-spin';
+      text.textContent = 'Verificando...';
+    }
+
+    try {
+      const health = await window.API.checkGasHealth();
+      icon.className = 'fa-solid fa-cloud';
+      if (health && health.allOnline) {
+        icon.style.color = 'var(--success, #16a34a)';
+        text.textContent = 'Apps Script Conectado';
+        const latencyInfo = health.results.map(r => `${r.name}: ${r.latencyMs}ms`).join(' | ');
+        btn.title = `Google Apps Script Activo (${latencyInfo}) - Clic para volver a probar`;
+        if (showToast) {
+          window.Toast.success(`Conexión con Google Apps Script activa (${health.results.map(r => r.name).join(', ')})`);
+        }
+      } else {
+        icon.style.color = '#eab308';
+        text.textContent = 'Apps Script Parcial';
+        if (showToast) {
+          window.Toast.warning('Algunos servicios de Google Apps Script no respondieron al ping');
+        }
+      }
+    } catch (err) {
+      icon.className = 'fa-solid fa-cloud';
+      icon.style.color = 'var(--danger, #ef4444)';
+      text.textContent = 'Sin conexión GAS';
+      if (showToast) {
+        window.Toast.warning('Aviso de conexión con Apps Script: ' + err.message);
+      }
+    }
+  };
+
+  document.getElementById('btn-gas-health')?.addEventListener('click', () => {
+    window.updateGasHealthStatus(true);
+  });
+
   // Check Active Session on Page Refresh and restore view/session
   window.Auth.init();
   const hasSession = await window.Auth.checkSession();
@@ -156,6 +200,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
       window.Router.navigate(savedView);
     }
+    // Update Apps Script health status in the background
+    window.updateGasHealthStatus(false);
   } else {
     window.Router.navigate('login');
   }

@@ -27,51 +27,75 @@ class GasService {
   async fetchProductsFromScript(type, center = '1120') {
     const cleanCenter = config.getCenterCode ? config.getCenterCode(center) : center;
     const url = this.getUrlForType(type);
-    const targetUrl = new URL(url);
-    if (cleanCenter) {
-      targetUrl.searchParams.set('center', cleanCenter);
-      targetUrl.searchParams.set('action', 'getProducts');
-    }
 
-    try {
-      const response = await fetch(targetUrl.toString(), {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json'
-        }
-      });
+    // Primary action: CICLICOS expects getItems, BARRIDO/MENSUAL/SEMANAL expect getProducts
+    const isCiclico = String(type || '').toUpperCase().startsWith('CICLIC');
+    const actionsToTry = isCiclico ? ['getItems', 'getProducts'] : ['getProducts', 'getItems'];
 
-      if (!response.ok) {
-        throw new Error(`HTTP error ${response.status} from Google Apps Script`);
-      }
+    let lastError = null;
 
-      const text = await response.text();
-      let parsed = null;
+    for (const actionName of actionsToTry) {
       try {
-        parsed = JSON.parse(text);
-      } catch (e) {
-        // If response is HTML or malformed, raise clean error
-        throw new Error('Respuesta inválida de Google Apps Script: ' + text.substring(0, 100));
-      }
+        const targetUrl = new URL(url);
+        if (cleanCenter) {
+          targetUrl.searchParams.set('center', cleanCenter);
+        }
+        targetUrl.searchParams.set('action', actionName);
 
-      // Handle both formats: raw array or { data: [...] } or { status: 'success', products: [...] } or { status: 'success', rows: [...] }
-      let productsList = [];
-      if (Array.isArray(parsed)) {
-        productsList = parsed;
-      } else if (parsed && Array.isArray(parsed.rows)) {
-        productsList = parsed.rows;
-      } else if (parsed && Array.isArray(parsed.data)) {
-        productsList = parsed.data;
-      } else if (parsed && Array.isArray(parsed.products)) {
-        productsList = parsed.products;
-      }
+        const response = await fetch(targetUrl.toString(), {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json'
+          },
+          redirect: 'follow'
+        });
 
-      return this.mapRawRowsToColumns(productsList);
-    } catch (err) {
-      console.warn(`[gasService] Warning fetching from remote GAS URL (${url}):`, err.message);
-      // Return null to allow fallback to local/cached data or throw
-      throw err;
+        if (!response.ok) {
+          throw new Error(`HTTP error ${response.status} from Google Apps Script`);
+        }
+
+        const text = await response.text();
+        let parsed = null;
+        try {
+          parsed = JSON.parse(text);
+        } catch (e) {
+          throw new Error('Respuesta inválida de Google Apps Script: ' + text.substring(0, 100));
+        }
+
+        // If action is explicitly not supported on this deployment, attempt fallback action
+        if (parsed && parsed.success === false && parsed.error && String(parsed.error).includes('no soportada')) {
+          lastError = new Error(parsed.error);
+          continue;
+        }
+
+        let productsList = [];
+        if (Array.isArray(parsed)) {
+          productsList = parsed;
+        } else if (parsed && Array.isArray(parsed.items)) {
+          productsList = parsed.items;
+        } else if (parsed && Array.isArray(parsed.products)) {
+          productsList = parsed.products;
+        } else if (parsed && Array.isArray(parsed.rows)) {
+          productsList = parsed.rows;
+        } else if (parsed && Array.isArray(parsed.data)) {
+          productsList = parsed.data;
+        }
+
+        // Return if products found or if successful response from script
+        if (productsList.length > 0 || (parsed && (parsed.success === true || parsed.status === 'success'))) {
+          return this.mapRawRowsToColumns(productsList);
+        }
+      } catch (err) {
+        lastError = err;
+      }
     }
+
+    if (lastError) {
+      console.warn(`[gasService] Warning fetching from remote GAS URL (${url}):`, lastError.message);
+      throw lastError;
+    }
+
+    return [];
   }
 
   mapRawRowsToColumns(rawRows = []) {
@@ -430,6 +454,108 @@ class GasService {
       });
     }
     return { success: true, message: 'Foto guardada para inclusión en cierre final' };
+  }
+
+  /**
+   * Directly saves a justification to GAS with fallback to upsertCount
+   */
+  async saveJustificationToGAS(type, payload) {
+    const cleanType = (type || payload.type || 'CICLICO').toUpperCase();
+    const url = this.getUrlForType(cleanType);
+    const rawCenter = payload.center || payload.centro || '1120';
+    const cleanCenter = config.getCenterCode ? config.getCenterCode(rawCenter) : rawCenter;
+
+    const postBody = {
+      action: 'saveJustification',
+      center: cleanCenter,
+      type: cleanType,
+      sku: String(payload.sku || payload.SKU || '').trim(),
+      razon: payload.razon || payload.reasonType || payload.razonJustificacion || payload.Razon || 'AJUSTE_INVENTARIO',
+      comentarioJustificacion: payload.comentarioJustificacion || payload.justification || payload.comentariosJustificacion || payload.Comentario_Justificacion || ''
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(postBody)
+      });
+
+      const resText = await response.text();
+      let parsed = null;
+      try { parsed = JSON.parse(resText); } catch(e) {}
+
+      // If action not supported on an older deployment, fallback to upsertCount
+      if (parsed && parsed.success === false && String(parsed.error || '').includes('no soportada')) {
+        return this.upsertCountToGAS(cleanType, {
+          center: cleanCenter,
+          sku: postBody.sku,
+          estado: 'Justificado',
+          razon: postBody.razon,
+          comentarioJustificacion: postBody.comentarioJustificacion
+        });
+      }
+
+      return parsed || { success: true, action: 'saveJustification', raw: resText };
+    } catch (err) {
+      console.warn('[gasService] Notice in saveJustificationToGAS, trying upsertCount:', err.message);
+      return this.upsertCountToGAS(cleanType, {
+        center: cleanCenter,
+        sku: postBody.sku,
+        estado: 'Justificado',
+        razon: postBody.razon,
+        comentarioJustificacion: postBody.comentarioJustificacion
+      });
+    }
+  }
+
+  /**
+   * Diagnostic check of all Google Apps Script integration endpoints
+   */
+  async checkHealth() {
+    const types = [
+      { name: 'Cíclicos', type: 'CICLICO', url: config.integrations.CICLICOS_URL },
+      { name: 'Barrido', type: 'BARRIDO', url: config.integrations.BARRIDO_URL },
+      { name: 'Mensuales', type: 'MENSUALES', url: config.integrations.MENSUALES_URL },
+      { name: 'Semanales', type: 'SEMANALES', url: config.integrations.SEMANALES_URL }
+    ];
+
+    const results = await Promise.all(types.map(async (t) => {
+      const startTime = Date.now();
+      try {
+        const u = new URL(t.url);
+        // Primary ping query
+        u.searchParams.set('action', 'ping');
+        const res = await fetch(u.toString(), { redirect: 'follow' });
+        const latency = Date.now() - startTime;
+        return {
+          name: t.name,
+          type: t.type,
+          url: t.url,
+          status: res.status,
+          latencyMs: latency,
+          online: res.status === 200
+        };
+      } catch (err) {
+        return {
+          name: t.name,
+          type: t.type,
+          url: t.url,
+          status: 0,
+          latencyMs: Date.now() - startTime,
+          online: false,
+          error: err.message
+        };
+      }
+    }));
+
+    const allOnline = results.every(r => r.online);
+    return {
+      success: true,
+      allOnline,
+      results,
+      timestamp: new Date().toISOString()
+    };
   }
 }
 

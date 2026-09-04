@@ -17,6 +17,16 @@ router.get('/', authenticate, restrictCenter, async (req, res) => {
   }
 });
 
+// GET /api/inventories/gas-health (Check real-time status of all Google Apps Script endpoints)
+router.get('/gas-health', authenticate, async (req, res) => {
+  try {
+    const health = await gasService.checkHealth();
+    res.json(health);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/inventories/:id (Detail + Blind count filter for Auxiliar)
 router.get('/:id', authenticate, async (req, res) => {
   try {

@@ -123,6 +123,10 @@ window.API = {
     });
   },
 
+  checkGasHealth() {
+    return this.request('/inventories/gas-health');
+  },
+
   registerCount(inventoryId, payload) {
     return this.request(`/inventories/${inventoryId}/count`, {
       method: 'POST',
