@@ -4,6 +4,20 @@ const storagePath = require('./storagePath');
 const config = require('../config');
 const auditService = require('./auditService');
 
+function parseDateParam(val, isEndOfDay = false) {
+  if (!val || val === 'undefined' || val === 'null' || val === '') return null;
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return null;
+  if (isEndOfDay && typeof val === 'string' && val.length <= 10) {
+    d.setHours(23, 59, 59, 999);
+  }
+  return d;
+}
+
+function isValidDate(d) {
+  return d instanceof Date && !isNaN(d.getTime());
+}
+
 class MetricsService {
   constructor() {
     this.invDir = storagePath.getInventoriesDirectory();
@@ -32,24 +46,27 @@ class MetricsService {
     activeFiles.forEach(f => {
       const inv = storagePath.readJson(path.join(this.invDir, f), null);
       if (inv && Array.isArray(inv.items)) {
-        seenIds.add(inv.id);
-        allInventories.push({ ...inv, isHistory: false });
+        const id = inv.id || f.replace(/\.json$/, '');
+        seenIds.add(id);
+        const createdAt = inv.createdAt || inv.created_at || inv.date || (inv.items.find(i => i.Fecha_Ultimo_Conteo)?.Fecha_Ultimo_Conteo) || new Date().toISOString();
+        allInventories.push({ ...inv, id, createdAt, isHistory: false });
       }
     });
 
     historyFiles.forEach(f => {
       const hist = storagePath.readJson(path.join(this.historyDir, f), null);
       if (hist && Array.isArray(hist.items)) {
-        const id = hist.inventoryId || hist.fileId;
+        const id = hist.inventoryId || hist.fileId || f.replace(/\.json$/, '');
         if (!seenIds.has(id)) {
           seenIds.add(id);
+          const createdAt = hist.closedAt || hist.createdAt || new Date().toISOString();
           allInventories.push({
             id,
-            name: hist.fileName,
-            type: hist.type,
-            center: hist.center,
+            name: hist.fileName || id,
+            type: hist.type || 'CICLICO',
+            center: hist.center || '1120',
             status: 'REVISADO',
-            createdAt: hist.closedAt,
+            createdAt,
             items: hist.items,
             isHistory: true
           });
@@ -61,38 +78,52 @@ class MetricsService {
   }
 
   getDashboardMetrics({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', period = 'TODO', startDate = null, endDate = null }) {
+    // Sanitize input values
+    const cleanType = (!type || type === 'undefined' || type === 'null') ? 'TODOS' : type;
+    const cleanCenter = (!center || center === 'undefined' || center === 'null') ? 'TODOS' : center;
+    const cleanInventoryId = (!inventoryId || inventoryId === 'undefined' || inventoryId === 'null') ? 'TODOS' : inventoryId;
+    const cleanPeriod = (!period || period === 'undefined' || period === 'null') ? 'TODO' : period;
+
     const inventories = this.getAllInventoriesData();
 
     // Compute start and end dates based on period preset if provided
-    let effectiveStartDate = startDate ? new Date(startDate) : null;
-    let effectiveEndDate = endDate ? new Date(endDate) : null;
+    let effectiveStartDate = parseDateParam(startDate, false);
+    let effectiveEndDate = parseDateParam(endDate, true);
 
     const now = new Date();
-    if (period === 'HOY') {
+    if (cleanPeriod === 'HOY') {
       effectiveStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
       effectiveEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-    } else if (period === 'ESTA_SEMANA') {
+    } else if (cleanPeriod === 'ESTA_SEMANA') {
       const day = now.getDay();
       const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Monday
       const monday = new Date(now);
       monday.setDate(diff);
       monday.setHours(0, 0, 0, 0);
       effectiveStartDate = monday;
-      effectiveEndDate = new Date();
-    } else if (period === 'ESTE_MES') {
+      effectiveEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    } else if (cleanPeriod === 'ESTE_MES') {
       effectiveStartDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-      effectiveEndDate = new Date();
-    } else if (period === 'MES_ANTERIOR') {
+      effectiveEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    } else if (cleanPeriod === 'MES_ANTERIOR') {
       effectiveStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
       effectiveEndDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
     }
 
+    const checkDateRange = (dateVal) => {
+      if (!isValidDate(effectiveStartDate) && !isValidDate(effectiveEndDate)) return true;
+      const d = dateVal ? new Date(dateVal) : null;
+      if (!isValidDate(d)) return true; // Keep record if date is unknown to avoid missing items
+      if (isValidDate(effectiveStartDate) && d < effectiveStartDate) return false;
+      if (isValidDate(effectiveEndDate) && d > effectiveEndDate) return false;
+      return true;
+    };
+
     // List of all inventories available in this period & filters for the dropdown selector
     const availableInventories = inventories.filter(inv => {
-      if (type && type !== 'TODOS' && inv.type !== type) return false;
-      if (center && center !== 'TODOS' && center !== 'GLOBAL' && !config.isSameCenter(inv.center, center)) return false;
-      if (effectiveStartDate && new Date(inv.createdAt) < effectiveStartDate) return false;
-      if (effectiveEndDate && new Date(inv.createdAt) > effectiveEndDate) return false;
+      if (cleanType && cleanType !== 'TODOS' && inv.type !== cleanType) return false;
+      if (cleanCenter && cleanCenter !== 'TODOS' && cleanCenter !== 'GLOBAL' && !config.isSameCenter(inv.center, cleanCenter)) return false;
+      if (!checkDateRange(inv.createdAt)) return false;
       return true;
     }).map(inv => ({
       id: inv.id,
@@ -103,23 +134,26 @@ class MetricsService {
       createdAt: inv.createdAt,
       totalItems: (inv.items || []).length,
       isHistory: !!inv.isHistory
-    })).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    })).sort((a, b) => {
+      const da = new Date(a.createdAt).getTime() || 0;
+      const db = new Date(b.createdAt).getTime() || 0;
+      return db - da;
+    });
 
     // Filter inventories by inventoryId, type, center, dates
     const filtered = inventories.filter(inv => {
-      if (inventoryId && inventoryId !== 'TODOS' && inv.id !== inventoryId) return false;
-      if (type && type !== 'TODOS' && inv.type !== type) return false;
-      if (center && center !== 'TODOS' && center !== 'GLOBAL' && !config.isSameCenter(inv.center, center)) return false;
-      if (effectiveStartDate && new Date(inv.createdAt) < effectiveStartDate) return false;
-      if (effectiveEndDate && new Date(inv.createdAt) > effectiveEndDate) return false;
+      if (cleanInventoryId && cleanInventoryId !== 'TODOS' && inv.id !== cleanInventoryId) return false;
+      if (cleanType && cleanType !== 'TODOS' && inv.type !== cleanType) return false;
+      if (cleanCenter && cleanCenter !== 'TODOS' && cleanCenter !== 'GLOBAL' && !config.isSameCenter(inv.center, cleanCenter)) return false;
+      if (!checkDateRange(inv.createdAt)) return false;
       return true;
     });
 
     // Retrieve audit logs for tracking worker edit counts on items
     const auditLogs = auditService.getAuditLogs({
-      center: center !== 'TODOS' ? center : 'GLOBAL',
-      startDate: effectiveStartDate ? effectiveStartDate.toISOString() : null,
-      endDate: effectiveEndDate ? effectiveEndDate.toISOString() : null,
+      center: (cleanCenter && cleanCenter !== 'TODOS') ? cleanCenter : 'GLOBAL',
+      startDate: isValidDate(effectiveStartDate) ? effectiveStartDate.toISOString() : null,
+      endDate: isValidDate(effectiveEndDate) ? effectiveEndDate.toISOString() : null,
       limit: 10000
     });
 
@@ -512,12 +546,12 @@ class MetricsService {
 
     return {
       filters: {
-        type,
-        center,
-        inventoryId,
-        period,
-        startDate: effectiveStartDate ? effectiveStartDate.toISOString().split('T')[0] : null,
-        endDate: effectiveEndDate ? effectiveEndDate.toISOString().split('T')[0] : null
+        type: cleanType,
+        center: cleanCenter,
+        inventoryId: cleanInventoryId,
+        period: cleanPeriod,
+        startDate: isValidDate(effectiveStartDate) ? effectiveStartDate.toISOString().split('T')[0] : null,
+        endDate: isValidDate(effectiveEndDate) ? effectiveEndDate.toISOString().split('T')[0] : null
       },
       availableInventories,
       selectedInventory,

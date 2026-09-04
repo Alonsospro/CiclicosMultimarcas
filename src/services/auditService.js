@@ -136,20 +136,26 @@ class AuditService {
       const globalPath = path.join(this.auditDir, 'audit-consolidated.json');
       let logs = storagePath.readJson(globalPath, []);
 
-      if (center && center !== 'GLOBAL' && center !== 'TODOS') {
+      if (center && center !== 'GLOBAL' && center !== 'TODOS' && center !== 'undefined' && center !== 'null') {
         logs = logs.filter(l => (l.center || '').toUpperCase() === center.toUpperCase());
       }
 
-      if (inventoryId) {
+      if (inventoryId && inventoryId !== 'TODOS' && inventoryId !== 'undefined' && inventoryId !== 'null') {
         logs = logs.filter(l => l.inventoryId === inventoryId);
       }
 
-      if (startDate) {
-        logs = logs.filter(l => new Date(l.timestamp) >= new Date(startDate));
+      if (startDate && startDate !== 'undefined' && startDate !== 'null') {
+        const dStart = new Date(startDate);
+        if (!isNaN(dStart.getTime())) {
+          logs = logs.filter(l => new Date(l.timestamp) >= dStart);
+        }
       }
 
-      if (endDate) {
-        logs = logs.filter(l => new Date(l.timestamp) <= new Date(endDate));
+      if (endDate && endDate !== 'undefined' && endDate !== 'null') {
+        const dEnd = new Date(endDate);
+        if (!isNaN(dEnd.getTime())) {
+          logs = logs.filter(l => new Date(l.timestamp) <= dEnd);
+        }
       }
 
       return logs.slice(-limit).reverse();

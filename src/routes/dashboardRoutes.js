@@ -7,7 +7,15 @@ const { authenticate } = require('../middlewares/authMiddleware');
 // GET /api/dashboard/metrics
 router.get('/metrics', authenticate, (req, res) => {
   try {
-    const { type, center, inventoryId, period, startDate, endDate } = req.query;
+    let { type, center, inventoryId, period, startDate, endDate } = req.query;
+
+    if (type === 'undefined' || type === 'null') type = 'TODOS';
+    if (center === 'undefined' || center === 'null') center = 'TODOS';
+    if (inventoryId === 'undefined' || inventoryId === 'null') inventoryId = 'TODOS';
+    if (period === 'undefined' || period === 'null') period = 'TODO';
+    if (startDate === 'undefined' || startDate === 'null' || startDate === '') startDate = null;
+    if (endDate === 'undefined' || endDate === 'null' || endDate === '') endDate = null;
+
     const targetCenter = (req.user.role === 'ADMIN' || req.user.isSuperadmin) ? center : req.user.center;
 
     const data = metricsService.getDashboardMetrics({
@@ -21,6 +29,7 @@ router.get('/metrics', authenticate, (req, res) => {
 
     res.json({ success: true, ...data });
   } catch (err) {
+    console.error('[dashboardRoutes] Error in /metrics:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -28,11 +37,17 @@ router.get('/metrics', authenticate, (req, res) => {
 // GET /api/dashboard/audit (Audit trail logs)
 router.get('/audit', authenticate, (req, res) => {
   try {
-    const { inventoryId, center, startDate, endDate, limit } = req.query;
+    let { inventoryId, center, startDate, endDate, limit } = req.query;
+
+    if (inventoryId === 'undefined' || inventoryId === 'null' || inventoryId === 'TODOS') inventoryId = null;
+    if (center === 'undefined' || center === 'null') center = 'TODOS';
+    if (startDate === 'undefined' || startDate === 'null' || startDate === '') startDate = null;
+    if (endDate === 'undefined' || endDate === 'null' || endDate === '') endDate = null;
+
     const targetCenter = (req.user.role === 'ADMIN' || req.user.isSuperadmin) ? center : req.user.center;
 
     const logs = auditService.getAuditLogs({
-      inventoryId,
+      inventoryId: inventoryId || undefined,
       center: targetCenter,
       startDate,
       endDate,
@@ -41,6 +56,7 @@ router.get('/audit', authenticate, (req, res) => {
 
     res.json({ success: true, logs });
   } catch (err) {
+    console.error('[dashboardRoutes] Error in /audit:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });

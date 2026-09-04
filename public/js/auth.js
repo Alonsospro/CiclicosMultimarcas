@@ -100,7 +100,7 @@ window.Auth = {
     // For Auxiliares and Encargados, lock / constrain center dropdowns to their own center
     if (!isAdmin) {
       const userCenter = this.currentUser.center;
-      const centerDropdowns = ['filter-inv-center', 'filter-dash-center', 'filter-just-center', 'filter-assign-center', 'barrido-center-select'];
+      const centerDropdowns = ['filter-inv-center', 'filter-dash-center', 'dash-filter-center', 'filter-just-center', 'filter-assign-center', 'barrido-center-select'];
       centerDropdowns.forEach(id => {
         const select = document.getElementById(id);
         if (select) {

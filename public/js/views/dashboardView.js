@@ -112,20 +112,28 @@ window.DashboardView = {
     const inventoryId = document.getElementById('dash-filter-inventory')?.value || 'TODOS';
 
     try {
+      const params = {
+        type,
+        center,
+        inventoryId,
+        period
+      };
+      if (period === 'PERSONALIZADO') {
+        if (startDate) params.startDate = startDate;
+        if (endDate) params.endDate = endDate;
+      }
+
+      const auditParams = {
+        center,
+        limit: 100
+      };
+      if (inventoryId && inventoryId !== 'TODOS') {
+        auditParams.inventoryId = inventoryId;
+      }
+
       const [metricsRes, auditRes] = await Promise.all([
-        window.API.getDashboardMetrics({
-          type,
-          center,
-          inventoryId,
-          period,
-          startDate: period === 'PERSONALIZADO' ? startDate : undefined,
-          endDate: period === 'PERSONALIZADO' ? endDate : undefined
-        }),
-        window.API.getAuditLogs({
-          center,
-          inventoryId: inventoryId !== 'TODOS' ? inventoryId : undefined,
-          limit: 100
-        })
+        window.API.getDashboardMetrics(params),
+        window.API.getAuditLogs(auditParams)
       ]);
 
       this.currentData = metricsRes;
@@ -297,6 +305,11 @@ window.DashboardView = {
   },
 
   renderCharts(data) {
+    if (typeof Chart === 'undefined') {
+      console.warn('Chart.js no está disponible.');
+      return;
+    }
+
     const summary = data.summary || {};
     const abc = data.abcBreakdown || {};
     const centerStats = data.centerStats || [];

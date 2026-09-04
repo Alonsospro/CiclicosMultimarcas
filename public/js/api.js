@@ -42,6 +42,17 @@ window.API = {
     }
   },
 
+  buildQueryString(params = {}) {
+    const cleanParams = {};
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null && value !== '' && value !== 'undefined' && value !== 'null') {
+        cleanParams[key] = value;
+      }
+    }
+    const qs = new URLSearchParams(cleanParams).toString();
+    return qs ? `?${qs}` : '';
+  },
+
   // Auth endpoints
   login(username, password) {
     return this.request('/auth/login', {
@@ -84,8 +95,7 @@ window.API = {
 
   // Inventories endpoints
   getInventories(params = {}) {
-    const query = new URLSearchParams(params).toString();
-    return this.request(`/inventories?${query}`);
+    return this.request(`/inventories${this.buildQueryString(params)}`);
   },
 
   getInventoryById(id) {
@@ -213,13 +223,11 @@ window.API = {
 
   // Dashboard & Metrics endpoints
   getDashboardMetrics(params = {}) {
-    const query = new URLSearchParams(params).toString();
-    return this.request(`/dashboard/metrics?${query}`);
+    return this.request(`/dashboard/metrics${this.buildQueryString(params)}`);
   },
 
   getAuditLogs(params = {}) {
-    const query = new URLSearchParams(params).toString();
-    return this.request(`/dashboard/audit?${query}`);
+    return this.request(`/dashboard/audit${this.buildQueryString(params)}`);
   },
 
   // Photo upload

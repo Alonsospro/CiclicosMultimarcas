@@ -64,11 +64,11 @@ app.use((err, req, res, next) => {
 
 // Start Server
 if (require.main === module) {
-  const PORT = config.port;
-  app.listen(PORT, () => {
+  const PORT = config.port || 3000;
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`====================================================`);
     console.log(`🚀 SERVIDOR NIBOL INVENTARIOS ACTIVO EN PUERTO ${PORT}`);
-    console.log(`🌐 URL: http://localhost:${PORT}`);
+    console.log(`🌐 URL: http://0.0.0.0:${PORT}`);
     console.log(`🔒 Entorno: ${config.nodeEnv}`);
     console.log(`====================================================`);
   });
