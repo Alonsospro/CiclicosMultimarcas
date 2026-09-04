@@ -107,7 +107,9 @@ class GasService {
           Responsable: String(row[13] || '').trim(),
           Estado: String(row[14] || 'Pendiente').trim(),
           Mal_estado: parseIntSafe(row[15], 0),
-          Comentario: String(row[16] || '').trim()
+          Comentario: String(row[16] || '').trim(),
+          Razon: String(row[17] || '').trim(),
+          Comentario_Justificacion: String(row[18] || '').trim()
         };
       }
 
@@ -129,12 +131,14 @@ class GasService {
         Responsable: String(row.Responsable || row.responsable || '').trim(),
         Estado: String(row.Estado || row.estado || 'Pendiente').trim(),
         Mal_estado: parseIntSafe(row.Mal_estado || row.mal_estado, 0),
-        Comentario: String(row.Comentario || row.comentario || '').trim()
+        Comentario: String(row.Comentario || row.comentario || '').trim(),
+        Razon: String(row.Razon || row.razon || row.Razon_Justificacion || row.reasonType || '').trim(),
+        Comentario_Justificacion: String(row.Comentario_Justificacion || row.comentario_justificacion || row.justification || row.comentarioJustificacion || '').trim()
       };
     });
   }
 
-  formatItemsTo17Columns(items = []) {
+  formatItemsToColumns(items = []) {
     return items.map(it => [
       String(it.SKU || '').trim(),
       String(it.Codigo_Barras || '').trim(),
@@ -152,8 +156,14 @@ class GasService {
       String(it.Responsable || '').trim(),
       String(it.Estado || (it.Stock_Fisico !== null ? 'Contado' : 'Pendiente')).trim(),
       Number(it.Mal_estado || 0),
-      String(it.Comentario || '').trim()
+      String(it.Comentario || '').trim(),
+      String(it.Razon || it.Razon_Justificacion || it.reasonType || '').trim(),
+      String(it.Comentario_Justificacion || it.comentarioJustificacion || it.justification || '').trim()
     ]);
+  }
+
+  formatItemsTo17Columns(items = []) {
+    return this.formatItemsToColumns(items);
   }
 
   /**
@@ -265,6 +275,8 @@ class GasService {
       fechaUltimoConteo: payload.fechaUltimoConteo || payload.Fecha_Ultimo_Conteo || new Date().toISOString().split('T')[0],
       responsable: payload.responsable || payload.Responsable || payload.username || '',
       estado: payload.estado || payload.Estado || '',
+      razon: payload.razon || payload.Razon || payload.razonJustificacion || payload.reasonType || '',
+      comentarioJustificacion: payload.comentarioJustificacion || payload.Comentario_Justificacion || payload.justification || '',
       photoBase64: payload.photoBase64 || payload.photoUrl || payload.fotoUrl || ''
     };
 
@@ -355,6 +367,8 @@ class GasService {
         Fecha_Ultimo_Conteo: it.Fecha_Ultimo_Conteo || it.fechaUltimoConteo || '',
         Responsable: it.Responsable || it.responsable || '',
         Estado: it.Estado || it.estado || '',
+        Razon: it.Razon || it.Razon_Justificacion || it.reasonType || '',
+        Comentario_Justificacion: it.Comentario_Justificacion || it.comentarioJustificacion || it.justification || '',
         photoBase64: it.photoBase64 || it.photoUrl || it.foto_mal_estado || ''
       })),
       justifications: incomingDriveRecord.justifications || payload.justifications || []

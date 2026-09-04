@@ -1,0 +1,89 @@
+[
+  {
+    "id": "LOG-1788536005792-132p5",
+    "timestamp": "2026-09-04T15:33:25.792Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario LLL creado con 33 ítems",
+    "user": "Alonso",
+    "center": "1300",
+    "targetId": "INV-CICLICO-1300-MTN45QCE"
+  },
+  {
+    "id": "LOG-1788536019963-6duyv",
+    "timestamp": "2026-09-04T15:33:39.963Z",
+    "action": "ITEMS_REASSIGNED",
+    "inventoryId": "INV-CICLICO-1300-MTN45QCE",
+    "fromUser": "Varios",
+    "toUser": "Manuel",
+    "user": "Alonso",
+    "center": "1300",
+    "affectedCount": 33,
+    "reason": "Reasignación de carga operativa"
+  },
+  {
+    "id": "LOG-1788536379632-1dtsx",
+    "timestamp": "2026-09-04T15:39:39.632Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Test Inventory for Assignment creado con 2 ítems",
+    "user": "Alonso",
+    "center": "1120",
+    "targetId": "INV-CICLICO-1120-MTN4DQSV"
+  },
+  {
+    "id": "LOG-1788536379634-egjct",
+    "timestamp": "2026-09-04T15:39:39.634Z",
+    "action": "ITEMS_REASSIGNED",
+    "inventoryId": "INV-CICLICO-1120-MTN4DQSV",
+    "fromUser": "Varios",
+    "toUser": "Bladimir",
+    "user": "Alonso",
+    "center": "1120",
+    "affectedCount": 1,
+    "reason": "Test reassignment"
+  },
+  {
+    "id": "LOG-1788536504750-v1170",
+    "timestamp": "2026-09-04T15:41:44.750Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Test Assignment Validation creado con 2 ítems",
+    "user": "Alonso",
+    "center": "1120",
+    "targetId": "INV-CICLICO-1120-MTN4GFCD"
+  },
+  {
+    "id": "LOG-1788536504759-amgqy",
+    "timestamp": "2026-09-04T15:41:44.759Z",
+    "action": "ITEMS_REASSIGNED",
+    "inventoryId": "INV-CICLICO-1120-MTN4GFCD",
+    "fromUser": "Varios",
+    "toUser": "Bladimir",
+    "user": "Alonso",
+    "center": "1120",
+    "affectedCount": 2,
+    "reason": "Test reassignment"
+  },
+  {
+    "id": "LOG-1788537252606-tlp05",
+    "timestamp": "2026-09-04T15:54:12.606Z",
+    "action": "ITEMS_REASSIGNED",
+    "inventoryId": "INV-CICLICO-1300-MTN45QCE",
+    "fromUser": "Varios",
+    "toUser": "Bladimir",
+    "user": "Isaias",
+    "center": "1120",
+    "affectedCount": 33,
+    "reason": "Reasignación de tareas operativas"
+  },
+  {
+    "id": "LOG-1788537252608-wt6xh",
+    "timestamp": "2026-09-04T15:54:12.608Z",
+    "action": "ITEMS_REASSIGNED",
+    "inventoryId": "INV-CICLICO-1300-MTN45QCE",
+    "fromUser": "Varios",
+    "toUser": "Manuel",
+    "user": "Alonso",
+    "center": "1120",
+    "affectedCount": 33,
+    "reason": "Reasignación de tareas operativas"
+  }
+]

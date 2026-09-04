@@ -375,8 +375,11 @@ class AuthService {
     if (requestingUser.role === 'ADMIN' || requestingUser.isSuperadmin) {
       filtered = users;
     } else if (requestingUser.role === 'ENCARGADO') {
-      // Encargado only sees users in their own center (for task assignment)
-      filtered = users.filter(u => config.isSameCenter(u.center, requestingUser.center));
+      // Encargado only sees users in their own operational center (excluding global admins)
+      filtered = users.filter(u => {
+        if (!u.center || String(u.center).toUpperCase() === 'GLOBAL') return false;
+        return config.isSameCenter(u.center, requestingUser.center);
+      });
     } else {
       // Auxiliar cannot view user lists
       return [];

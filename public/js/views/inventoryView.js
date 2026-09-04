@@ -50,6 +50,17 @@ window.InventoryView = {
         }
       }
 
+      // Populate Auxiliares in new inventory modal
+      const auxSelect = document.getElementById('new-inv-auxiliar');
+      if (auxSelect) {
+        auxSelect.innerHTML = '<option value="">-- Sin asignar (asignar posteriormente) --</option>';
+        window.API.getUsers().then(uRes => {
+          const auxs = (uRes.users || []).filter(u => u.role === 'AUXILIAR');
+          auxSelect.innerHTML = '<option value="">-- Sin asignar (asignar posteriormente) --</option>' +
+            auxs.map(u => `<option value="${u.username}">${u.displayName || u.username} (${u.centerName || u.center || 'Sin Centro'})</option>`).join('');
+        }).catch(() => {});
+      }
+
       window.ModalHelper.open('modal-new-inventory');
       // Automatically trigger fetch for the selected center
       this.triggerAutoFetchGas();
@@ -68,6 +79,44 @@ window.InventoryView = {
       await this.triggerAutoFetchGas(true);
     });
 
+    // Form submit: Quick Assign to Auxiliar
+    document.getElementById('form-quick-assign')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const invId = document.getElementById('quick-assign-inv-id')?.value;
+      const toUser = document.getElementById('quick-assign-aux-select')?.value;
+      const invName = document.getElementById('quick-assign-inv-name')?.textContent || invId;
+
+      if (!invId || !toUser) {
+        window.Toast.warning('Seleccione un auxiliar para realizar la asignación.');
+        return;
+      }
+
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Asignando...';
+      }
+
+      try {
+        const res = await window.API.reassignTasks(invId, {
+          assignAll: true,
+          toUser,
+          reason: 'Asignación directa desde panel de inventarios'
+        });
+
+        window.Toast.success(`¡Inventario ${invName} asignado exitosamente a ${res.targetDisplayName || toUser}! Ya está disponible en su perfil.`);
+        window.ModalHelper.close('modal-quick-assign');
+        await this.loadInventories();
+      } catch (err) {
+        window.Toast.danger(err.message || 'Error al asignar inventario');
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = '<i class="fa-solid fa-check"></i> Confirmar Asignación';
+        }
+      }
+    });
+
     // Form submit: New Inventory
     document.getElementById('form-new-inventory')?.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -76,6 +125,7 @@ window.InventoryView = {
       const center = (window.Auth.currentUser?.role === 'ENCARGADO')
         ? window.Auth.currentUser.center
         : document.getElementById('new-inv-center').value;
+      const assignedAuxiliar = document.getElementById('new-inv-auxiliar')?.value || '';
 
       const submitBtn = e.target.querySelector('button[type="submit"]');
       if (submitBtn) {
@@ -100,11 +150,13 @@ window.InventoryView = {
           name,
           type,
           center,
+          assignedAuxiliar,
           items: this.gasFetchedItems
         });
 
         const itemCount = res.inventory?.items?.length || this.gasFetchedItems.length || 0;
-        window.Toast.success(`Inventario creado exitosamente con ${itemCount} productos de la hoja del centro ${center}`);
+        const auxNotice = assignedAuxiliar ? ` y asignado a ${assignedAuxiliar}` : '';
+        window.Toast.success(`Inventario creado exitosamente${auxNotice} con ${itemCount} productos de la hoja del centro ${center}`);
         window.ModalHelper.close('modal-new-inventory');
         this.loadInventories();
       } catch (err) {
@@ -309,36 +361,33 @@ window.InventoryView = {
       if (list.length > 0) {
         try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch (e) {}
       } else {
-        // In serverless cold start, recover from client local cache if server is empty
-        try {
-          const cachedRaw = localStorage.getItem(cacheKey);
-          if (cachedRaw) {
-            const cachedList = JSON.parse(cachedRaw);
-            if (Array.isArray(cachedList) && cachedList.length > 0) {
-              list = cachedList;
-              // Rehydrate server in background
-              window.API.syncInventories(cachedList).catch(() => {});
-            }
-          }
-        } catch (e) {}
+        try { localStorage.removeItem(cacheKey); } catch (e) {}
       }
 
-      // If user is AUXILIAR, strictly ensure only assigned inventories are shown
+      // If user is AUXILIAR, verify assignment
       if (window.Auth.currentUser?.role === 'AUXILIAR') {
-        const u = String(window.Auth.currentUser.username || '').toLowerCase();
-        const c = String(window.Auth.currentUser.clave || '').toLowerCase();
-        const d = String(window.Auth.currentUser.displayName || '').toLowerCase();
+        const u = String(window.Auth.currentUser.username || '').toLowerCase().trim();
+        const c = String(window.Auth.currentUser.clave || '').toLowerCase().trim();
+        const d = String(window.Auth.currentUser.displayName || '').toLowerCase().trim();
 
         list = list.filter(inv => {
-          const assignedList = Array.isArray(inv.assignedAuxiliars) ? inv.assignedAuxiliars.map(a => String(a).toLowerCase()) : [];
-          const isDirectlyAssigned = assignedList.includes(u) || (c && assignedList.includes(c)) || (d && assignedList.includes(d));
+          if (Array.isArray(inv.assignedAuxiliars) && inv.assignedAuxiliars.length > 0) {
+            const assignedList = inv.assignedAuxiliars.map(a => String(a).toLowerCase().trim());
+            const isDirectlyAssigned = assignedList.some(a => a === u || (c && a === c) || (d && (a === d || d.includes(a) || a.includes(d))));
+            if (isDirectlyAssigned) return true;
+          }
 
-          const hasAssignedItems = Array.isArray(inv.items) && inv.items.some(it => {
-            const resp = String(it.Responsable || '').toLowerCase();
-            return resp === u || (c && resp === c) || (d && resp.includes(d));
-          });
+          if (Array.isArray(inv.items) && inv.items.length > 0) {
+            const hasAssignedItems = inv.items.some(it => {
+              if (!it || !it.Responsable) return false;
+              const resp = String(it.Responsable).toLowerCase().trim();
+              return resp === u || (c && resp === c) || (d && (resp === d || d.includes(resp) || resp.includes(d)));
+            });
+            if (hasAssignedItems) return true;
+          }
 
-          return isDirectlyAssigned || hasAssignedItems;
+          // If the backend delivered this inventory specifically for this auxiliar, trust the server
+          return true;
         });
       }
 
@@ -353,6 +402,8 @@ window.InventoryView = {
         if (inv.status === 'EN_PROGRESO') badgeClass = 'badge-info';
         if (inv.status === 'PENDIENTE_JUSTIFICACION') badgeClass = 'badge-warning';
         if (inv.status === 'REVISADO') badgeClass = 'badge-success';
+
+        const safeName = encodeURIComponent(inv.name || inv.id);
 
         return `
           <tr>
@@ -370,11 +421,14 @@ window.InventoryView = {
               </div>
             </td>
             <td>
-              <div style="display: flex; gap: 0.35rem;">
+              <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
                 <button class="btn btn-primary btn-sm" onclick="window.InventoryView.openInventory('${inv.id}')">
                   <i class="fa-solid fa-play"></i> ${window.Auth.currentUser?.role === 'AUXILIAR' ? 'Contar' : 'Abrir'}
                 </button>
-                ${(window.Auth.hasRole(['ADMIN', 'ENCARGADO'])) ? `
+                ${(window.Auth.hasRole(['ADMIN']) || (window.Auth.hasRole(['ENCARGADO']) && window.Auth.isSameCenter(inv.center, window.Auth.currentUser?.center))) ? `
+                  <button class="btn btn-secondary btn-sm" onclick="window.InventoryView.promptAssign('${inv.id}', '${safeName}', '${inv.center}')" title="Asignar tareas a Auxiliar de este centro">
+                    <i class="fa-solid fa-user-tag"></i> Asignar
+                  </button>
                   <button class="btn btn-danger btn-sm" onclick="window.InventoryView.promptDelete('${inv.id}')" title="Eliminar inventario/tarea">
                     <i class="fa-solid fa-trash"></i>
                   </button>
@@ -1056,6 +1110,23 @@ window.InventoryView = {
           window.Toast.success(res.message || 'Inventario eliminado con éxito');
           window.ModalHelper.close('modal-delete-confirm');
 
+          // Clean local storage cache immediately
+          try {
+            const cacheKey = 'nibol_cached_inventories';
+            const cachedRaw = localStorage.getItem(cacheKey);
+            if (cachedRaw) {
+              const cachedList = JSON.parse(cachedRaw);
+              if (Array.isArray(cachedList)) {
+                const updated = cachedList.filter(item => item && item.id !== targetId);
+                if (updated.length > 0) {
+                  localStorage.setItem(cacheKey, JSON.stringify(updated));
+                } else {
+                  localStorage.removeItem(cacheKey);
+                }
+              }
+            }
+          } catch (e) {}
+
           // If current inventory was open, return to list view
           if (this.currentInventory && this.currentInventory.id === targetId) {
             this.currentInventory = null;
@@ -1073,6 +1144,62 @@ window.InventoryView = {
           }
         }
       };
+    }
+  },
+
+  async promptAssign(invId, rawInvName, rawInvCenter) {
+    if (!invId) return;
+    const modal = document.getElementById('modal-quick-assign');
+    if (!modal) return;
+
+    const currentUser = window.Auth.currentUser;
+    const isAdmin = window.Auth.hasRole(['ADMIN']);
+
+    if (!isAdmin && rawInvCenter && !window.Auth.isSameCenter(rawInvCenter, currentUser?.center)) {
+      window.Toast.warning('Acceso denegado: Como Encargado solo puede asignar tareas de inventarios de su propio centro.');
+      return;
+    }
+
+    const invInput = document.getElementById('quick-assign-inv-id');
+    const nameSpan = document.getElementById('quick-assign-inv-name');
+    const auxSelect = document.getElementById('quick-assign-aux-select');
+    const noteEl = document.getElementById('quick-assign-center-note');
+
+    if (invInput) invInput.value = invId;
+    if (nameSpan) nameSpan.textContent = decodeURIComponent(rawInvName || invId);
+    if (auxSelect) auxSelect.innerHTML = '<option value="">Cargando auxiliares...</option>';
+
+    if (noteEl) {
+      if (isAdmin) {
+        noteEl.innerHTML = `<i class="fa-solid fa-crown" style="color: #f59e0b;"></i> <strong style="color: #f59e0b;">Modo Administrador:</strong> Puede asignar a cualquier auxiliar de cualquier centro operativo.`;
+      } else {
+        const cDesc = currentUser?.centerName ? `${currentUser.center} - ${currentUser.centerName}` : (currentUser?.center || 'su centro');
+        noteEl.innerHTML = `<i class="fa-solid fa-building-user" style="color: #38bdf8;"></i> <strong style="color: #38bdf8;">Modo Encargado (${cDesc}):</strong> Mostrando únicamente los auxiliares asignables de su centro operativo.`;
+      }
+    }
+
+    window.ModalHelper.open('modal-quick-assign');
+
+    try {
+      const uRes = await window.API.getUsers();
+      let auxs = (uRes.users || []).filter(u => u.role === 'AUXILIAR');
+      
+      // If Encargado, strictly filter by center
+      if (!isAdmin && currentUser?.center) {
+        auxs = auxs.filter(u => window.Auth.isSameCenter(u.center, currentUser.center));
+      }
+
+      if (auxSelect) {
+        if (auxs.length === 0) {
+          const cDesc = currentUser?.centerName || currentUser?.center || 'este centro';
+          auxSelect.innerHTML = `<option value="">No hay auxiliares registrados en ${cDesc}</option>`;
+        } else {
+          auxSelect.innerHTML = '<option value="">-- Seleccionar Auxiliar Responsable --</option>' +
+            auxs.map(u => `<option value="${u.username}">${u.displayName || u.username} (${u.centerName || u.center || 'Sin Centro'})</option>`).join('');
+        }
+      }
+    } catch (err) {
+      if (auxSelect) auxSelect.innerHTML = '<option value="">Error cargando lista de auxiliares</option>';
     }
   },
 

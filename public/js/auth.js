@@ -141,5 +141,25 @@ window.Auth = {
     const u = String(this.currentUser.username || '').toLowerCase().trim();
     const d = String(this.currentUser.displayName || '').toLowerCase().trim();
     return u === 'jcarlos' || u === 'juancarlos' || u === 'juan carlos' || u === 'juan_carlos' || u === 'juan.carlos' || d.includes('juan carlos') || this.currentUser.clave === 'JCS';
+  },
+
+  isSameCenter(centerA, centerB) {
+    if (!centerA || !centerB) return false;
+    const a = String(centerA).trim().toLowerCase();
+    const b = String(centerB).trim().toLowerCase();
+    if (a === 'global' || b === 'global') return true;
+    if (a === b) return true;
+
+    // Check warnes / 1120 aliases
+    const isWarnesA = a === '1120' || a.includes('warnes') || a.includes('km 14') || a.includes('volvo');
+    const isWarnesB = b === '1120' || b.includes('warnes') || b.includes('km 14') || b.includes('volvo');
+    if (isWarnesA && isWarnesB) return true;
+
+    // Direct code extraction or containment
+    const codeA = a.match(/\b\d{4}\b/)?.[0];
+    const codeB = b.match(/\b\d{4}\b/)?.[0];
+    if (codeA && codeB && codeA === codeB) return true;
+
+    return a.includes(b) || b.includes(a);
   }
 };

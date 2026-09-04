@@ -387,6 +387,8 @@
             </div>
           </div>
 
+          <div id="assign-scope-badge" style="display: none; align-items: flex-start; gap: 0.75rem; margin-bottom: 1.25rem; padding: 0.85rem 1rem; border-radius: var(--radius-md); font-size: 0.88rem;"></div>
+
           <div style="display: flex; gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap;">
             <div class="form-group" style="flex: 1; min-width: 240px; margin-bottom: 0;">
               <label class="form-label">Seleccionar Inventario Activo</label>
@@ -396,13 +398,16 @@
             </div>
 
             <div class="form-group" style="flex: 1; min-width: 240px; margin-bottom: 0;">
-              <label class="form-label">Reasignar ítems seleccionados a Auxiliar:</label>
-              <div style="display: flex; gap: 0.5rem;">
-                <select id="select-assign-aux" class="form-select">
+              <label class="form-label">Reasignar ítems a Auxiliar:</label>
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <select id="select-assign-aux" class="form-select" style="flex: 1; min-width: 180px;">
                   <!-- Dynamically populated -->
                 </select>
-                <button class="btn btn-primary" id="btn-execute-reassign">
-                  <i class="fa-solid fa-arrows-rotate"></i> Reasignar
+                <button class="btn btn-primary" id="btn-execute-reassign" title="Reasignar ítems marcados">
+                  <i class="fa-solid fa-arrows-rotate"></i> Reasignar Seleccionados
+                </button>
+                <button class="btn btn-secondary" id="btn-assign-all-to-aux" type="button" title="Asignar todos los ítems de este inventario">
+                  <i class="fa-solid fa-users"></i> Asignar Todo el Inventario
                 </button>
               </div>
             </div>
@@ -1096,6 +1101,18 @@
             </div>
           </div>
 
+          <div class="form-group" style="margin-top: 0.75rem;">
+            <label class="form-label" for="new-inv-auxiliar">
+              <i class="fa-solid fa-user-tag" style="color: var(--primary);"></i> Asignar a Auxiliar Responsable (Opcional)
+            </label>
+            <select id="new-inv-auxiliar" class="form-select">
+              <option value="">-- Sin asignar (asignar posteriormente) --</option>
+            </select>
+            <p style="font-size: 0.78rem; color: var(--text-dim); margin-top: 0.25rem;">
+              Si selecciona un auxiliar, todas las tareas del inventario se le asignarán automáticamente y aparecerán al instante en su cuenta.
+            </p>
+          </div>
+
           <div style="margin-top: 0.5rem; margin-bottom: 1rem;">
             <button type="button" class="btn btn-secondary btn-sm" id="btn-fetch-gas-template">
               <i class="fa-solid fa-cloud-arrow-down"></i> Cargar productos desde Google Apps Script
@@ -1106,6 +1123,44 @@
           <div class="modal-footer" style="padding: 1rem 0 0 0;">
             <button type="button" class="btn btn-secondary" data-close-modal="modal-new-inventory">Cancelar</button>
             <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Crear Inventario</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Quick Assign Inventory to Auxiliar -->
+  <div class="modal-overlay" id="modal-quick-assign">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="card-title"><i class="fa-solid fa-user-plus" style="color: var(--primary);"></i> Asignar Inventario a Auxiliar</h3>
+        <button class="close-btn" data-close-modal="modal-quick-assign">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-quick-assign">
+          <input type="hidden" id="quick-assign-inv-id">
+          <div style="background: rgba(255,255,255,0.03); padding: 0.85rem 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; border: 1px solid var(--border-glass);">
+            <p style="font-size: 0.82rem; color: var(--text-dim); margin-bottom: 0.2rem;">Inventario seleccionado:</p>
+            <h4 id="quick-assign-inv-name" style="color: var(--primary); font-size: 0.98rem; font-weight: 700;">-</h4>
+            <div id="quick-assign-center-note" style="margin-top: 0.5rem; font-size: 0.82rem; line-height: 1.4;"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="quick-assign-aux-select">Seleccione el Auxiliar Responsable</label>
+            <select id="quick-assign-aux-select" class="form-select" required>
+              <!-- Dynamically populated -->
+            </select>
+          </div>
+
+          <div style="background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.2); border-radius: var(--radius-md); padding: 0.75rem; margin-bottom: 1rem;">
+            <p style="font-size: 0.82rem; color: #38bdf8; margin: 0;">
+              <i class="fa-solid fa-circle-info"></i> Al confirmar, el inventario completo y sus ítems quedarán inmediatamente asignados al auxiliar seleccionado y disponibles en su perfil.
+            </p>
+          </div>
+
+          <div class="modal-footer" style="padding: 1rem 0 0 0;">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-quick-assign">Cancelar</button>
+            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Confirmar Asignación</button>
           </div>
         </form>
       </div>

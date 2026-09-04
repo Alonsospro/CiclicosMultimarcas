@@ -181,26 +181,35 @@ class DriveService {
       reviewNotes: reviewNotes || 'Revisión finalizada y aprobada por administrador',
       totalItems: items.length,
       justificationsCount: (justifications || []).length,
-      items: items.map(item => ({
-        SKU: item.SKU,
-        Codigo_Barras: item.Codigo_Barras,
-        Descripcion: item.Descripcion,
-        Ubicacion: item.Ubicacion,
-        Categoria: item.Categoria,
-        Clasificacion_ABC: item.Clasificacion_ABC,
-        Unidad: item.Unidad,
-        Costo_Unitario: item.Costo_Unitario,
-        Stock_Sistema: item.Stock_Sistema,
-        Stock_Fisico: item.Stock_Fisico,
-        Diferencia: (item.Stock_Fisico !== null ? item.Stock_Fisico : 0) - item.Stock_Sistema,
-        Costo_Diferencia: ((item.Stock_Fisico !== null ? item.Stock_Fisico : 0) - item.Stock_Sistema) * (item.Costo_Unitario || 0),
-        Fecha_Ultimo_Conteo: item.Fecha_Ultimo_Conteo,
-        Responsable: item.Responsable,
-        Estado: 'Revisado',
-        Mal_estado: item.Mal_estado || 0,
-        Comentario: item.Comentario || '',
-        photoBase64: this.getPhotoAsDataUri(item.foto_mal_estado) || ''
-      })),
+      items: items.map(item => {
+        const matchingJust = (justifications || []).find(j => (j.sku || j.SKU) === item.SKU);
+        const razon = item.Razon || item.Razon_Justificacion || (matchingJust ? (matchingJust.reasonType || matchingJust.razon) : '');
+        const comentarioJust = item.Comentario_Justificacion || (matchingJust ? (matchingJust.justification || matchingJust.comentario) : '');
+
+        return {
+          SKU: item.SKU,
+          Codigo_Barras: item.Codigo_Barras,
+          Descripcion: item.Descripcion,
+          Ubicacion: item.Ubicacion,
+          Categoria: item.Categoria,
+          Clasificacion_ABC: item.Clasificacion_ABC,
+          Unidad: item.Unidad,
+          Costo_Unitario: item.Costo_Unitario,
+          Stock_Sistema: item.Stock_Sistema,
+          Stock_Fisico: item.Stock_Fisico,
+          Diferencia: (item.Stock_Fisico !== null ? item.Stock_Fisico : 0) - item.Stock_Sistema,
+          Costo_Diferencia: ((item.Stock_Fisico !== null ? item.Stock_Fisico : 0) - item.Stock_Sistema) * (item.Costo_Unitario || 0),
+          Fecha_Ultimo_Conteo: item.Fecha_Ultimo_Conteo,
+          Responsable: item.Responsable,
+          Estado: item.Estado || 'Revisado',
+          Mal_estado: item.Mal_estado || 0,
+          Comentario: item.Comentario || '',
+          Razon: razon || '',
+          Razon_Justificacion: razon || '',
+          Comentario_Justificacion: comentarioJust || '',
+          photoBase64: this.getPhotoAsDataUri(item.foto_mal_estado) || ''
+        };
+      }),
       justifications: (justifications || []).map(j => ({
         sku: j.sku || j.SKU || '',
         justification: j.justification || '',

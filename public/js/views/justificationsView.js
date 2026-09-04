@@ -140,6 +140,8 @@ window.JustificationsView = {
                     <th>Impacto $</th>
                     <th>Mal Estado</th>
                     <th>Estado Justificación</th>
+                    <th>Razón (Col. R)</th>
+                    <th>Comentarios (Col. S)</th>
                     <th>Evidencia</th>
                     <th>Acción</th>
                   </tr>
@@ -149,6 +151,8 @@ window.JustificationsView = {
                     const diff = item.Diferencia || 0;
                     const isJustified = !!item.isJustified;
                     const just = item.justificationDetails;
+                    const razonVal = item.Razon || (just ? just.reasonType : '') || '-';
+                    const comentarioVal = item.Comentario_Justificacion || (just ? just.justification : '') || '-';
 
                     return `
                       <tr class="${!isJustified ? 'discrepancy-row' : ''}">
@@ -163,6 +167,16 @@ window.JustificationsView = {
                         <td>
                           <span class="badge ${isJustified ? 'badge-success' : 'badge-warning'}">
                             ${isJustified ? 'Justificado' : 'Pendiente'}
+                          </span>
+                        </td>
+                        <td>
+                          <span style="font-size: 0.85rem; font-weight: 600; color: ${isJustified ? 'var(--text-main)' : 'var(--text-dim)'};">
+                            ${razonVal}
+                          </span>
+                        </td>
+                        <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${comentarioVal}">
+                          <span style="font-size: 0.82rem; color: ${isJustified ? 'var(--text-main)' : 'var(--text-dim)'};">
+                            ${comentarioVal}
                           </span>
                         </td>
                         <td>

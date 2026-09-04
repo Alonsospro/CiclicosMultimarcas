@@ -30,14 +30,15 @@ router.get('/:id', authenticate, async (req, res) => {
 // POST /api/inventories (Create new - Juan Carlos & Alonso Only)
 router.post('/', authenticate, requireInventoryCreator, restrictCenter, async (req, res) => {
   try {
-    const { type, center, name, items } = req.body;
+    const { type, center, name, items, assignedAuxiliar } = req.body;
     const targetCenter = (req.user.role === 'ADMIN' || req.user.isSuperadmin) ? (center || '1120') : req.user.center;
     const newInv = await inventoryService.createInventory({
       type,
       center: targetCenter,
       name,
       items,
-      user: req.user
+      user: req.user,
+      assignedAuxiliar
     });
     res.status(201).json({ success: true, inventory: newInv });
   } catch (err) {
@@ -125,13 +126,14 @@ router.delete('/:id/items/:itemId', authenticate, (req, res) => {
 // POST /api/inventories/:id/reassign (Reassign items)
 router.post('/:id/reassign', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
   try {
-    const { itemIds, toUser, reason } = req.body;
+    const { itemIds, toUser, reason, assignAll } = req.body;
     const result = inventoryService.reassignTasks({
       inventoryId: req.params.id,
       itemIds,
       toUser,
       requestingUser: req.user,
-      reason
+      reason,
+      assignAll
     });
     res.json(result);
   } catch (err) {
@@ -192,7 +194,8 @@ router.post('/sync', authenticate, (req, res) => {
     if (Array.isArray(inventories) && inventories.length > 0) {
       let synced = 0;
       inventories.forEach(inv => {
-        if (inv && inv.id) {
+        // Only accept syncing full inventories that contain valid items array
+        if (inv && inv.id && Array.isArray(inv.items) && inv.items.length > 0) {
           const existing = inventoryService.getInventoryRaw(inv.id);
           if (!existing) {
             inventoryService.saveInventory(inv);

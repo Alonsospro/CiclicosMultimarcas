@@ -161,7 +161,10 @@ class InventoryService {
   getInventoryRaw(id) {
     const filePath = path.join(this.invDir, `${id}.json`);
     const inv = storagePath.readJson(filePath, null);
-    if (inv && Array.isArray(inv.items)) {
+    if (inv) {
+      if (!Array.isArray(inv.items)) {
+        inv.items = [];
+      }
       inv.items.forEach((it, idx) => {
         if (!it.id) {
           it.id = `ITEM-${it.SKU ? String(it.SKU).replace(/[^a-zA-Z0-9_-]/g, '_') : (idx + 1)}-${idx + 1}`;
@@ -179,11 +182,43 @@ class InventoryService {
     files.forEach(file => {
       const inv = storagePath.readJson(path.join(this.invDir, file), null);
       if (inv) {
-        // Strict Center filtering: non-admins strictly see only their assigned center
-        if (user.role !== 'ADMIN' && !user.isSuperadmin) {
+        if (!Array.isArray(inv.items)) {
+          inv.items = [];
+        }
+
+        const u = String(user.username || '').toLowerCase().trim();
+        const c = String(user.clave || '').toLowerCase().trim();
+        const d = String(user.displayName || '').toLowerCase().trim();
+
+        const isDirectlyAssigned = Array.isArray(inv.assignedAuxiliars) && inv.assignedAuxiliars.some(a => {
+          const s = String(a || '').toLowerCase().trim();
+          return s === u || (c && s === c) || (d && (s === d || d.includes(s) || s.includes(d)));
+        });
+
+        const hasAssignedItems = inv.items.some(it => {
+          if (!it || !it.Responsable) return false;
+          const r = String(it.Responsable || '').toLowerCase().trim();
+          return r === u || (c && r === c) || (d && (r === d || d.includes(r) || r.includes(d)));
+        });
+
+        const isAssigned = isDirectlyAssigned || hasAssignedItems;
+
+        // Role-based visibility
+        if (user.role === 'AUXILIAR') {
+          // Auxiliares strictly see only inventories assigned to them
+          if (!isAssigned) {
+            return;
+          }
+        } else if (user.role !== 'ADMIN' && !user.isSuperadmin) {
+          // Encargados see inventories belonging to their operational center
           if (!config.isSameCenter(inv.center, user.center)) return;
-        } else if (filterCenter && filterCenter !== 'TODOS' && filterCenter !== 'GLOBAL') {
-          if (!config.isSameCenter(inv.center, filterCenter)) return;
+        }
+
+        // Dropdown Center filter (only apply if not an assigned auxiliar or if center matches)
+        if (filterCenter && filterCenter !== 'TODOS' && filterCenter !== 'GLOBAL') {
+          if (user.role !== 'AUXILIAR') {
+            if (!config.isSameCenter(inv.center, filterCenter)) return;
+          }
         }
 
         // Type filtering
@@ -191,17 +226,9 @@ class InventoryService {
           if (inv.type !== filterType) return;
         }
 
-        // Auxiliar specific filter: only show if assigned or has pending items
-        if (user.role === 'AUXILIAR') {
-          const hasAssignedItems = inv.items.some(it => it.Responsable === user.username || it.Responsable === user.clave || it.Responsable === user.displayName);
-          if (!hasAssignedItems && !inv.assignedAuxiliars?.includes(user.username) && !inv.assignedAuxiliars?.includes(user.clave)) {
-            return;
-          }
-        }
-
         // Generate summary stats for list view
         const totalItems = inv.items.length;
-        const countedItems = inv.items.filter(it => it.Stock_Fisico !== null).length;
+        const countedItems = inv.items.filter(it => it && it.Stock_Fisico !== null && it.Stock_Fisico !== undefined).length;
         const pendingItems = totalItems - countedItems;
 
         list.push({
@@ -212,10 +239,11 @@ class InventoryService {
           status: inv.status,
           createdAt: inv.createdAt,
           createdBy: inv.createdBy,
+          assignedAuxiliars: inv.assignedAuxiliars || [],
           totalItems,
           countedItems,
           pendingItems,
-          isCompleted: countedItems === totalItems
+          isCompleted: totalItems > 0 && countedItems === totalItems
         });
       }
     });
@@ -261,9 +289,32 @@ class InventoryService {
       throw new Error(`Inventario con ID '${id}' no encontrado`);
     }
 
+    const u = String(user.username || '').toLowerCase().trim();
+    const c = String(user.clave || '').toLowerCase().trim();
+    const d = String(user.displayName || '').toLowerCase().trim();
+
+    const isAssignedToInv = Array.isArray(inv.assignedAuxiliars) && inv.assignedAuxiliars.some(a => {
+      const s = String(a || '').toLowerCase().trim();
+      return s === u || (c && s === c) || (d && (s === d || d.includes(s) || s.includes(d)));
+    });
+
+    const hasAssignedItems = Array.isArray(inv.items) && inv.items.some(it => {
+      if (!it || !it.Responsable) return false;
+      const r = String(it.Responsable || '').toLowerCase().trim();
+      return r === u || (c && r === c) || (d && (r === d || d.includes(r) || r.includes(d)));
+    });
+
+    const isAssigned = isAssignedToInv || hasAssignedItems;
+
     // Check strict center authorization
-    if (user.role !== 'ADMIN' && !user.isSuperadmin && !config.isSameCenter(inv.center, user.center)) {
-      throw new Error(`No tiene permisos para acceder a inventarios del centro ${inv.center}`);
+    if (user.role !== 'ADMIN' && !user.isSuperadmin) {
+      if (user.role === 'AUXILIAR') {
+        if (!isAssigned && !config.isSameCenter(inv.center, user.center)) {
+          throw new Error(`No tiene permisos para acceder a inventarios del centro ${inv.center}`);
+        }
+      } else if (!config.isSameCenter(inv.center, user.center)) {
+        throw new Error(`No tiene permisos para acceder a inventarios del centro ${inv.center}`);
+      }
     }
 
     // If role is AUXILIAR:
@@ -271,18 +322,15 @@ class InventoryService {
     // 2. Hide columns H, I, K, L, O (Blind Count)
     if (user.role === 'AUXILIAR') {
       const isConteoPhase = inv.status !== 'REVISADO';
-      const isAssignedToInv = Array.isArray(inv.assignedAuxiliars) && (
-        inv.assignedAuxiliars.includes(user.username) ||
-        inv.assignedAuxiliars.includes(user.clave) ||
-        inv.assignedAuxiliars.includes(user.displayName)
-      );
 
-      const userItems = inv.items.filter(it =>
-        it.Responsable === user.username ||
-        it.Responsable === user.clave ||
-        it.Responsable === user.displayName ||
-        (isAssignedToInv && !it.Responsable)
-      );
+      const userItems = inv.items.filter(it => {
+        if (!it) return false;
+        if (it.Responsable) {
+          const r = String(it.Responsable || '').toLowerCase().trim();
+          return r === u || (c && r === c) || (d && (r === d || d.includes(r) || r.includes(d)));
+        }
+        return isAssignedToInv;
+      });
 
       return {
         ...inv,
@@ -321,7 +369,7 @@ class InventoryService {
     return false;
   }
 
-  async createInventory({ type, center, name, items, user }) {
+  async createInventory({ type, center, name, items, user, assignedAuxiliar }) {
     if (!type || !center) {
       throw new Error('Tipo y Centro son requeridos');
     }
@@ -348,6 +396,31 @@ class InventoryService {
       }
     }
 
+    // Resolve assigned Auxiliar if selected during creation
+    let assignedAuxiliars = [];
+    if (assignedAuxiliar) {
+      const authService = require('./authService');
+      const allUsers = authService.getUsersList();
+      const targetUser = allUsers.find(u =>
+        u.username?.toLowerCase() === String(assignedAuxiliar).toLowerCase().trim() ||
+        (u.displayName && u.displayName.toLowerCase() === String(assignedAuxiliar).toLowerCase().trim()) ||
+        (u.clave && u.clave.toLowerCase() === String(assignedAuxiliar).toLowerCase().trim()) ||
+        u.id === assignedAuxiliar
+      );
+
+      const targetUsername = targetUser ? targetUser.username : String(assignedAuxiliar).trim();
+      const targetDisplayName = targetUser?.displayName || targetUsername;
+      const targetClave = targetUser?.clave || '';
+
+      [targetUsername, targetDisplayName, targetClave].forEach(val => {
+        if (val && !assignedAuxiliars.includes(val)) assignedAuxiliars.push(val);
+      });
+
+      mappedItems.forEach(it => {
+        it.Responsable = targetUsername;
+      });
+    }
+
     const centerObj = config.findCenter(targetCenter);
     const centerCode = centerObj ? centerObj.code : targetCenter;
     const invId = `INV-${cleanType}-${centerCode}-${Date.now().toString(36).toUpperCase()}`;
@@ -360,7 +433,7 @@ class InventoryService {
       status: 'EN_PROGRESO',
       createdAt: new Date().toISOString(),
       createdBy: user.username,
-      assignedAuxiliars: [],
+      assignedAuxiliars,
       items: mappedItems
     };
 
@@ -618,36 +691,97 @@ class InventoryService {
     };
   }
 
-  reassignTasks({ inventoryId, itemIds, toUser, requestingUser, reason }) {
+  reassignTasks({ inventoryId, itemIds, toUser, requestingUser, reason, assignAll }) {
     const inv = this.getInventoryRaw(inventoryId);
     if (!inv) {
       throw new Error('Inventario no encontrado');
     }
 
-    if (requestingUser.role !== 'ADMIN' && !requestingUser.isSuperadmin) {
-      if (requestingUser.role === 'ENCARGADO' && !config.isSameCenter(inv.center, requestingUser.center)) {
-        throw new Error('No puede reasignar tareas de otro centro');
-      }
-      if (requestingUser.role === 'AUXILIAR') {
+    const isAdmin = requestingUser.role === 'ADMIN' || requestingUser.isSuperadmin;
+
+    if (!isAdmin) {
+      if (requestingUser.role === 'ENCARGADO') {
+        if (!config.isSameCenter(inv.center, requestingUser.center)) {
+          throw new Error(`Acceso denegado: Como Encargado solo puede reasignar tareas en su propio centro (${requestingUser.centerName || requestingUser.center}).`);
+        }
+      } else {
         throw new Error('Los auxiliares no tienen permisos para reasignar tareas');
       }
     }
 
-    if (!Array.isArray(itemIds) || itemIds.length === 0) {
-      throw new Error('Debe especificar los ítems a reasignar');
+    if (!toUser) {
+      throw new Error('Debe especificar el auxiliar destino');
+    }
+
+    const authService = require('./authService');
+    const allUsers = authService.getUsersList();
+    const targetUser = allUsers.find(u =>
+      u.username?.toLowerCase() === String(toUser).toLowerCase().trim() ||
+      (u.displayName && u.displayName.toLowerCase() === String(toUser).toLowerCase().trim()) ||
+      (u.clave && u.clave.toLowerCase() === String(toUser).toLowerCase().trim()) ||
+      u.id === toUser
+    );
+
+    if (!targetUser) {
+      throw new Error(`El usuario auxiliar '${toUser}' no fue encontrado en el sistema`);
+    }
+
+    // Role check on target user: must be an AUXILIAR (or staff member)
+    if (targetUser.role !== 'AUXILIAR' && targetUser.role !== 'ENCARGADO' && targetUser.role !== 'ADMIN') {
+      throw new Error('El usuario seleccionado no tiene un perfil operativo válido para asignaciones');
+    }
+
+    // Crucial restriction: Encargado can ONLY assign to Auxiliars in their OWN center
+    if (!isAdmin && requestingUser.role === 'ENCARGADO') {
+      if (!config.isSameCenter(targetUser.center, requestingUser.center)) {
+        throw new Error(`Acceso denegado: Como Encargado solo puede asignar tareas a auxiliares de su propio centro (${requestingUser.centerName || requestingUser.center}). El auxiliar seleccionado pertenece a ${targetUser.centerName || targetUser.center}.`);
+      }
+    }
+
+    // Administrator: Can assign to ANY auxiliary of ANY center without restriction
+
+    const targetUsername = targetUser ? targetUser.username : String(toUser).trim();
+    const targetDisplayName = targetUser?.displayName || targetUsername;
+    const targetClave = targetUser?.clave || '';
+
+    const isAll = assignAll === true || itemIds === 'ALL' || (Array.isArray(itemIds) && (itemIds.length === 0 || itemIds.includes('ALL')));
+
+    if (!isAll && (!Array.isArray(itemIds) || itemIds.length === 0)) {
+      throw new Error('Debe especificar los ítems a reasignar o seleccionar asignar todo el inventario');
     }
 
     let count = 0;
+    if (!Array.isArray(inv.items)) inv.items = [];
+
     inv.items.forEach(item => {
-      if (itemIds.includes(item.id)) {
-        item.Responsable = toUser;
+      if (isAll || itemIds.includes(item.id)) {
+        item.Responsable = targetUsername;
         count++;
       }
     });
 
-    if (!inv.assignedAuxiliars) inv.assignedAuxiliars = [];
-    if (!inv.assignedAuxiliars.includes(toUser)) {
-      inv.assignedAuxiliars.push(toUser);
+    // Rebuild assignedAuxiliars list so that only active responsibles have visibility
+    if (isAll) {
+      inv.assignedAuxiliars = [targetUsername, targetDisplayName, targetClave].filter(Boolean);
+    } else {
+      const activeResponsibles = new Set();
+      inv.items.forEach(it => {
+        if (it && it.Responsable) {
+          const uObj = allUsers.find(usr =>
+            usr.username?.toLowerCase() === String(it.Responsable).toLowerCase().trim() ||
+            usr.displayName?.toLowerCase() === String(it.Responsable).toLowerCase().trim() ||
+            usr.clave?.toLowerCase() === String(it.Responsable).toLowerCase().trim()
+          );
+          if (uObj) {
+            activeResponsibles.add(uObj.username);
+            if (uObj.displayName) activeResponsibles.add(uObj.displayName);
+            if (uObj.clave) activeResponsibles.add(uObj.clave);
+          } else {
+            activeResponsibles.add(it.Responsable);
+          }
+        }
+      });
+      inv.assignedAuxiliars = Array.from(activeResponsibles);
     }
 
     this.saveInventory(inv);
@@ -655,14 +789,14 @@ class InventoryService {
     auditService.logReassignment({
       inventoryId: inv.id,
       fromUser: 'Varios',
-      toUser,
+      toUser: targetUsername,
       adminUser: requestingUser.username,
       center: inv.center,
       affectedCount: count,
-      reason
+      reason: reason || 'Reasignación de tareas operativas'
     });
 
-    return { success: true, count, toUser };
+    return { success: true, count, toUser: targetUsername, targetDisplayName };
   }
 
   submitInventoryForReview({ inventoryId, user, signature }) {
@@ -725,9 +859,12 @@ class InventoryService {
     storagePath.writeJson(justFilePath, justRecord);
 
     item.Estado = 'Justificado';
+    item.Razon = reasonType || 'AJUSTE_INVENTARIO';
+    item.Razon_Justificacion = reasonType || 'AJUSTE_INVENTARIO';
+    item.Comentario_Justificacion = justification || '';
     this.saveInventory(inv);
 
-    // Sync justification to Google Sheets in Google Drive
+    // Sync justification to Google Sheets in Google Drive (Updates columns R and S)
     try {
       gasService.upsertCountToGAS(inv.type, {
         center: inv.center,
@@ -737,6 +874,11 @@ class InventoryService {
         stockFisico: item.Stock_Fisico,
         malEstado: item.Mal_estado || 0,
         comentario: `[Justificado: ${reasonType || 'Ajuste'}] ${justification}`,
+        razon: reasonType || 'AJUSTE_INVENTARIO',
+        razonJustificacion: reasonType || 'AJUSTE_INVENTARIO',
+        reasonType: reasonType || 'AJUSTE_INVENTARIO',
+        comentarioJustificacion: justification || '',
+        justification: justification || '',
         fechaUltimoConteo: item.Fecha_Ultimo_Conteo,
         responsable: user.displayName || user.username,
         estado: 'Justificado',
@@ -804,11 +946,16 @@ class InventoryService {
           totalItems: inv.items.length,
           totalDiscrepancies: discrepantItems.length,
           pendingJustificationsCount: pendingDiscrepancies.length,
-          items: discrepantItems.map(it => ({
-            ...it,
-            isJustified: justifiedSkus.has(it.SKU),
-            justificationDetails: existingJustifications.find(j => j.sku === it.SKU) || null
-          }))
+          items: discrepantItems.map(it => {
+            const jDetails = existingJustifications.find(j => j.sku === it.SKU) || null;
+            return {
+              ...it,
+              Razon: it.Razon || it.Razon_Justificacion || (jDetails ? jDetails.reasonType : ''),
+              Comentario_Justificacion: it.Comentario_Justificacion || (jDetails ? jDetails.justification : ''),
+              isJustified: justifiedSkus.has(it.SKU),
+              justificationDetails: jDetails
+            };
+          })
         });
       }
     });

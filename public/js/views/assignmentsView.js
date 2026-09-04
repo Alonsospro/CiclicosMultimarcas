@@ -22,34 +22,69 @@ window.AssignmentsView = {
     });
 
     document.getElementById('btn-execute-reassign')?.addEventListener('click', async () => {
-      await this.executeReassignment();
+      await this.executeReassignment(false);
+    });
+
+    document.getElementById('btn-assign-all-to-aux')?.addEventListener('click', async () => {
+      await this.executeReassignment(true);
     });
   },
 
   async loadView() {
     const invSelect = document.getElementById('select-assign-inv');
     const auxSelect = document.getElementById('select-assign-aux');
+    const badgeEl = document.getElementById('assign-scope-badge');
     if (!invSelect || !auxSelect) return;
 
     invSelect.innerHTML = '<option value="">Cargando inventarios...</option>';
     auxSelect.innerHTML = '<option value="">Cargando auxiliares...</option>';
 
     try {
+      const isAdm = window.Auth.hasRole(['ADMIN']);
+      const currentUser = window.Auth.currentUser;
+
+      if (badgeEl) {
+        if (isAdm) {
+          badgeEl.className = 'alert alert-warning';
+          badgeEl.style.display = 'flex';
+          badgeEl.innerHTML = `<i class="fa-solid fa-crown" style="color: #f59e0b; font-size: 1.15rem; margin-top: 0.15rem;"></i> <div><strong style="color: #f59e0b;">Modo Administrador Global:</strong> Tiene permisos para asignar cualquier inventario activo a cualquier auxiliar de cualquier centro operativo de NIBOL.</div>`;
+        } else {
+          const cName = currentUser?.centerName ? `${currentUser.center} - ${currentUser.centerName}` : (currentUser?.center || 'su centro');
+          badgeEl.className = 'alert alert-info';
+          badgeEl.style.display = 'flex';
+          badgeEl.innerHTML = `<i class="fa-solid fa-building-user" style="color: #38bdf8; font-size: 1.15rem; margin-top: 0.15rem;"></i> <div><strong style="color: #38bdf8;">Modo Encargado (${cName}):</strong> Visualiza y puede reasignar únicamente inventarios y auxiliares pertenecientes a su centro operativo.</div>`;
+        }
+      }
+
       const [invRes, usersRes] = await Promise.all([
-        window.API.getInventories({ center: window.Auth.currentUser?.center }),
+        window.API.getInventories({ center: isAdm ? 'TODOS' : currentUser?.center }),
         window.API.getUsers()
       ]);
 
-      const inventories = (invRes.inventories || []).filter(i => i.status === 'EN_PROGRESO');
-      if (inventories.length === 0) {
-        invSelect.innerHTML = '<option value="">No hay inventarios en progreso</option>';
-      } else {
-        invSelect.innerHTML = '<option value="">-- Seleccionar Inventario --</option>' +
-          inventories.map(i => `<option value="${i.id}">${i.name} (${i.center})</option>`).join('');
+      let inventories = (invRes.inventories || []).filter(i => i.status === 'EN_PROGRESO');
+      if (!isAdm && currentUser?.center) {
+        inventories = inventories.filter(i => window.Auth.isSameCenter(i.center, currentUser.center));
       }
 
-      const auxiliars = (usersRes.users || []).filter(u => u.role === 'AUXILIAR');
-      auxSelect.innerHTML = auxiliars.map(u => `<option value="${u.username}">${u.displayName || u.username}</option>`).join('');
+      if (inventories.length === 0) {
+        invSelect.innerHTML = '<option value="">No hay inventarios en progreso disponibles</option>';
+      } else {
+        invSelect.innerHTML = '<option value="">-- Seleccionar Inventario --</option>' +
+          inventories.map(i => `<option value="${i.id}">${i.name} [Centro: ${i.center}]</option>`).join('');
+      }
+
+      let auxiliars = (usersRes.users || []).filter(u => u.role === 'AUXILIAR');
+      if (!isAdm && currentUser?.center) {
+        auxiliars = auxiliars.filter(u => window.Auth.isSameCenter(u.center, currentUser.center));
+      }
+
+      if (auxiliars.length === 0) {
+        const cDesc = currentUser?.centerName || currentUser?.center || 'su centro';
+        auxSelect.innerHTML = `<option value="">No hay auxiliares registrados en ${cDesc}</option>`;
+      } else {
+        auxSelect.innerHTML = '<option value="">-- Seleccionar Auxiliar Responsable --</option>' +
+          auxiliars.map(u => `<option value="${u.username}">${u.displayName || u.username} (${u.centerName || u.center || 'Sin Centro'})</option>`).join('');
+      }
 
       document.getElementById('tbody-assignments').innerHTML =
         '<tr><td colspan="7" style="text-align:center; padding: 2rem; color: var(--text-dim);">Seleccione un inventario para ver los ítems y responsables.</td></tr>';
@@ -84,34 +119,38 @@ window.AssignmentsView = {
     }
   },
 
-  async executeReassignment() {
+  async executeReassignment(assignAll = false) {
     if (!this.currentInventory) {
       window.Toast.warning('Seleccione un inventario primero.');
       return;
     }
 
-    const selectedCheckboxes = document.querySelectorAll('.chk-assign-item:checked');
-    const itemIds = Array.from(selectedCheckboxes).map(chk => chk.value);
     const toUser = document.getElementById('select-assign-aux').value;
-
-    if (itemIds.length === 0) {
-      window.Toast.warning('Debe seleccionar al menos un ítem para reasignar.');
-      return;
-    }
-
     if (!toUser) {
       window.Toast.warning('Seleccione el auxiliar de destino.');
       return;
     }
 
+    let itemIds = [];
+    if (!assignAll) {
+      const selectedCheckboxes = document.querySelectorAll('.chk-assign-item:checked');
+      itemIds = Array.from(selectedCheckboxes).map(chk => chk.value);
+      if (itemIds.length === 0) {
+        window.Toast.warning('Debe seleccionar al menos un ítem con la casilla o hacer clic en "Asignar Todo el Inventario".');
+        return;
+      }
+    }
+
     try {
       const res = await window.API.reassignTasks(this.currentInventory.id, {
-        itemIds,
+        itemIds: assignAll ? 'ALL' : itemIds,
+        assignAll,
         toUser,
         reason: 'Reasignación de carga operativa'
       });
 
-      window.Toast.success(`Se reasignaron ${res.count} ítems a ${toUser} sin duplicar pendientes.`);
+      const countMsg = assignAll ? 'todo el inventario' : `${res.count} ítems`;
+      window.Toast.success(`¡Se asignó exitosamente ${countMsg} al auxiliar ${res.targetDisplayName || toUser}! Ya está disponible en su perfil.`);
       await this.loadInventoryItems(this.currentInventory.id);
     } catch (err) {
       window.Toast.danger(err.message || 'Error al reasignar tareas');
