@@ -28,7 +28,20 @@ window.HistoryView = {
       }
 
       if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 2rem; color: var(--text-dim);">No hay inventarios finalizados en el historial aún.</td></tr>';
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" style="text-align:center; padding: 2.5rem; color: var(--text-dim);">
+              <i class="fa-solid fa-folder-open" style="font-size: 2rem; margin-bottom: 0.5rem; display: block; opacity: 0.5;"></i>
+              <p style="margin: 0; font-size: 0.95rem; font-weight: 500;">No hay inventarios finalizados en el historial aún.</p>
+              <small style="color: #94a3b8; display: block; margin-top: 0.35rem;">
+                Los inventarios se archivan aquí al completar la revisión formal ("Finalizar Revisión") y generar el corte en Google Drive.
+              </small>
+              <button class="btn btn-secondary btn-sm" onclick="window.openGasDiagnosticsModal && window.openGasDiagnosticsModal()" style="margin-top: 1rem; display: inline-flex; align-items: center; gap: 0.4rem;">
+                <i class="fa-solid fa-stethoscope" style="color: #38bdf8;"></i> Diagnosticar Conexión Google Apps Script
+              </button>
+            </td>
+          </tr>
+        `;
         return;
       }
 

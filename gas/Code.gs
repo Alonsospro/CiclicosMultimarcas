@@ -64,6 +64,25 @@ function doGet(e) {
       return json_({ success: true, status: 'success', center, total: rows.length, items: rows, products: rows, rows: rows });
     }
 
+    if (action === 'getHistory' || action === 'listFinalFiles') {
+      const type = p.type || 'CICLICO';
+      const center = p.center || null;
+      const history = getHistory_(type, center);
+      return json_({ success: true, count: history.length, history: history });
+    }
+
+    if (action === 'diagnostic') {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const sheets = ss.getSheets().map(s => ({ name: s.getName(), rows: s.getLastRow(), cols: s.getLastColumn() }));
+      return json_({
+        success: true,
+        spreadsheetName: ss.getName(),
+        spreadsheetId: ss.getId(),
+        sheets,
+        timestamp: new Date().toISOString()
+      });
+    }
+
     if (action === 'getReferencePhoto') {
       const sku = String(p.sku || '').trim();
       const photo = getReferencePhotoBySku_(sku);
@@ -74,6 +93,43 @@ function doGet(e) {
   } catch (err) {
     return json_({ success: false, error: err.message, stack: err.stack });
   }
+}
+
+function getHistory_(type, center) {
+  const results = [];
+  try {
+    const rootFolder = getRootFolderForType_(type || 'CICLICO');
+    const targetCenters = center ? [center] : ['1120', '1300', 'WARNES', '1100', '1200'];
+
+    targetCenters.forEach(c => {
+      try {
+        const cFolders = rootFolder.getFoldersByName(c);
+        while (cFolders.hasNext()) {
+          const cFolder = cFolders.next();
+          const snapFolders = cFolder.getFoldersByName('Archivos Finales');
+          while (snapFolders.hasNext()) {
+            const sFolder = snapFolders.next();
+            const files = sFolder.getFiles();
+            while (files.hasNext()) {
+              const f = files.next();
+              results.push({
+                fileId: f.getId(),
+                fileName: f.getName(),
+                driveUrl: f.getUrl(),
+                spreadsheetUrl: f.getUrl(),
+                center: c,
+                type: type || 'CICLICO',
+                closedAt: f.getDateCreated().toISOString(),
+                closedBy: 'GAS / Drive',
+                source: 'GOOGLE_DRIVE'
+              });
+            }
+          }
+        }
+      } catch (e) {}
+    });
+  } catch (err) {}
+  return results;
 }
 
 function doPost(e) {

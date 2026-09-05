@@ -5,16 +5,28 @@ const config = require('../config');
 class StoragePath {
   constructor() {
     this.initialDataDir = config.baseDataDir;
-    // On Vercel serverless, /var/task is read-only. Use writable /tmp directory
+    // On Vercel serverless or when baseDataDir is read-only, use writable /tmp directory
     if (process.env.VERCEL) {
       this.baseDir = path.join('/tmp', 'nibol_data');
     } else {
-      this.baseDir = config.baseDataDir;
+      let isWritable = false;
+      try {
+        if (!fs.existsSync(config.baseDataDir)) {
+          fs.mkdirSync(config.baseDataDir, { recursive: true });
+        }
+        const testPath = path.join(config.baseDataDir, '.test_write_' + Date.now());
+        fs.writeFileSync(testPath, 'ok', 'utf8');
+        fs.unlinkSync(testPath);
+        isWritable = true;
+      } catch (err) {
+        isWritable = false;
+      }
+      this.baseDir = isWritable ? config.baseDataDir : path.join('/tmp', 'nibol_data');
     }
     this.memoryStore = new Map();
     this.cacheTimestamps = new Map(); // Track when each entry was cached
     this.dirListings = new Map();
-    this.CACHE_TTL_MS = 30 * 1000; // 30 seconds TTL for cached entries
+    this.CACHE_TTL_MS = 60 * 1000; // 60 seconds refresh window
     this.ensureDirs();
   }
 
@@ -53,8 +65,8 @@ class StoragePath {
       }
     });
 
-    // On Vercel, copy packaged initial users and seed files from read-only package to /tmp
-    if (process.env.VERCEL && this.initialDataDir && fs.existsSync(this.initialDataDir)) {
+    // Copy packaged initial users and seed files from read-only package to baseDir if different
+    if (this.baseDir !== this.initialDataDir && this.initialDataDir && fs.existsSync(this.initialDataDir)) {
       try {
         const copySeedDir = (src, dest) => {
           if (!fs.existsSync(src)) return;
@@ -125,14 +137,26 @@ class StoragePath {
   readJson(filePath, defaultValue = null) {
     const key = this.normalizeKey(filePath);
     if (this.memoryStore.has(key)) {
-      // Check TTL: if entry is older than CACHE_TTL_MS, invalidate and re-read from disk
       const cachedAt = this.cacheTimestamps.get(key) || 0;
       if (Date.now() - cachedAt < this.CACHE_TTL_MS) {
         return JSON.parse(JSON.stringify(this.memoryStore.get(key)));
       }
-      // TTL expired, remove stale entry
-      this.memoryStore.delete(key);
-      this.cacheTimestamps.delete(key);
+      // If TTL expired, try to refresh from disk if a newer file exists
+      try {
+        if (fs.existsSync(filePath)) {
+          const raw = fs.readFileSync(filePath, 'utf8');
+          const parsed = JSON.parse(raw);
+          this.memoryStore.set(key, parsed);
+          this.cacheTimestamps.set(key, Date.now());
+          return JSON.parse(JSON.stringify(parsed));
+        }
+      } catch (e) {
+        // Disk read failed, retain memory copy safely
+      }
+      // CRITICAL FIX: NEVER delete from memoryStore if disk file doesn't exist!
+      // In serverless / ephemeral containers, memoryStore is the source of truth if disk is unavailable.
+      this.cacheTimestamps.set(key, Date.now());
+      return JSON.parse(JSON.stringify(this.memoryStore.get(key)));
     }
     try {
       if (fs.existsSync(filePath)) {

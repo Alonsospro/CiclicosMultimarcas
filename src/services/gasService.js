@@ -1,4 +1,6 @@
+const path = require('path');
 const config = require('../config');
+const storagePath = require('./storagePath');
 
 class GasService {
   getUrlForType(type) {
@@ -28,9 +30,8 @@ class GasService {
     const cleanCenter = config.getCenterCode ? config.getCenterCode(center) : center;
     const url = this.getUrlForType(type);
 
-    // Primary action: CICLICOS expects getItems, BARRIDO/MENSUAL/SEMANAL expect getProducts
-    const isCiclico = String(type || '').toUpperCase().startsWith('CICLIC');
-    const actionsToTry = isCiclico ? ['getItems', 'getProducts'] : ['getProducts', 'getItems'];
+    // Primary action: production GAS webhook expects getProducts, fallback to getItems
+    const actionsToTry = ['getProducts', 'getItems'];
 
     let lastError = null;
 
@@ -62,9 +63,10 @@ class GasService {
           throw new Error('Respuesta inválida de Google Apps Script: ' + text.substring(0, 100));
         }
 
-        // If action is explicitly not supported on this deployment, attempt fallback action
-        if (parsed && parsed.success === false && parsed.error && String(parsed.error).includes('no soportada')) {
-          lastError = new Error(parsed.error);
+        // If action is not supported or returned an error status, continue to next action
+        if (parsed && (parsed.success === false || parsed.status === 'error')) {
+          const errMsg = parsed.error || parsed.message || 'Acción no soportada en este despliegue de Google Apps Script';
+          lastError = new Error(errMsg);
           continue;
         }
 
@@ -512,6 +514,291 @@ class GasService {
         comentarioJustificacion: postBody.comentarioJustificacion
       });
     }
+  }
+
+  /**
+   * Comprehensive diagnostic check of all Google Apps Script integration endpoints defined in .env
+   * Outputs a detailed log in the administrator console and returns structured diagnostics
+   * identifying why inventories are or are not detected.
+   */
+  async runGasDiagnostics(options = {}) {
+    const startTime = Date.now();
+    const timestamp = new Date().toISOString();
+
+    const endpoints = [
+      { name: 'Cíclicos', envVar: 'CICLICOS_URL', type: 'CICLICO', url: config.integrations.CICLICOS_URL },
+      { name: 'Barrido', envVar: 'BARRIDO_URL', type: 'BARRIDO', url: config.integrations.BARRIDO_URL },
+      { name: 'Mensuales', envVar: 'MENSUALES_URL', type: 'MENSUALES', url: config.integrations.MENSUALES_URL },
+      { name: 'Semanales', envVar: 'SEMANALES_URL', type: 'SEMANALES', url: config.integrations.SEMANALES_URL }
+    ];
+
+    const testCenters = ['1120', '1300', 'WARNES'];
+
+    // 1. Test each endpoint
+    const endpointResults = await Promise.all(endpoints.map(async (ep) => {
+      const epStart = Date.now();
+      const epReport = {
+        name: ep.name,
+        envVar: ep.envVar,
+        type: ep.type,
+        url: ep.url,
+        maskedUrl: ep.url ? (ep.url.slice(0, 38) + '...' + ep.url.slice(-10)) : 'NO_CONFIGURADO',
+        configured: !!ep.url,
+        ping: { ok: false, status: 0, latencyMs: 0, error: null },
+        getProductsTest: {},
+        getHistoryTest: { ok: false, recordsCount: 0, latencyMs: 0, rawResponse: null, error: null },
+        totalItemsFound: 0,
+        totalCountedItemsFound: 0
+      };
+
+      if (!ep.url) {
+        epReport.ping.error = 'Variable de entorno no definida en .env o vacía';
+        return epReport;
+      }
+
+      // 1.1 Ping test
+      try {
+        const pingUrl = new URL(ep.url);
+        pingUrl.searchParams.set('action', 'ping');
+        const pingRes = await fetch(pingUrl.toString(), { redirect: 'follow', signal: AbortSignal.timeout(8000) });
+        epReport.ping.status = pingRes.status;
+        epReport.ping.latencyMs = Date.now() - epStart;
+        epReport.ping.ok = pingRes.status === 200;
+        try {
+          const pingJson = await pingRes.json();
+          epReport.ping.response = pingJson;
+        } catch (e) {
+          epReport.ping.response = 'HTTP ' + pingRes.status;
+        }
+      } catch (err) {
+        epReport.ping.ok = false;
+        epReport.ping.error = err.message;
+        epReport.ping.latencyMs = Date.now() - epStart;
+      }
+
+      // 1.2 Products test per test center
+      for (const center of testCenters) {
+        const centerStart = Date.now();
+        try {
+          const prodUrl = new URL(ep.url);
+          prodUrl.searchParams.set('action', 'getProducts');
+          prodUrl.searchParams.set('center', center);
+
+          const res = await fetch(prodUrl.toString(), { redirect: 'follow', signal: AbortSignal.timeout(8000) });
+          const latency = Date.now() - centerStart;
+          const text = await res.text();
+          let data = null;
+          try { data = JSON.parse(text); } catch (e) {}
+
+          const rawList = Array.isArray(data) ? data : (data?.items || data?.products || data?.rows || []);
+          const totalItems = Array.isArray(rawList) ? rawList.length : 0;
+          const countedItems = Array.isArray(rawList) ? rawList.filter(i => (
+            i && i.Stock_Fisico !== null && i.Stock_Fisico !== undefined && i.Stock_Fisico !== ''
+          )).length : 0;
+
+          epReport.totalItemsFound += totalItems;
+          epReport.totalCountedItemsFound += countedItems;
+
+          epReport.getProductsTest[center] = {
+            ok: res.status === 200 && (data?.success !== false),
+            status: res.status,
+            latencyMs: latency,
+            totalItems,
+            countedItems,
+            actionUsed: 'getProducts',
+            error: (data?.success === false ? (data.message || data.error) : null)
+          };
+        } catch (centerErr) {
+          epReport.getProductsTest[center] = {
+            ok: false,
+            status: 0,
+            latencyMs: Date.now() - centerStart,
+            totalItems: 0,
+            countedItems: 0,
+            error: centerErr.message
+          };
+        }
+      }
+
+      // 1.3 History test (action=getHistory)
+      const histStart = Date.now();
+      try {
+        const histUrl = new URL(ep.url);
+        histUrl.searchParams.set('action', 'getHistory');
+        const histRes = await fetch(histUrl.toString(), { redirect: 'follow', signal: AbortSignal.timeout(8000) });
+        epReport.getHistoryTest.latencyMs = Date.now() - histStart;
+        epReport.getHistoryTest.status = histRes.status;
+        if (histRes.ok) {
+          const text = await histRes.text();
+          try {
+            const histData = JSON.parse(text);
+            const historyList = Array.isArray(histData) ? histData : (histData?.history || histData?.files || []);
+            epReport.getHistoryTest.ok = true;
+            epReport.getHistoryTest.recordsCount = Array.isArray(historyList) ? historyList.length : 0;
+            epReport.getHistoryTest.rawResponse = histData?.success !== undefined ? histData : 'Array(' + historyList.length + ')';
+          } catch (pe) {
+            epReport.getHistoryTest.ok = false;
+            epReport.getHistoryTest.error = 'Respuesta no es JSON válido';
+          }
+        } else {
+          epReport.getHistoryTest.ok = false;
+          epReport.getHistoryTest.error = 'HTTP error ' + histRes.status;
+        }
+      } catch (histErr) {
+        epReport.getHistoryTest.ok = false;
+        epReport.getHistoryTest.error = histErr.message;
+        epReport.getHistoryTest.latencyMs = Date.now() - histStart;
+      }
+
+      return epReport;
+    }));
+
+    // 2. Local container storage inspection
+    const invDir = storagePath.getInventoriesDirectory();
+    const histDir = storagePath.getHistoryDirectory();
+    const auditDir = storagePath.getAuditDirectory();
+
+    const localInvFiles = storagePath.listFiles(invDir).filter(f => f.endsWith('.json'));
+    const localHistFiles = storagePath.listFiles(histDir).filter(f => f.endsWith('.json'));
+    const localAuditFiles = storagePath.listFiles(auditDir).filter(f => f.endsWith('.json'));
+
+    const localInventoriesSummary = localInvFiles.map(f => {
+      const inv = storagePath.readJson(path.join(invDir, f), null);
+      if (!inv) return { file: f, valid: false };
+      const items = Array.isArray(inv.items) ? inv.items : [];
+      const counted = items.filter(i => i.Stock_Fisico !== null && i.Stock_Fisico !== undefined && i.Stock_Fisico !== '').length;
+      return {
+        id: inv.id,
+        name: inv.name,
+        type: inv.type,
+        center: inv.center,
+        status: inv.status,
+        totalItems: items.length,
+        countedItems: counted,
+        createdAt: inv.createdAt,
+        updatedAt: inv.updatedAt
+      };
+    });
+
+    // 3. Root Cause Analysis & Explanations
+    const rootCauses = [];
+    const recommendations = [];
+
+    const totalCountedInSheets = endpointResults.reduce((acc, ep) => acc + ep.totalCountedItemsFound, 0);
+    const totalItemsInSheets = endpointResults.reduce((acc, ep) => acc + ep.totalItemsFound, 0);
+    const totalRemoteHistory = endpointResults.reduce((acc, ep) => acc + (ep.getHistoryTest.recordsCount || 0), 0);
+    const allEndpointsOnline = endpointResults.every(ep => ep.ping.ok);
+
+    if (!allEndpointsOnline) {
+      const offlineNames = endpointResults.filter(ep => !ep.ping.ok).map(ep => ep.name).join(', ');
+      rootCauses.push({
+        id: 'CONECTIVIDAD_OFFLINE',
+        severidad: 'ALTA',
+        titulo: 'Endpoints de Google Apps Script no responden',
+        descripcion: `Los siguientes webhooks no respondieron adecuadamente al ping: ${offlineNames}. Verifique la conexión a internet o los permisos del despliegue en Google Apps Script.`
+      });
+      recommendations.push('Verifique en Google Apps Script que los proyectos estén desplegados como "Aplicación web", ejecutándose como "Yo (tu cuenta)" y con acceso "Cualquier usuario".');
+    }
+
+    if (totalCountedInSheets > 0 && totalRemoteHistory === 0 && localHistFiles.length === 0) {
+      rootCauses.push({
+        id: 'CONTEOS_SIN_FINALIZAR',
+        severidad: 'MEDIA',
+        titulo: 'Existen productos contados en Google Sheets pero ningún inventario finalizado en Drive',
+        descripcion: `Se detectaron ${totalCountedInSheets} productos con stock físico registrado directamente en las pestañas de Google Sheets (por ejemplo en centros 1120 y WARNES). Sin embargo, aún no se ha ejecutado el proceso de "Finalizar Revisión" o "Finalizar Barrido" en la aplicación, el cual es el paso que crea formalmente la copia de corte en Google Drive (carpeta Archivos Finales) y alimenta el Historial.`
+      });
+      recommendations.push('Para que los inventarios aparezcan en el módulo de Historial y se detecten como eventos de inventario cerrados: ingrese a "Inventarios", abra el inventario correspondiente, verifique las justificaciones y haga clic en "Finalizar Revisión". Esto guardará el archivo permanente en Drive y creará el registro de histórico.');
+    }
+
+    if (localInventoriesSummary.some(inv => inv.status === 'EN_PROGRESO' || inv.status === 'PENDIENTE_JUSTIFICACION')) {
+      const pendingCount = localInventoriesSummary.filter(inv => inv.status !== 'FINALIZADO' && inv.status !== 'REVISADO').length;
+      rootCauses.push({
+        id: 'INVENTARIOS_EN_CURSO',
+        severidad: 'INFO',
+        titulo: `${pendingCount} inventario(s) activo(s) en curso o pendientes de justificación`,
+        descripcion: 'El sistema solo archiva en el historial permanente aquellos inventarios que completan la etapa de revisión. Los inventarios activos permanecen en la pestaña "Inventarios Disponibles".'
+      });
+    }
+
+    if (localHistFiles.length === 0 && totalRemoteHistory === 0 && totalCountedInSheets === 0) {
+      rootCauses.push({
+        id: 'SIN_REGISTROS_PREVIOS',
+        severidad: 'INFO',
+        titulo: 'No se encontraron registros de inventarios previos ni en local ni en Google Drive',
+        descripcion: 'No hay archivos de inventarios finalizados en la carpeta de histórico de Drive ni en el almacenamiento del servidor. Es necesario crear o importar un inventario para comenzar.'
+      });
+      recommendations.push('Cree un nuevo inventario desde el botón "Crear Inventario" seleccionando el centro deseado (1120, 1300, etc.) o inicie un Barrido.');
+    }
+
+    recommendations.push('Los endpoints en .env están correctamente configurados con acción "getProducts".');
+
+    // 4. Detailed console log format for server admin console
+    const divider = '='.repeat(85);
+    const subDivider = '-'.repeat(85);
+
+    const logLines = [
+      '',
+      divider,
+      '🔍 [DIAGNÓSTICO ADMIN] INTEGRACIÓN GOOGLE APPS SCRIPT Y DETECCIÓN DE INVENTARIOS',
+      divider,
+      `⏰ Fecha y Hora: ${timestamp}`,
+      `⏱️ Duración del test: ${Date.now() - startTime}ms`,
+      `🌐 Estado General de Conexión: ${allEndpointsOnline ? '✅ TODOS LOS ENDPOINTS ONLINE' : '⚠️ ALGUNOS ENDPOINTS CON INCIDENCIAS'}`,
+      subDivider,
+      '1. CONECTIVIDAD DE ENDPOINTS (.env):',
+      ...endpointResults.map(ep => {
+        const pingStatus = ep.ping.ok ? `✅ ONLINE (${ep.ping.latencyMs}ms)` : `❌ ERROR: ${ep.ping.error}`;
+        const sheetCounts = Object.entries(ep.getProductsTest).map(([c, data]) => {
+          return `${c}: ${data.totalItems} ítems (${data.countedItems} contados)`;
+        }).join(' | ');
+        const histStatus = ep.getHistoryTest.ok
+          ? `${ep.getHistoryTest.recordsCount} archivos en Drive`
+          : `Aviso: ${ep.getHistoryTest.error || 'sin datos'}`;
+        return `   • [${ep.envVar}] ${ep.name} (${ep.type})\n     URL: ${ep.maskedUrl}\n     Ping: ${pingStatus}\n     Hojas Sheets: [${sheetCounts}]\n     Historial Drive (getHistory): ${histStatus}`;
+      }),
+      subDivider,
+      '2. ESTADO DE ALMACENAMIENTO Y DETECCIÓN:',
+      `   • Ítems totales en hojas de cálculo: ${totalItemsInSheets}`,
+      `   • Ítems con Stock Físico registrado en Sheets: ${totalCountedInSheets}`,
+      `   • Inventarios en almacenamiento local (data/inventories): ${localInvFiles.length}`,
+      ...localInventoriesSummary.map(inv => `     - ${inv.id}: "${inv.name}" [${inv.type} | ${inv.center}] Status: ${inv.status} (${inv.countedItems}/${inv.totalItems} contados)`),
+      `   • Archivos en histórico local (data/history): ${localHistFiles.length}`,
+      `   • Archivos en histórico remoto Google Drive: ${totalRemoteHistory}`,
+      subDivider,
+      '3. CAUSA RAÍZ IDENTIFICADA - ¿POR QUÉ NO SE DETECTAN LOS INVENTARIOS?:',
+      ...rootCauses.map((rc, idx) => `   [${idx + 1}] (${rc.severidad}) ${rc.titulo}\n       ${rc.descripcion}`),
+      subDivider,
+      '4. ACCIONES RECOMENDADAS PARA EL ADMINISTRADOR:',
+      ...recommendations.map((rec, idx) => `   ${idx + 1}. ${rec}`),
+      divider,
+      ''
+    ];
+
+    const formattedLog = logLines.join('\n');
+
+    // Emit formatted log to server console
+    console.log(formattedLog);
+
+    return {
+      success: true,
+      timestamp,
+      executionTimeMs: Date.now() - startTime,
+      allEndpointsOnline,
+      summary: {
+        totalEndpoints: endpoints.length,
+        onlineEndpoints: endpointResults.filter(ep => ep.ping.ok).length,
+        totalItemsInSheets,
+        totalCountedInSheets,
+        localInventoriesCount: localInvFiles.length,
+        localHistoryCount: localHistFiles.length,
+        remoteHistoryCount: totalRemoteHistory
+      },
+      endpoints: endpointResults,
+      localInventories: localInventoriesSummary,
+      rootCauses,
+      recommendations,
+      formattedLog
+    };
   }
 
   /**

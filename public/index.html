@@ -479,11 +479,14 @@
       <!-- VIEW: DRIVE HISTORY -->
       <section id="view-history" class="view-container">
         <div class="card">
-          <div class="card-header">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
             <div>
               <h2 class="card-title"><i class="fa-solid fa-clock-rotate-left" style="color: var(--primary);"></i> Historial de Inventarios en Google Drive</h2>
               <p class="stat-subtext">Archivos oficiales cerrados con nomenclatura estándar y reportes descargables</p>
             </div>
+            <button class="btn btn-secondary btn-sm" id="btn-open-gas-diagnostics" title="Diagnóstico de conectividad y detección de inventarios">
+              <i class="fa-solid fa-stethoscope" style="color: #38bdf8;"></i> Diagnóstico GAS
+            </button>
           </div>
 
           <div class="table-responsive">
@@ -1430,6 +1433,102 @@
           <i class="fa-brands fa-google-drive"></i> Abrir en Google Drive
         </a>
         <button type="button" class="btn btn-secondary" data-close-modal="modal-reference-photo-preview">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Google Apps Script Diagnostics & Inventory Detection Console -->
+  <div class="modal-overlay" id="modal-gas-diagnostics">
+    <div class="modal-box" style="max-width: 900px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.35); box-shadow: 0 25px 50px rgba(0,0,0,0.7); border-radius: var(--radius-lg, 12px);">
+      <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding: 1rem 1.25rem; display: flex; justify-content: space-between; align-items: center;">
+        <h3 class="card-title" style="color: #38bdf8; display: flex; align-items: center; gap: 0.6rem; font-size: 1.1rem; margin: 0;">
+          <i class="fa-solid fa-terminal"></i> Consola de Diagnóstico Google Apps Script & Detección
+        </h3>
+        <button class="close-btn" data-close-modal="modal-gas-diagnostics">&times;</button>
+      </div>
+
+      <div class="modal-body" style="overflow-y: auto; padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem;">
+        <!-- Loading State -->
+        <div id="gas-diag-loading" style="text-align: center; padding: 2.5rem; display: flex; flex-direction: column; align-items: center; gap: 0.75rem;">
+          <i class="fa-solid fa-spinner fa-spin" style="font-size: 2.2rem; color: #38bdf8;"></i>
+          <p style="color: #cbd5e1; font-weight: 500;">Ejecutando diagnóstico integral contra todos los endpoints (.env)...</p>
+          <small style="color: #94a3b8;">Verificando Cíclicos, Barrido, Mensuales, Semanales, hojas de cálculo y Drive...</small>
+        </div>
+
+        <!-- Content Area (filled after load) -->
+        <div id="gas-diag-content" style="display: none; flex-direction: column; gap: 1.25rem;">
+          <!-- Top KPI Metrics -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.75rem;">
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.08); padding: 0.85rem; border-radius: 8px;">
+              <span style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Endpoints Online</span>
+              <div id="diag-kpi-endpoints" style="font-size: 1.4rem; font-weight: 700; color: #22c55e; margin-top: 0.2rem;">4 / 4</div>
+            </div>
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.08); padding: 0.85rem; border-radius: 8px;">
+              <span style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Total Ítems en Sheets</span>
+              <div id="diag-kpi-sheets" style="font-size: 1.4rem; font-weight: 700; color: #38bdf8; margin-top: 0.2rem;">0</div>
+            </div>
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.08); padding: 0.85rem; border-radius: 8px;">
+              <span style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Stock Físico Contado</span>
+              <div id="diag-kpi-counted" style="font-size: 1.4rem; font-weight: 700; color: #f59e0b; margin-top: 0.2rem;">0</div>
+            </div>
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.08); padding: 0.85rem; border-radius: 8px;">
+              <span style="font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Histórico Drive / Local</span>
+              <div id="diag-kpi-history" style="font-size: 1.4rem; font-weight: 700; color: #a855f7; margin-top: 0.2rem;">0 / 0</div>
+            </div>
+          </div>
+
+          <!-- Section: Root Cause / Por qué no se detectan -->
+          <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 1rem;">
+            <h4 style="color: #fbbf24; font-size: 0.95rem; font-weight: 600; margin: 0 0 0.5rem 0; display: flex; align-items: center; gap: 0.5rem;">
+              <i class="fa-solid fa-circle-question"></i> Diagnóstico: ¿Por qué no se detectan los inventarios?
+            </h4>
+            <div id="diag-root-causes" style="display: flex; flex-direction: column; gap: 0.6rem; font-size: 0.85rem; color: #e2e8f0; line-height: 1.5;">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Section: Endpoints Table -->
+          <div>
+            <h4 style="color: #94a3b8; font-size: 0.82rem; text-transform: uppercase; font-weight: 600; margin: 0 0 0.5rem 0;">
+              Estado de Endpoints (.env)
+            </h4>
+            <div class="table-responsive" style="border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; overflow: hidden;">
+              <table class="data-table" style="font-size: 0.82rem; margin: 0;">
+                <thead>
+                  <tr style="background: rgba(2, 6, 23, 0.7);">
+                    <th>Servicio</th>
+                    <th>Ping / Latencia</th>
+                    <th>Hojas Sheets (1120 / 1300 / WARNES)</th>
+                    <th>Historial Drive</th>
+                  </tr>
+                </thead>
+                <tbody id="diag-endpoints-tbody">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Section: Monospace Terminal Log Box -->
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+              <h4 style="color: #94a3b8; font-size: 0.82rem; text-transform: uppercase; font-weight: 600; margin: 0; display: flex; align-items: center; gap: 0.4rem;">
+                <i class="fa-solid fa-code"></i> Log Detallado del Servidor (stdout / Consola Admin)
+              </h4>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-diag-log" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;">
+                <i class="fa-regular fa-copy"></i> Copiar Log
+              </button>
+            </div>
+            <pre id="diag-terminal-log" style="background: #020617; color: #38bdf8; padding: 1rem; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.25); font-family: 'JetBrains Mono', 'Courier New', monospace; font-size: 0.78rem; line-height: 1.45; max-height: 240px; overflow-y: auto; white-space: pre-wrap; margin: 0;"></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.1); padding: 0.85rem 1.25rem;">
+        <button type="button" class="btn btn-primary btn-sm" id="btn-rerun-gas-diagnostics" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+          <i class="fa-solid fa-rotate"></i> Re-ejecutar Diagnóstico
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" data-close-modal="modal-gas-diagnostics">Cerrar</button>
       </div>
     </div>
   </div>

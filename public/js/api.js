@@ -250,5 +250,14 @@ window.API = {
       method: 'POST',
       body: formData
     });
+  },
+
+  // Google Apps Script Connectivity & Diagnostics
+  getGasHealth() {
+    return this.request('/inventories/gas-health');
+  },
+
+  getGasDiagnostics() {
+    return this.request('/inventories/gas-diagnostics');
   }
 };

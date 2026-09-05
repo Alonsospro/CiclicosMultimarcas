@@ -361,7 +361,21 @@ window.InventoryView = {
       if (list.length > 0) {
         try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch (e) {}
       } else {
-        try { localStorage.removeItem(cacheKey); } catch (e) {}
+        // Fallback: If network returned empty, check if we have cached inventories
+        try {
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              list = parsed;
+              parsed.forEach(cachedInv => {
+                if (cachedInv && cachedInv.id && Array.isArray(cachedInv.items)) {
+                  window.API.syncInventory(cachedInv).catch(() => {});
+                }
+              });
+            }
+          }
+        } catch (e) {}
       }
 
       // If user is AUXILIAR, verify assignment
@@ -557,6 +571,24 @@ window.InventoryView = {
       </tr>
     `;
 
+    if (!this.currentInventory.items || this.currentInventory.items.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="7" style="text-align: center; padding: 3rem 1.5rem; color: var(--text-dim);">
+            <div style="font-size: 2.2rem; margin-bottom: 0.75rem; color: var(--warning);"><i class="fa-solid fa-clipboard-question"></i></div>
+            <h4 style="color: var(--text-main); margin-bottom: 0.5rem;">No hay ítems asignados para este conteo</h4>
+            <p style="font-size: 0.88rem; max-width: 480px; margin: 0 auto 1.25rem auto;">
+              Si el encargado acaba de asignar este inventario, presione actualizar para sincronizar los ítems asignados a su usuario.
+            </p>
+            <button type="button" class="btn btn-primary btn-sm" onclick="window.InventoryView.reloadCurrentInventory()" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+              <i class="fa-solid fa-arrows-rotate"></i> Actualizar ítems
+            </button>
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
     tbody.innerHTML = this.currentInventory.items.map(item => {
       const isCounted = item.Stock_Fisico !== null && item.Stock_Fisico !== undefined;
       const isLocked = item.locked === true || (item.locked !== false && isCounted);
@@ -718,6 +750,22 @@ window.InventoryView = {
         </tr>
       `;
     }).join('');
+  },
+
+  async reloadCurrentInventory() {
+    if (!this.currentInventory || !this.currentInventory.id) return;
+    try {
+      window.Toast.info('Actualizando datos del inventario...');
+      const res = await window.API.getInventory(this.currentInventory.id);
+      if (res && res.inventory) {
+        this.currentInventory = res.inventory;
+        this.renderCountTable();
+        this.updateProgress();
+        window.Toast.success('Inventario sincronizado.');
+      }
+    } catch (err) {
+      window.Toast.error('Error al actualizar: ' + err.message);
+    }
   },
 
   toggleInlineNewLocation(itemId) {

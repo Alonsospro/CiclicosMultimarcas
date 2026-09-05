@@ -227,9 +227,46 @@ class InventoryService {
         }
 
         // Generate summary stats for list view
-        const totalItems = inv.items.length;
-        const countedItems = inv.items.filter(it => it && it.Stock_Fisico !== null && it.Stock_Fisico !== undefined).length;
-        const pendingItems = totalItems - countedItems;
+        let totalItems = inv.items.length;
+        let countedItems = inv.items.filter(it => it && it.Stock_Fisico !== null && it.Stock_Fisico !== undefined).length;
+
+        if (user.role === 'AUXILIAR') {
+          const userMatches = (respStr) => {
+            if (!respStr) return false;
+            const r = String(respStr).toLowerCase().trim();
+            return r === u || (c && r === c) || (d && (r === d || d.includes(r) || r.includes(d)));
+          };
+
+          const isAssignedToOtherAuxiliar = (respStr) => {
+            if (!respStr) return false;
+            if (userMatches(respStr)) return false;
+            const r = String(respStr).toLowerCase().trim();
+            if (r === 'alonso' || r.includes('alonso rios') || r === 'juan carlos' || r === 'admin' ||
+                r === 'sin asignar' || r === 'pendiente' || r === 'google drive sync' ||
+                (inv.createdBy && r === String(inv.createdBy).toLowerCase().trim())) {
+              return false;
+            }
+            if (Array.isArray(inv.assignedAuxiliars)) {
+              return inv.assignedAuxiliars.some(otherA => {
+                const oa = String(otherA || '').toLowerCase().trim();
+                if (oa === u || (c && oa === c) || (d && (oa === d || d.includes(oa) || oa.includes(d)))) return false;
+                return oa === r || r.includes(oa);
+              });
+            }
+            return false;
+          };
+
+          const userItems = inv.items.filter(it => {
+            if (!it) return false;
+            if (it.Responsable && userMatches(it.Responsable)) return true;
+            if (isDirectlyAssigned) return !isAssignedToOtherAuxiliar(it.Responsable);
+            return false;
+          });
+          totalItems = userItems.length;
+          countedItems = userItems.filter(it => it && it.Stock_Fisico !== null && it.Stock_Fisico !== undefined).length;
+        }
+
+        const pendingItems = Math.max(0, totalItems - countedItems);
 
         list.push({
           id: inv.id,
@@ -318,18 +355,45 @@ class InventoryService {
     }
 
     // If role is AUXILIAR:
-    // 1. Filter items strictly to those assigned to this auxiliary
+    // 1. Filter items strictly to those assigned to this auxiliary (or unassigned/creator rows if user is assigned)
     // 2. Hide columns H, I, K, L, O (Blind Count)
     if (user.role === 'AUXILIAR') {
       const isConteoPhase = inv.status !== 'REVISADO';
 
+      const userMatches = (respStr) => {
+        if (!respStr) return false;
+        const r = String(respStr).toLowerCase().trim();
+        return r === u || (c && r === c) || (d && (r === d || d.includes(r) || r.includes(d)));
+      };
+
+      const isAssignedToOtherAuxiliar = (respStr) => {
+        if (!respStr) return false;
+        if (userMatches(respStr)) return false;
+        const r = String(respStr).toLowerCase().trim();
+        if (r === 'alonso' || r.includes('alonso rios') || r === 'juan carlos' || r === 'admin' ||
+            r === 'sin asignar' || r === 'pendiente' || r === 'google drive sync' ||
+            (inv.createdBy && r === String(inv.createdBy).toLowerCase().trim())) {
+          return false;
+        }
+        if (Array.isArray(inv.assignedAuxiliars)) {
+          return inv.assignedAuxiliars.some(otherA => {
+            const oa = String(otherA || '').toLowerCase().trim();
+            if (oa === u || (c && oa === c) || (d && (oa === d || d.includes(oa) || oa.includes(d)))) return false;
+            return oa === r || r.includes(oa);
+          });
+        }
+        return false;
+      };
+
       const userItems = inv.items.filter(it => {
         if (!it) return false;
-        if (it.Responsable) {
-          const r = String(it.Responsable || '').toLowerCase().trim();
-          return r === u || (c && r === c) || (d && (r === d || d.includes(r) || r.includes(d)));
+        if (it.Responsable && userMatches(it.Responsable)) {
+          return true;
         }
-        return isAssignedToInv;
+        if (isAssignedToInv) {
+          return !isAssignedToOtherAuxiliar(it.Responsable);
+        }
+        return false;
       });
 
       return {
@@ -557,9 +621,28 @@ class InventoryService {
         };
         inv.items.push(targetItem);
       } else {
-        // Auxiliar can only count items assigned to them (except in BARRIDO mode where scan is open for the center)
-        if (user.role === 'AUXILIAR' && inv.type !== 'BARRIDO' && targetItem.Responsable && targetItem.Responsable !== user.username && targetItem.Responsable !== user.clave) {
-          throw new Error(`Este ítem está asignado al auxiliar ${targetItem.Responsable}`);
+        // Auxiliar can only count items assigned to them (or unassigned/creator items if assigned to the inventory)
+        if (user.role === 'AUXILIAR' && inv.type !== 'BARRIDO' && targetItem.Responsable) {
+          const resp = String(targetItem.Responsable).toLowerCase().trim();
+          const u = String(user.username || '').toLowerCase().trim();
+          const c = String(user.clave || '').toLowerCase().trim();
+          const d = String(user.displayName || '').toLowerCase().trim();
+
+          const matchesSelf = resp === u || (c && resp === c) || (d && (resp === d || d.includes(resp) || resp.includes(d)));
+          const isCreatorOrGeneric = resp === 'alonso' || resp.includes('alonso rios') || resp === 'juan carlos' ||
+            resp === 'admin' || resp === 'sin asignar' || resp === 'pendiente' || resp === 'google drive sync' ||
+            (inv.createdBy && resp === String(inv.createdBy).toLowerCase().trim());
+
+          if (!matchesSelf && !isCreatorOrGeneric) {
+            const isAssignedToOther = Array.isArray(inv.assignedAuxiliars) && inv.assignedAuxiliars.some(otherA => {
+              const oa = String(otherA || '').toLowerCase().trim();
+              if (oa === u || (c && oa === c) || (d && (oa === d || d.includes(oa) || oa.includes(d)))) return false;
+              return oa === resp || resp.includes(oa);
+            });
+            if (isAssignedToOther) {
+              throw new Error(`Este ítem está asignado al auxiliar ${targetItem.Responsable}`);
+            }
+          }
         }
 
         if (location) {

@@ -324,6 +324,7 @@ class AuthService {
         centerName: user.centerName || '',
         displayName: user.displayName || user.username,
         cargo: user.cargo || '',
+        clave: user.clave || '',
         isSuperadmin: !!user.isSuperadmin
       },
       config.jwtSecret,
