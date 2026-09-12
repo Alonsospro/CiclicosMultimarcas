@@ -8,6 +8,27 @@ const gasService = require('../services/gasService');
 const { authenticate } = require('../middlewares/authMiddleware');
 const { restrictCenter } = require('../middlewares/centerMiddleware');
 
+// A final-file returned by GAS is considered CICLICO only when its identity
+// actually contains CICLICO. This prevents files from other inventory flows
+// (e.g. SEMANAL) from appearing in the CICLICO history when GAS scans the
+// shared Drive root.
+function isCiclicoHistoryItem(item) {
+  if (!item) return false;
+
+  const type = String(item.type || '').trim().toUpperCase();
+  const fileName = String(item.fileName || '').trim().toUpperCase();
+  const inventoryId = String(item.inventoryId || '').trim().toUpperCase();
+
+  // Strong positive match: explicit CICLICO in the file/inventory identity.
+  if (fileName.includes('CICLICO') || inventoryId.includes('CICLICO')) return true;
+
+  // If GAS/local data explicitly identifies another type, reject it.
+  if (type && !['CICLICO', 'CICLICOS'].includes(type)) return false;
+
+  // Do not guess CICLICO for unrelated files with no usable identity.
+  return false;
+}
+
 // GET /api/history (List finalized inventories directly from Google Drive / Sheets)
 router.get('/', authenticate, restrictCenter, async (req, res) => {
   try {
@@ -22,7 +43,7 @@ router.get('/', authenticate, restrictCenter, async (req, res) => {
       const gasHistory = await gasService.getHistoryFromGAS('CICLICO', userCenter);
       if (Array.isArray(gasHistory) && gasHistory.length > 0) {
         gasHistory.forEach(item => {
-          if (!item) return;
+          if (!item || !isCiclicoHistoryItem(item)) return;
           if (req.user.role !== 'ADMIN' && !req.user.isSuperadmin) {
             if (item.center && !config.isSameCenter(item.center, req.user.center)) return;
           }
@@ -54,7 +75,7 @@ router.get('/', authenticate, restrictCenter, async (req, res) => {
     // 2. Fallback to local files if not already populated from Drive
     files.forEach(f => {
       const record = storagePath.readJson(path.join(historyDir, f), null);
-      if (!record) return;
+      if (!record || !isCiclicoHistoryItem(record)) return;
 
       const dedupeKey = (record.fileId || record.fileName || '').toLowerCase();
       if (seenKeys.has(dedupeKey)) return;
@@ -102,9 +123,10 @@ router.get('/:fileId', authenticate, async (req, res) => {
         const gasHistory = await gasService.getHistoryFromGAS('CICLICO', null);
         if (Array.isArray(gasHistory)) {
           const match = gasHistory.find(h =>
-            h.fileId === req.params.fileId ||
+            isCiclicoHistoryItem(h) &&
+            (h.fileId === req.params.fileId ||
             h.fileName === req.params.fileId ||
-            (h.fileId && req.params.fileId.includes(h.fileId))
+            (h.fileId && req.params.fileId.includes(h.fileId)))
           );
           if (match) {
             record = {
@@ -129,6 +151,10 @@ router.get('/:fileId', authenticate, async (req, res) => {
 
     if (!record) {
       return res.status(404).json({ success: false, message: 'Registro histórico no encontrado' });
+    }
+
+    if (!isCiclicoHistoryItem(record)) {
+      return res.status(404).json({ success: false, message: 'Registro histórico CICLICO no encontrado' });
     }
 
     if (req.user.role !== 'ADMIN' && !req.user.isSuperadmin && !config.isSameCenter(record.center, req.user.center)) {
