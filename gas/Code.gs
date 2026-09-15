@@ -19,7 +19,9 @@ const CFG = {
     'CICLICO': '11N39_pZhy5iT8p7Y-zD9_C-V9eM7f0c1',
     'GENERAL': '1A9876543210ZYXWVUTSRQPONMLKJIHGF',
     'EXPRESS': '1B1234567890ABCDEFGHJKLMNPQRSTUVWX'
-  }
+  },
+  damagedFolderId: '1q0rRvFpiFXDlXuX97odyz-bVcGZIxwEm',
+  justifFolderId: '1tBlqX8MXyfD6SjQ6aLoViCDqYd_8MK54'
 };
 
 const COL = {
@@ -206,6 +208,11 @@ function doPost(e) {
 
     if (action === 'createFinalFile') {
       const result = createFinalFile_(body);
+      return json_({ success: true, action, ...result });
+    }
+
+    if (action === 'uploadPhoto') {
+      const result = uploadPhotoToFolder_(body);
       return json_({ success: true, action, ...result });
     }
 
@@ -854,10 +861,77 @@ function saveJustificationPhotosBatch_(justifications, center) {
   return saved;
 }
 
-function saveBase64Image_(folder, fileName, dataUriOrBase64) {
-  let base64 = String(dataUriOrBase64 || '').trim();
-  if (!base64) return null;
+function uploadPhotoToFolder_(payload) {
+  const center = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
+  const category = String(payload.category || payload.photoType || 'malestado').toLowerCase();
+  const sku = String(payload.sku || payload.SKU || 'SKU').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const photo = payload.photoBase64 || payload.photoUrl || payload.photo || payload.base64;
 
+  if (!photo) {
+    throw new Error('uploadPhoto requiere photoBase64 o photoUrl');
+  }
+
+  const isJust = category.includes('just');
+  const specificFolderId = isJust ? (payload.justifFolderId || CFG.justifFolderId) : (payload.damagedFolderId || CFG.damagedFolderId);
+
+  let targetFolder = null;
+  if (specificFolderId) {
+    try {
+      targetFolder = DriveApp.getFolderById(specificFolderId);
+    } catch (e) {
+      targetFolder = null;
+    }
+  }
+
+  if (!targetFolder) {
+    const rootFolder = getRootFolderForType_(payload.type || 'CICLICO');
+    const centerFolder = getOrCreateFolder_(rootFolder, center);
+    const subFolderName = isJust ? 'Fotos Justificaciones' : 'Fotos Dañados';
+    targetFolder = getOrCreateFolder_(centerFolder, subFolderName);
+  }
+
+  const prefix = isJust ? 'Just' : 'Dañado';
+  const dateTag = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
+  const fileName = payload.fileName || `${prefix}_${sku}_${dateTag}.jpg`;
+
+  const saved = saveBase64Image_(targetFolder, fileName, photo);
+  return {
+    success: true,
+    category,
+    center,
+    sku,
+    folderId: targetFolder ? targetFolder.getId() : null,
+    folderName: targetFolder ? targetFolder.getName() : '',
+    photo: saved
+  };
+}
+
+function saveBase64Image_(folder, fileName, dataUriOrBase64) {
+  let raw = String(dataUriOrBase64 || '').trim();
+  if (!raw) return null;
+
+  // 1. Si viene como URL remota (http/https), descargar y guardar el archivo
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    try {
+      const resp = UrlFetchApp.fetch(raw, { muteHttpExceptions: true });
+      if (resp.getResponseCode() === 200) {
+        const blob = resp.getBlob().setName(fileName);
+        const file = folder.createFile(blob);
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        return {
+          id: file.getId(),
+          name: file.getName(),
+          url: file.getUrl(),
+          viewUrl: `https://drive.google.com/uc?export=view&id=${file.getId()}`
+        };
+      }
+    } catch (fetchErr) {
+      Logger.log('Error descargando URL de imagen: ' + fetchErr.message);
+    }
+  }
+
+  // 2. Si viene como Base64 / Data URI
+  let base64 = raw;
   let mimeType = 'image/jpeg';
   if (base64.indexOf(';base64,') !== -1) {
     const parts = base64.split(';base64,');
@@ -867,6 +941,7 @@ function saveBase64Image_(folder, fileName, dataUriOrBase64) {
     else if (meta.indexOf('image/webp') !== -1) mimeType = 'image/webp';
   }
 
+  base64 = base64.replace(/\s+/g, '');
   const bytes = Utilities.base64Decode(base64);
   const blob = Utilities.newBlob(bytes, mimeType, fileName);
   const file = folder.createFile(blob);
@@ -875,7 +950,8 @@ function saveBase64Image_(folder, fileName, dataUriOrBase64) {
   return {
     id: file.getId(),
     name: file.getName(),
-    url: file.getUrl()
+    url: file.getUrl(),
+    viewUrl: `https://drive.google.com/uc?export=view&id=${file.getId()}`
   };
 }
 

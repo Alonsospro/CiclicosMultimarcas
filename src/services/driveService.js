@@ -344,8 +344,10 @@ class DriveService {
     this.pruneCache();
 
     // 2. Primary cloud storage: Sync immediately to Google Drive via Google Apps Script
+    let drivePhotoUrl = null;
+    let driveFileId = null;
     try {
-      await gasService.syncPhotoToGAS({
+      const gasRes = await gasService.syncPhotoToGAS({
         category: details.category,
         date: details.date,
         center: details.centerName,
@@ -356,6 +358,10 @@ class DriveService {
         mimeType,
         inventoryId: metadata.inventoryId || null
       });
+      if (gasRes && gasRes.photo) {
+        drivePhotoUrl = gasRes.photo.url || gasRes.photo.viewUrl || null;
+        driveFileId = gasRes.photo.id || null;
+      }
     } catch (err) {
       console.warn('[driveService] Notice during GAS photo sync:', err.message);
     }
@@ -376,6 +382,8 @@ class DriveService {
       photoId,
       filename: photoId,
       url: `/api/photos/${photoId}`,
+      driveUrl: drivePhotoUrl,
+      driveFileId: driveFileId,
       driveFolderPath: details.folderPath,
       driveLogicalPath: details.logicalPath,
       driveFileName: details.fileName,

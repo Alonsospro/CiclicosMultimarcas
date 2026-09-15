@@ -471,19 +471,50 @@ class GasService {
     }
   }
 
-  async syncPhotoToGAS({ category, date, center, sku, fileName, folderPath, fileBuffer, mimeType, inventoryId }) {
-    // If malestado photo, sync via upsertCount payload with photoBase64
-    const base64Data = fileBuffer ? `data:${mimeType || 'image/jpeg'};base64,${fileBuffer.toString('base64')}` : '';
-    if (category === 'malestado') {
-      return this.upsertCountToGAS('CICLICO', {
-        center,
-        sku,
-        barcode: sku,
-        malEstado: 1,
-        photoBase64: base64Data
-      });
+  async syncPhotoToGAS({ category, date, center, sku, fileName, folderPath, fileBuffer, mimeType, inventoryId, photoUrl }) {
+    const cleanType = 'CICLICO';
+    const url = this.getUrlForType(cleanType);
+    const base64Data = fileBuffer ? `data:${mimeType || 'image/jpeg'};base64,${fileBuffer.toString('base64')}` : (photoUrl || '');
+
+    if (!base64Data && !photoUrl) {
+      return { success: false, message: 'No hay datos de imagen para sincronizar' };
     }
-    return { success: true, message: 'Foto guardada para inclusión en cierre final' };
+
+    const cleanCenter = config.getCenterCode ? config.getCenterCode(center) : (center || '1120');
+    const postBody = {
+      action: 'uploadPhoto',
+      category: category || 'malestado',
+      center: cleanCenter,
+      sku: sku || 'SKU',
+      type: cleanType,
+      fileName: fileName || `${category || 'foto'}_${sku || 'item'}.jpg`,
+      photoBase64: base64Data,
+      damagedFolderId: config.driveDamagedFolderId,
+      justifFolderId: config.driveJustifFolderId
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(postBody)
+      });
+      const resText = await response.text();
+      let parsed = null;
+      try { parsed = JSON.parse(resText); } catch (e) {}
+
+      if (parsed && (parsed.photo || parsed.file)) {
+        return {
+          success: true,
+          photo: parsed.photo || parsed.file,
+          ...parsed
+        };
+      }
+      return parsed || { success: true, raw: resText };
+    } catch (err) {
+      console.warn('[gasService] Error in syncPhotoToGAS:', err.message);
+      return { success: false, error: err.message };
+    }
   }
 
   /**
