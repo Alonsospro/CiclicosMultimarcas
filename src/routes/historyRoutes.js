@@ -178,36 +178,93 @@ router.get('/:fileId/download', authenticate, (req, res) => {
       return res.status(404).send('Registro no encontrado');
     }
 
-    // Generate standard CSV with all 16 columns A to P
+    // Generate official CSV with all 37 columns A to AK
     const headers = [
-      'SKU', 'Codigo_Barras', 'Descripcion', 'Ubicacion', 'Categoria',
-      'Clasificacion_ABC', 'Unidad', 'Costo_Unitario', 'Stock_Sistema',
-      'Stock_Fisico', 'Diferencia', 'Costo_Diferencia', 'Fecha_Ultimo_Conteo',
-      'Responsable', 'Estado', 'Mal_estado'
+      'SKU',
+      'Codigo_Barras',
+      'Descripcion',
+      'Ubicacion',
+      'Ubicacion 1',
+      'Ubicacion 2',
+      'Almacen',
+      'Clasificacion_ABC',
+      'Unidad',
+      'Costo_Unitario',
+      'Stock_Sistema',
+      'Stock_Fisico',
+      'Diferencia',
+      'Costo_Diferencia',
+      'Fecha_Ultimo_Conteo',
+      'Responsable',
+      'Mal_estado',
+      'FECHA PRIMERA JUSTIFICACION',
+      'Estado',
+      'Razon',
+      'Comentario Justificacion',
+      'RESPONSABLE JUSTIFICACION',
+      'Fecha reconteo',
+      'RECONTEO',
+      'MALESTADO RECONTEO',
+      'Diferencia Final',
+      'Costo Diferencia Final',
+      'FECHA JUSTIFICACION 2',
+      'ESTADO JUSTIFICACION 2',
+      'Razon JUSTIFICACION 2',
+      'Comentario Justificacion 2',
+      'RESPONSABLE JUSTIFICACION 2',
+      'Fecha reconteo 2',
+      'RECONTEO 2',
+      'MALESTADO RECONTEO 2',
+      'Diferencia Final 2',
+      'Costo Diferencia Final 2'
     ];
 
-    let csvContent = '\uFEFF' + headers.join(',') + '\n';
+    let csvContent = '\uFEFF' + headers.join(';') + '\n';
 
     (record.items || []).forEach(it => {
+      const hasReconteo1 = it.Reconteo !== null && it.Reconteo !== undefined && it.Reconteo !== '';
+      const hasReconteo2 = it.Reconteo_2 !== null && it.Reconteo_2 !== undefined && it.Reconteo_2 !== '';
+
       const row = [
-        `"${it.SKU || ''}"`,
-        `"${it.Codigo_Barras || ''}"`,
-        `"${(it.Descripcion || '').replace(/"/g, '""')}"`,
-        `"${it.Ubicacion || ''}"`,
-        `"${it.Categoria || ''}"`,
-        `"${it.Clasificacion_ABC || ''}"`,
-        `"${it.Unidad || ''}"`,
-        it.Costo_Unitario || 0,
-        it.Stock_Sistema || 0,
-        it.Stock_Fisico !== null ? it.Stock_Fisico : '',
-        it.Diferencia || 0,
-        it.Costo_Diferencia || 0,
-        `"${it.Fecha_Ultimo_Conteo || ''}"`,
-        `"${it.Responsable || ''}"`,
-        `"${it.Estado || ''}"`,
-        it.Mal_estado || 0
+        `"${it.SKU || ''}"`,                                              // A: SKU
+        `"${it.Codigo_Barras || ''}"`,                                     // B: Codigo_Barras
+        `"${(it.Descripcion || '').replace(/"/g, '""')}"`,                 // C: Descripcion
+        `"${it.Ubicacion || ''}"`,                                         // D: Ubicacion
+        `"${it.Ubicacion_1 || ''}"`,                                       // E: Ubicacion 1
+        `"${it.Ubicacion_2 || ''}"`,                                       // F: Ubicacion 2
+        `"${it.Almacen || record.center || ''}"`,                          // G: Almacen
+        `"${it.Clasificacion_ABC || 'C'}"`,                                // H: Clasificacion_ABC
+        `"${it.Unidad || 'PZA'}"`,                                         // I: Unidad
+        (it.Costo_Unitario !== null && it.Costo_Unitario !== undefined) ? it.Costo_Unitario : 0, // J: Costo_Unitario
+        (it.Stock_Sistema !== null && it.Stock_Sistema !== undefined) ? it.Stock_Sistema : 0,     // K: Stock_Sistema
+        (it.Stock_Fisico !== null && it.Stock_Fisico !== undefined) ? it.Stock_Fisico : '',      // L: Stock_Fisico
+        (it.Diferencia !== null && it.Diferencia !== undefined) ? it.Diferencia : '',             // M: Diferencia
+        (it.Costo_Diferencia !== null && it.Costo_Diferencia !== undefined) ? it.Costo_Diferencia : '', // N: Costo_Diferencia
+        `"${it.Fecha_Ultimo_Conteo || ''}"`,                               // O: Fecha_Ultimo_Conteo
+        `"${it.Responsable || ''}"`,                                       // P: Responsable
+        (it.Mal_estado !== null && it.Mal_estado !== undefined) ? it.Mal_estado : 0,             // Q: Mal_estado
+        `"${it.Fecha_Primera_Justificacion || ''}"`,                       // R: FECHA PRIMERA JUSTIFICACION
+        `"${it.Estado || ''}"`,                                            // S: Estado (CUADRA / NO CUADRA)
+        `"${it.Razon || ''}"`,                                             // T: Razon
+        `"${(it.Comentario_Justificacion || '').replace(/"/g, '""')}"`,    // U: Comentario Justificacion
+        `"${it.Responsable_Justificacion || ''}"`,                         // V: RESPONSABLE JUSTIFICACION
+        `"${it.Fecha_Reconteo || ''}"`,                                    // W: Fecha reconteo
+        hasReconteo1 ? it.Reconteo : '',                                   // X: RECONTEO
+        hasReconteo1 ? (it.Malestado_Reconteo !== null && it.Malestado_Reconteo !== undefined ? it.Malestado_Reconteo : 0) : '', // Y: MALESTADO RECONTEO
+        hasReconteo1 ? (it.Diferencia_Final !== null && it.Diferencia_Final !== undefined ? it.Diferencia_Final : '') : '',       // Z: Diferencia Final
+        hasReconteo1 ? (it.Costo_Diferencia_Final !== null && it.Costo_Diferencia_Final !== undefined ? it.Costo_Diferencia_Final : '') : '', // AA: Costo Diferencia Final
+        `"${it.Fecha_Justificacion_2 || ''}"`,                             // AB: FECHA JUSTIFICACION 2
+        `"${it.Estado_Justificacion_2 || ''}"`,                            // AC: ESTADO JUSTIFICACION 2
+        `"${it.Razon_Justificacion_2 || ''}"`,                             // AD: Razon JUSTIFICACION 2
+        `"${(it.Comentario_Justificacion_2 || '').replace(/"/g, '""')}"`,  // AE: Comentario Justificacion 2
+        `"${it.Responsable_Justificacion_2 || ''}"`,                       // AF: RESPONSABLE JUSTIFICACION 2
+        `"${it.Fecha_Reconteo_2 || ''}"`,                                  // AG: Fecha reconteo 2
+        hasReconteo2 ? it.Reconteo_2 : '',                                 // AH: RECONTEO 2
+        hasReconteo2 ? (it.Malestado_Reconteo_2 !== null && it.Malestado_Reconteo_2 !== undefined ? it.Malestado_Reconteo_2 : 0) : '', // AI: MALESTADO RECONTEO 2
+        hasReconteo2 ? (it.Diferencia_Final_2 !== null && it.Diferencia_Final_2 !== undefined ? it.Diferencia_Final_2 : '') : '',       // AJ: Diferencia Final 2
+        hasReconteo2 ? (it.Costo_Diferencia_Final_2 !== null && it.Costo_Diferencia_Final_2 !== undefined ? it.Costo_Diferencia_Final_2 : '') : '' // AK: Costo Diferencia Final 2
       ];
-      csvContent += row.join(',') + '\n';
+      csvContent += row.join(';') + '\n';
     });
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');

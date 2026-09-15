@@ -12,6 +12,104 @@ class InventoryService {
     this.justDir = storagePath.getJustificationsDirectory();
   }
 
+  // Regla 2: Lógica de Stock Efectivo según Mal Estado vs Conteo
+  // Si count == 0 y damaged >= 1 -> toma damaged
+  // Si count >= 1 -> toma count omitiendo damaged
+  // Si count == 0 y damaged == 0 -> 0
+  // Si count es null/vacío -> null (no contado)
+  calculateEffectiveStock(qty, damagedQty) {
+    const d = (damagedQty !== null && damagedQty !== undefined && damagedQty !== '') ? Number(damagedQty) : 0;
+    if (qty === null || qty === undefined || qty === '') {
+      return d >= 1 ? d : null;
+    }
+    const c = Number(qty);
+    if (c === 0 && d >= 1) return d;
+    if (c >= 1) return c;
+    return 0;
+  }
+
+  // Normaliza un ítem asegurando las 37 columnas oficiales de A hasta AK
+  normalizeItem(it, defaultCenter = '1120') {
+    if (!it) return it;
+    it.SKU = it.SKU || '';
+    it.Codigo_Barras = it.Codigo_Barras || it.codigo || it.CODIGO || '';
+    it.Descripcion = it.Descripcion || it.descripcion || '';
+    it.Ubicacion = it.Ubicacion || it.ubicacion || '';
+    it.Ubicacion_1 = it.Ubicacion_1 || it.Ubicacion1 || it.ubicacion1 || '';
+    it.Ubicacion_2 = it.Ubicacion_2 || it.Ubicacion2 || it.ubicacion2 || '';
+    it.Almacen = it.Almacen || it.almacen || it.centro || defaultCenter || '1120';
+    it.Clasificacion_ABC = (it.Clasificacion_ABC || it.abc || 'C').toUpperCase();
+    it.Unidad = it.Unidad || it.unidad || 'PZA';
+    it.Costo_Unitario = (it.Costo_Unitario !== undefined && it.Costo_Unitario !== null && it.Costo_Unitario !== '') ? Number(it.Costo_Unitario) : 0;
+    it.Stock_Sistema = (it.Stock_Sistema !== undefined && it.Stock_Sistema !== null && it.Stock_Sistema !== '') ? Number(it.Stock_Sistema) : 0;
+
+    // Conteo 1 (Stock_Fisico, Mal_estado)
+    it.Stock_Fisico = (it.Stock_Fisico !== undefined && it.Stock_Fisico !== null && it.Stock_Fisico !== '') ? Number(it.Stock_Fisico) : null;
+    it.Mal_estado = (it.Mal_estado !== undefined && it.Mal_estado !== null && it.Mal_estado !== '') ? Number(it.Mal_estado) : 0;
+    const eff1 = this.calculateEffectiveStock(it.Stock_Fisico, it.Mal_estado);
+    if (eff1 !== null) {
+      it.Diferencia = eff1 - it.Stock_Sistema;
+      it.Costo_Diferencia = Math.round(it.Diferencia * it.Costo_Unitario * 100) / 100;
+    } else {
+      it.Diferencia = it.Diferencia !== undefined ? it.Diferencia : null;
+      it.Costo_Diferencia = it.Costo_Diferencia !== undefined ? it.Costo_Diferencia : null;
+    }
+    it.Fecha_Ultimo_Conteo = it.Fecha_Ultimo_Conteo || null;
+    it.Responsable = it.Responsable || '';
+
+    // Justificación 1
+    it.Fecha_Primera_Justificacion = it.Fecha_Primera_Justificacion || null;
+    if (it.Fecha_Primera_Justificacion || it.Razon || it.Comentario_Justificacion) {
+      it.Estado = it.Diferencia === 0 ? 'CUADRA' : 'NO CUADRA';
+    } else {
+      it.Estado = it.Estado || (it.Stock_Fisico !== null ? (it.Diferencia === 0 ? 'CUADRA' : 'NO CUADRA') : 'Pendiente');
+    }
+    it.Razon = it.Razon || it.Razon_Justificacion || '';
+    it.Comentario_Justificacion = it.Comentario_Justificacion || it.Comentario || '';
+    it.Responsable_Justificacion = it.Responsable_Justificacion || '';
+
+    // Reconteo 1 (Regla 1: cálculos solo si hay reconteo)
+    it.Fecha_Reconteo = it.Fecha_Reconteo || null;
+    it.Reconteo = (it.Reconteo !== undefined && it.Reconteo !== null && it.Reconteo !== '') ? Number(it.Reconteo) : null;
+    it.Malestado_Reconteo = (it.Malestado_Reconteo !== undefined && it.Malestado_Reconteo !== null && it.Malestado_Reconteo !== '') ? Number(it.Malestado_Reconteo) : (it.Reconteo !== null ? 0 : null);
+    
+    if (it.Reconteo !== null) {
+      const eff2 = this.calculateEffectiveStock(it.Reconteo, it.Malestado_Reconteo || 0);
+      it.Diferencia_Final = eff2 - it.Stock_Sistema;
+      it.Costo_Diferencia_Final = Math.round(it.Diferencia_Final * it.Costo_Unitario * 100) / 100;
+    } else {
+      it.Diferencia_Final = null;
+      it.Costo_Diferencia_Final = null;
+    }
+
+    // Justificación 2
+    it.Fecha_Justificacion_2 = it.Fecha_Justificacion_2 || null;
+    if (it.Fecha_Justificacion_2 || it.Razon_Justificacion_2 || it.Comentario_Justificacion_2) {
+      it.Estado_Justificacion_2 = (it.Diferencia_Final_2 !== null ? it.Diferencia_Final_2 === 0 : (it.Diferencia_Final !== null && it.Diferencia_Final === 0)) ? 'CUADRA' : 'NO CUADRA';
+    } else {
+      it.Estado_Justificacion_2 = null;
+    }
+    it.Razon_Justificacion_2 = it.Razon_Justificacion_2 || '';
+    it.Comentario_Justificacion_2 = it.Comentario_Justificacion_2 || '';
+    it.Responsable_Justificacion_2 = it.Responsable_Justificacion_2 || '';
+
+    // Reconteo 2 (Regla 1: cálculos solo si hay reconteo 2)
+    it.Fecha_Reconteo_2 = it.Fecha_Reconteo_2 || null;
+    it.Reconteo_2 = (it.Reconteo_2 !== undefined && it.Reconteo_2 !== null && it.Reconteo_2 !== '') ? Number(it.Reconteo_2) : null;
+    it.Malestado_Reconteo_2 = (it.Malestado_Reconteo_2 !== undefined && it.Malestado_Reconteo_2 !== null && it.Malestado_Reconteo_2 !== '') ? Number(it.Malestado_Reconteo_2) : (it.Reconteo_2 !== null ? 0 : null);
+    
+    if (it.Reconteo_2 !== null) {
+      const eff3 = this.calculateEffectiveStock(it.Reconteo_2, it.Malestado_Reconteo_2 || 0);
+      it.Diferencia_Final_2 = eff3 - it.Stock_Sistema;
+      it.Costo_Diferencia_Final_2 = Math.round(it.Diferencia_Final_2 * it.Costo_Unitario * 100) / 100;
+    } else {
+      it.Diferencia_Final_2 = null;
+      it.Costo_Diferencia_Final_2 = null;
+    }
+
+    return it;
+  }
+
   seedSampleInventories() {
     const existing = this.getAllInventoryFiles();
     if (existing.length === 0) {
@@ -169,6 +267,7 @@ class InventoryService {
         if (!it.id) {
           it.id = `ITEM-${it.SKU ? String(it.SKU).replace(/[^a-zA-Z0-9_-]/g, '_') : (idx + 1)}-${idx + 1}`;
         }
+        this.normalizeItem(it, inv.center);
       });
     }
     return inv;
@@ -185,6 +284,7 @@ class InventoryService {
         if (!Array.isArray(inv.items)) {
           inv.items = [];
         }
+        inv.items.forEach(it => this.normalizeItem(it, inv.center));
 
         const u = String(user.username || '').toLowerCase().trim();
         const c = String(user.clave || '').toLowerCase().trim();
@@ -566,23 +666,27 @@ class InventoryService {
       const newItemId = `ITEM-NEW-LOC-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const isConfirmedCount = isCountProvided && locked !== false;
 
+      const effectiveQty = this.calculateEffectiveStock(qty, damagedQty);
       const newRow = {
         id: newItemId,
         SKU: baseItem.SKU,
         Codigo_Barras: baseItem.Codigo_Barras || '',
         Descripcion: baseItem.Descripcion,
         Ubicacion: location || 'NUEVA_UBICACION',
+        Ubicacion_1: baseItem.Ubicacion_1 || '',
+        Ubicacion_2: baseItem.Ubicacion_2 || '',
+        Almacen: inv.center || '1120',
         Categoria: baseItem.Categoria,
         Clasificacion_ABC: baseItem.Clasificacion_ABC,
         Unidad: baseItem.Unidad,
         Costo_Unitario: baseItem.Costo_Unitario || 0,
         Stock_Sistema: 0, // Additional location system expected is 0
         Stock_Fisico: qty,
-        Diferencia: isCountProvided ? (qty - 0) : 0,
-        Costo_Diferencia: isCountProvided ? ((qty - 0) * (baseItem.Costo_Unitario || 0)) : 0,
+        Diferencia: isCountProvided && effectiveQty !== null ? (effectiveQty - 0) : 0,
+        Costo_Diferencia: isCountProvided && effectiveQty !== null ? Math.round((effectiveQty - 0) * (baseItem.Costo_Unitario || 0) * 100) / 100 : 0,
         Fecha_Ultimo_Conteo: isCountProvided ? new Date().toISOString() : null,
         Responsable: user.displayName || user.username,
-        Estado: isConfirmedCount ? 'Contado' : 'Pendiente',
+        Estado: isConfirmedCount ? ((effectiveQty || 0) === 0 ? 'CUADRA' : 'NO CUADRA') : 'Pendiente',
         Mal_estado: damagedQty,
         Comentario: comentario !== null ? comentario : (baseItem.Comentario || ''),
         foto_mal_estado: photoUrl || null,
@@ -591,34 +695,40 @@ class InventoryService {
         locked: isConfirmedCount
       };
 
+      this.normalizeItem(newRow, inv.center);
       inv.items.push(newRow);
       targetItem = newRow;
     } else {
       if (!targetItem) {
         // In BARRIDO or dynamic insertion, create the item if not present
         const newItemId = itemId || `ITEM-BARRIDO-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+        const effectiveQty = this.calculateEffectiveStock(qty, damagedQty);
         targetItem = {
           id: newItemId,
           SKU: sku || 'SKU-DESCUBIERTO',
           Codigo_Barras: '',
           Descripcion: `Ítem Barrido ${sku || ''}`,
           Ubicacion: location || '',
+          Ubicacion_1: '',
+          Ubicacion_2: '',
+          Almacen: inv.center || '1120',
           Categoria: 'BARRIDO',
           Clasificacion_ABC: 'C',
           Unidad: 'PZA',
           Costo_Unitario: 0,
           Stock_Sistema: 0,
           Stock_Fisico: qty,
-          Diferencia: isCountProvided ? qty : 0,
+          Diferencia: isCountProvided && effectiveQty !== null ? effectiveQty : 0,
           Costo_Diferencia: 0,
           Fecha_Ultimo_Conteo: isCountProvided ? new Date().toISOString() : null,
           Responsable: user.displayName || user.username,
-          Estado: locked !== false ? 'Contado' : 'Pendiente',
+          Estado: locked !== false ? ((effectiveQty || 0) === 0 ? 'CUADRA' : 'NO CUADRA') : 'Pendiente',
           Mal_estado: damagedQty,
           Comentario: comentario !== null ? comentario : '',
           foto_mal_estado: photoUrl || null,
           locked: !!locked
         };
+        this.normalizeItem(targetItem, inv.center);
         inv.items.push(targetItem);
       } else {
         // Auxiliar can only count items assigned to them (or unassigned/creator items if assigned to the inventory)
@@ -650,12 +760,14 @@ class InventoryService {
         }
 
         if (isCountProvided) {
+          const effectiveQty = this.calculateEffectiveStock(qty, damagedQty);
           targetItem.Stock_Fisico = qty;
-          targetItem.Diferencia = qty - (targetItem.Stock_Sistema || 0);
-          targetItem.Costo_Diferencia = targetItem.Diferencia * (targetItem.Costo_Unitario || 0);
+          targetItem.Mal_estado = damagedQty;
+          targetItem.Diferencia = effectiveQty !== null ? (effectiveQty - (targetItem.Stock_Sistema || 0)) : 0;
+          targetItem.Costo_Diferencia = Math.round(targetItem.Diferencia * (targetItem.Costo_Unitario || 0) * 100) / 100;
           targetItem.Fecha_Ultimo_Conteo = new Date().toISOString();
           targetItem.Responsable = user.displayName || user.username;
-          targetItem.Estado = locked !== false ? 'Contado' : 'Pendiente';
+          targetItem.Estado = locked !== false ? (targetItem.Diferencia === 0 ? 'CUADRA' : 'NO CUADRA') : 'Pendiente';
         }
 
         if (previousQty !== null && previousQty !== undefined && isCountProvided) {
@@ -681,6 +793,7 @@ class InventoryService {
           targetItem.foto_mal_estado = photoUrl;
         }
         targetItem.locked = !!locked;
+        this.normalizeItem(targetItem, inv.center);
       }
     }
 
@@ -908,46 +1021,118 @@ class InventoryService {
     return inv;
   }
 
-  saveJustification({ inventoryId, sku, justification, photoUrl, reasonType, user }) {
+  recordReconteo({ inventoryId, sku, itemId, reconteoNum = 1, qty, damagedQty = 0, user }) {
     const inv = this.getInventoryRaw(inventoryId);
     if (!inv) throw new Error('Inventario no encontrado');
 
-    const item = inv.items.find(it => it.SKU === sku);
-    if (!item) throw new Error(`Ítem ${sku} no encontrado en el inventario`);
+    let targetItem = null;
+    if (itemId) targetItem = inv.items.find(i => i.id === itemId);
+    if (!targetItem && sku) targetItem = inv.items.find(i => i.SKU === sku);
+    if (!targetItem) throw new Error(`Ítem no encontrado: ${sku || itemId}`);
 
-    const justId = driveService.formatJustificationName(inv.type, sku, inv.center);
+    const parsedQty = (qty !== null && qty !== undefined && qty !== '') ? parseInt(qty, 10) : null;
+    if (parsedQty === null || isNaN(parsedQty) || parsedQty < 0) {
+      throw new Error('Cantidad de reconteo inválida');
+    }
+    const parsedDamaged = parseInt(damagedQty, 10) || 0;
+    const effective = this.calculateEffectiveStock(parsedQty, parsedDamaged);
+
+    const rNum = Number(reconteoNum) || 1;
+    if (rNum === 1) {
+      targetItem.Reconteo = parsedQty;
+      targetItem.Malestado_Reconteo = parsedDamaged;
+      targetItem.Fecha_Reconteo = new Date().toISOString();
+      targetItem.Diferencia_Final = effective !== null ? (effective - (targetItem.Stock_Sistema || 0)) : null;
+      targetItem.Costo_Diferencia_Final = targetItem.Diferencia_Final !== null ? Math.round(targetItem.Diferencia_Final * (targetItem.Costo_Unitario || 0) * 100) / 100 : null;
+      if (targetItem.Fecha_Justificacion_2 || targetItem.Razon_Justificacion_2) {
+        targetItem.Estado_Justificacion_2 = targetItem.Diferencia_Final === 0 ? 'CUADRA' : 'NO CUADRA';
+      }
+    } else if (rNum === 2) {
+      targetItem.Reconteo_2 = parsedQty;
+      targetItem.Malestado_Reconteo_2 = parsedDamaged;
+      targetItem.Fecha_Reconteo_2 = new Date().toISOString();
+      targetItem.Diferencia_Final_2 = effective !== null ? (effective - (targetItem.Stock_Sistema || 0)) : null;
+      targetItem.Costo_Diferencia_Final_2 = targetItem.Diferencia_Final_2 !== null ? Math.round(targetItem.Diferencia_Final_2 * (targetItem.Costo_Unitario || 0) * 100) / 100 : null;
+    } else {
+      throw new Error('Número de reconteo debe ser 1 o 2');
+    }
+
+    this.normalizeItem(targetItem, inv.center);
+    this.saveInventory(inv);
+
+    auditService.logAction({
+      action: `RECONTEO_${rNum}`,
+      details: `Reconteo ${rNum} registrado para SKU ${targetItem.SKU}: Cantidad=${parsedQty}, MalEstado=${parsedDamaged}`,
+      user: user.username,
+      center: inv.center,
+      targetId: inventoryId
+    });
+
+    return {
+      success: true,
+      reconteoNum: rNum,
+      item: targetItem
+    };
+  }
+
+  saveJustification({ inventoryId, sku, itemId, justification, comments, photoUrl, reasonType, reason, stage = 1, user }) {
+    const inv = this.getInventoryRaw(inventoryId);
+    if (!inv) throw new Error('Inventario no encontrado');
+
+    let item = null;
+    if (itemId) item = inv.items.find(i => i.id === itemId);
+    if (!item && sku) item = inv.items.find(i => i.SKU === sku);
+    if (!item) throw new Error(`Ítem ${sku || itemId} no encontrado en el inventario`);
+
+    const justStage = Number(stage) || 1;
+    const justId = `JUST-${inv.id}-${item.SKU}-${justStage}-${Date.now().toString(36)}`;
     const justFilePath = path.join(this.justDir, `${justId}.json`);
+    const actualReason = reasonType || reason || 'AJUSTE_INVENTARIO';
+    const actualJustification = justification || comments || '';
+
+    if (justStage === 1) {
+      item.Fecha_Primera_Justificacion = new Date().toISOString();
+      item.Razon = actualReason;
+      item.Comentario_Justificacion = actualJustification;
+      item.Responsable_Justificacion = user.displayName || user.username;
+      item.Estado = item.Diferencia === 0 ? 'CUADRA' : 'NO CUADRA';
+    } else {
+      item.Fecha_Justificacion_2 = new Date().toISOString();
+      item.Razon_Justificacion_2 = actualReason;
+      item.Comentario_Justificacion_2 = actualJustification;
+      item.Responsable_Justificacion_2 = user.displayName || user.username;
+      item.Estado_Justificacion_2 = (item.Diferencia_Final_2 !== null ? item.Diferencia_Final_2 === 0 : (item.Diferencia_Final !== null && item.Diferencia_Final === 0)) ? 'CUADRA' : 'NO CUADRA';
+    }
+
+    this.normalizeItem(item, inv.center);
+    this.saveInventory(inv);
 
     const justRecord = {
       id: justId,
       inventoryId: inv.id,
-      sku,
+      sku: item.SKU,
+      item,
+      stage: justStage,
       descripcion: item.Descripcion,
       ubicacion: item.Ubicacion,
       stockSistema: item.Stock_Sistema,
       stockFisico: item.Stock_Fisico,
+      reconteo: item.Reconteo,
       diferencia: item.Diferencia,
-      costoDiferencia: item.Costo_Diferencia,
-      malEstado: item.Mal_estado,
+      diferenciaFinal: item.Diferencia_Final,
       justification: justification || 'Sin observaciones adicionales',
       reasonType: reasonType || 'AJUSTE_INVENTARIO',
       photoUrl: photoUrl || null,
-      reviewedBy: user.username,
+      reviewedBy: user.displayName || user.username,
       reviewedAt: new Date().toISOString(),
       center: inv.center,
       type: inv.type,
-      status: 'REVISADO'
+      status: justStage === 1 ? item.Estado : item.Estado_Justificacion_2
     };
 
     storagePath.writeJson(justFilePath, justRecord);
 
-    item.Estado = 'Justificado';
-    item.Razon = reasonType || 'AJUSTE_INVENTARIO';
-    item.Razon_Justificacion = reasonType || 'AJUSTE_INVENTARIO';
-    item.Comentario_Justificacion = justification || '';
-    this.saveInventory(inv);
-
-    // Sync justification to Google Sheets in Google Drive (Updates columns R and S)
+    // Sync justification to Google Sheets in Google Drive
     try {
       gasService.upsertCountToGAS(inv.type, {
         center: inv.center,
@@ -956,22 +1141,34 @@ class InventoryService {
         location: item.Ubicacion,
         stockFisico: item.Stock_Fisico,
         malEstado: item.Mal_estado || 0,
-        comentario: `[Justificado: ${reasonType || 'Ajuste'}] ${justification}`,
-        razon: reasonType || 'AJUSTE_INVENTARIO',
-        razonJustificacion: reasonType || 'AJUSTE_INVENTARIO',
-        reasonType: reasonType || 'AJUSTE_INVENTARIO',
-        comentarioJustificacion: justification || '',
-        justification: justification || '',
-        fechaUltimoConteo: item.Fecha_Ultimo_Conteo,
-        responsable: user.displayName || user.username,
-        estado: 'Justificado',
+        comentario: `[Justificado Etapa ${justStage}: ${reasonType || 'Ajuste'}] ${justification}`,
+        razon: item.Razon,
+        comentarioJustificacion: item.Comentario_Justificacion,
+        fechaPrimeraJustificacion: item.Fecha_Primera_Justificacion,
+        estado: item.Estado,
+        responsableJustificacion: item.Responsable_Justificacion,
+        reconteo: item.Reconteo,
+        malestadoReconteo: item.Malestado_Reconteo,
+        diferenciaFinal: item.Diferencia_Final,
+        costoDiferenciaFinal: item.Costo_Diferencia_Final,
+        fechaReconteo: item.Fecha_Reconteo,
+        fechaJustificacion2: item.Fecha_Justificacion_2,
+        estadoJustificacion2: item.Estado_Justificacion_2,
+        razonJustificacion2: item.Razon_Justificacion_2,
+        comentarioJustificacion2: item.Comentario_Justificacion_2,
+        responsableJustificacion2: item.Responsable_Justificacion_2,
+        reconteo2: item.Reconteo_2,
+        malestadoReconteo2: item.Malestado_Reconteo_2,
+        diferenciaFinal2: item.Diferencia_Final_2,
+        costoDiferenciaFinal2: item.Costo_Diferencia_Final_2,
+        fechaReconteo2: item.Fecha_Reconteo_2,
         photoBase64: photoUrl || item.foto_mal_estado || ''
       }).catch(e => console.warn('[inventoryService] Justification GAS sync notice:', e.message));
     } catch (e) {}
 
     auditService.logJustification({
       inventoryId: inv.id,
-      sku,
+      sku: item.SKU,
       justification,
       photoUrl,
       user: user.username,
@@ -1012,12 +1209,26 @@ class InventoryService {
       if (!inv) return;
       if (centerFilter && centerFilter !== 'TODOS' && centerFilter !== 'GLOBAL' && inv.center !== centerFilter) return;
 
-      // Check items with differences or damaged goods
-      const discrepantItems = inv.items.filter(it => (it.Diferencia !== 0 || it.Mal_estado > 0));
+      if (Array.isArray(inv.items)) {
+        inv.items.forEach(it => this.normalizeItem(it, inv.center));
+      }
+
+      // Check items with differences in any stage
+      const discrepantItems = (inv.items || []).filter(it => {
+        const diff1 = it.Diferencia !== null ? it.Diferencia : 0;
+        const diffFinal = it.Diferencia_Final !== null ? it.Diferencia_Final : null;
+        const diffFinal2 = it.Diferencia_Final_2 !== null ? it.Diferencia_Final_2 : null;
+        
+        // Discrepant if 1st count has diff or if reconteos have diff
+        if (diffFinal2 !== null) return diffFinal2 !== 0;
+        if (diffFinal !== null) return diffFinal !== 0;
+        return diff1 !== 0 || it.Estado === 'NO CUADRA';
+      });
+
       const existingJustifications = this.getJustificationsForInventory(inv.id);
       const justifiedSkus = new Set(existingJustifications.map(j => j.sku));
 
-      const pendingDiscrepancies = discrepantItems.filter(it => !justifiedSkus.has(it.SKU));
+      const pendingDiscrepancies = discrepantItems.filter(it => !justifiedSkus.has(it.SKU) && !it.Fecha_Primera_Justificacion);
 
       if (discrepantItems.length > 0 || inv.status === 'PENDIENTE_JUSTIFICACION') {
         tasks.push({
@@ -1033,9 +1244,7 @@ class InventoryService {
             const jDetails = existingJustifications.find(j => j.sku === it.SKU) || null;
             return {
               ...it,
-              Razon: it.Razon || it.Razon_Justificacion || (jDetails ? jDetails.reasonType : ''),
-              Comentario_Justificacion: it.Comentario_Justificacion || (jDetails ? jDetails.justification : ''),
-              isJustified: justifiedSkus.has(it.SKU),
+              isJustified: !!(it.Fecha_Primera_Justificacion || jDetails),
               justificationDetails: jDetails
             };
           })

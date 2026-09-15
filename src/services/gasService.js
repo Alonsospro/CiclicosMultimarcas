@@ -165,27 +165,50 @@ class GasService {
   }
 
   formatItemsToColumns(items = []) {
-    return items.map(it => [
-      String(it.SKU || '').trim(),
-      String(it.Codigo_Barras || '').trim(),
-      String(it.Descripcion || '').trim(),
-      String(it.Ubicacion || '').trim(),
-      String(it.Categoria || '').trim(),
-      String(it.Clasificacion_ABC || 'C').trim().toUpperCase(),
-      String(it.Unidad || 'PZA').trim(),
-      Number(it.Costo_Unitario || 0),
-      Number(it.Stock_Sistema || 0),
-      it.Stock_Fisico !== null && it.Stock_Fisico !== undefined ? Number(it.Stock_Fisico) : '',
-      it.Stock_Fisico !== null && it.Stock_Fisico !== undefined ? Number(it.Stock_Fisico) - Number(it.Stock_Sistema || 0) : '',
-      it.Stock_Fisico !== null && it.Stock_Fisico !== undefined ? (Number(it.Stock_Fisico) - Number(it.Stock_Sistema || 0)) * Number(it.Costo_Unitario || 0) : '',
-      it.Fecha_Ultimo_Conteo || (it.Stock_Fisico !== null ? new Date().toISOString().split('T')[0] : ''),
-      String(it.Responsable || '').trim(),
-      String(it.Estado || (it.Stock_Fisico !== null ? 'Contado' : 'Pendiente')).trim(),
-      Number(it.Mal_estado || 0),
-      String(it.Comentario || '').trim(),
-      String(it.Razon || it.Razon_Justificacion || it.reasonType || '').trim(),
-      String(it.Comentario_Justificacion || it.comentarioJustificacion || it.justification || '').trim()
-    ]);
+    return items.map(it => {
+      const hasRec1 = it.Reconteo !== null && it.Reconteo !== undefined && it.Reconteo !== '';
+      const hasRec2 = it.Reconteo_2 !== null && it.Reconteo_2 !== undefined && it.Reconteo_2 !== '';
+
+      return [
+        String(it.SKU || '').trim(),                                            // A: SKU
+        String(it.Codigo_Barras || '').trim(),                                   // B: Codigo_Barras
+        String(it.Descripcion || '').trim(),                                     // C: Descripcion
+        String(it.Ubicacion || '').trim(),                                       // D: Ubicacion
+        String(it.Ubicacion_1 || '').trim(),                                     // E: Ubicacion 1
+        String(it.Ubicacion_2 || '').trim(),                                     // F: Ubicacion 2
+        String(it.Almacen || '').trim(),                                         // G: Almacen
+        String(it.Clasificacion_ABC || 'C').trim().toUpperCase(),                // H: Clasificacion_ABC
+        String(it.Unidad || 'PZA').trim(),                                       // I: Unidad
+        Number(it.Costo_Unitario || 0),                                          // J: Costo_Unitario
+        Number(it.Stock_Sistema || 0),                                           // K: Stock_Sistema
+        it.Stock_Fisico !== null && it.Stock_Fisico !== undefined && it.Stock_Fisico !== '' ? Number(it.Stock_Fisico) : '', // L: Stock_Fisico
+        it.Diferencia !== null && it.Diferencia !== undefined && it.Diferencia !== '' ? Number(it.Diferencia) : '',       // M: Diferencia
+        it.Costo_Diferencia !== null && it.Costo_Diferencia !== undefined && it.Costo_Diferencia !== '' ? Number(it.Costo_Diferencia) : '', // N: Costo_Diferencia
+        it.Fecha_Ultimo_Conteo || '',                                            // O: Fecha_Ultimo_Conteo
+        String(it.Responsable || '').trim(),                                     // P: Responsable
+        Number(it.Mal_estado || 0),                                              // Q: Mal_estado
+        it.Fecha_Primera_Justificacion || '',                                    // R: FECHA PRIMERA JUSTIFICACION
+        String(it.Estado || '').trim(),                                          // S: Estado
+        String(it.Razon || '').trim(),                                           // T: Razon
+        String(it.Comentario_Justificacion || '').trim(),                        // U: Comentario Justificacion
+        String(it.Responsable_Justificacion || '').trim(),                       // V: RESPONSABLE JUSTIFICACION
+        it.Fecha_Reconteo || '',                                                 // W: Fecha reconteo
+        hasRec1 ? Number(it.Reconteo) : '',                                      // X: RECONTEO
+        hasRec1 ? Number(it.Malestado_Reconteo || 0) : '',                       // Y: MALESTADO RECONTEO
+        hasRec1 && it.Diferencia_Final !== null && it.Diferencia_Final !== undefined && it.Diferencia_Final !== '' ? Number(it.Diferencia_Final) : '', // Z: Diferencia Final
+        hasRec1 && it.Costo_Diferencia_Final !== null && it.Costo_Diferencia_Final !== undefined && it.Costo_Diferencia_Final !== '' ? Number(it.Costo_Diferencia_Final) : '', // AA: Costo Diferencia Final
+        it.Fecha_Justificacion_2 || '',                                          // AB: FECHA JUSTIFICACION 2
+        String(it.Estado_Justificacion_2 || '').trim(),                          // AC: ESTADO JUSTIFICACION 2
+        String(it.Razon_Justificacion_2 || '').trim(),                           // AD: Razon JUSTIFICACION 2
+        String(it.Comentario_Justificacion_2 || '').trim(),                      // AE: Comentario Justificacion 2
+        String(it.Responsable_Justificacion_2 || '').trim(),                     // AF: RESPONSABLE JUSTIFICACION 2
+        it.Fecha_Reconteo_2 || '',                                               // AG: Fecha reconteo 2
+        hasRec2 ? Number(it.Reconteo_2) : '',                                    // AH: RECONTEO 2
+        hasRec2 ? Number(it.Malestado_Reconteo_2 || 0) : '',                     // AI: MALESTADO RECONTEO 2
+        hasRec2 && it.Diferencia_Final_2 !== null && it.Diferencia_Final_2 !== undefined && it.Diferencia_Final_2 !== '' ? Number(it.Diferencia_Final_2) : '', // AJ: Diferencia Final 2
+        hasRec2 && it.Costo_Diferencia_Final_2 !== null && it.Costo_Diferencia_Final_2 !== undefined && it.Costo_Diferencia_Final_2 !== '' ? Number(it.Costo_Diferencia_Final_2) : '' // AK: Costo Diferencia Final 2
+      ];
+    });
   }
 
   formatItemsTo17Columns(items = []) {

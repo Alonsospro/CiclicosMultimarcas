@@ -1195,6 +1195,11 @@
         <form id="form-submit-justification">
           <input type="hidden" id="just-modal-inv-id">
           <input type="hidden" id="just-modal-sku-input">
+          <input type="hidden" id="just-modal-stage" value="1">
+
+          <div style="margin-bottom: 0.75rem;">
+            <span id="just-modal-stage-badge" class="badge badge-info" style="font-weight: 700;">1ra Justificación (Col. R-V)</span>
+          </div>
 
           <div class="form-group">
             <label class="form-label" for="just-select-reason">Tipo de Justificación</label>
@@ -1226,6 +1231,49 @@
           <div class="modal-footer" style="padding: 1rem 0 0 0;">
             <button type="button" class="btn btn-secondary" data-close-modal="modal-justification">Cancelar</button>
             <button type="submit" class="btn btn-primary"><i class="fa-solid fa-save"></i> Guardar Justificación</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Reconteo Form (Reconteo 1 y Reconteo 2) -->
+  <div class="modal-overlay" id="modal-reconteo">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 class="card-title"><i class="fa-solid fa-calculator"></i> <span id="reconteo-modal-title">Registrar Reconteo</span></h3>
+        <button class="close-btn" data-close-modal="modal-reconteo">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="background: var(--bg-card); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; border: 1px solid var(--border-glass);">
+          <div style="display: flex; justify-content: space-between;">
+            <h4 id="reconteo-modal-sku" style="color: var(--primary); font-size: 1.1rem; font-weight: 700;">JD-AH12345</h4>
+            <span class="badge badge-warning" id="reconteo-modal-stage-badge">1er Reconteo (Cols. W-AA)</span>
+          </div>
+          <p id="reconteo-modal-desc" style="font-size: 0.9rem; color: var(--text-main);">Descripción</p>
+          <p id="reconteo-modal-system" style="font-size: 0.85rem; color: var(--text-dim); margin-top: 0.3rem;">Stock Sistema: 0</p>
+        </div>
+
+        <form id="form-submit-reconteo">
+          <input type="hidden" id="reconteo-modal-inv-id">
+          <input type="hidden" id="reconteo-modal-sku-input">
+          <input type="hidden" id="reconteo-modal-item-id">
+          <input type="hidden" id="reconteo-modal-num" value="1">
+
+          <div class="form-group">
+            <label class="form-label" for="reconteo-modal-qty">Cantidad Total Recontada</label>
+            <input type="number" id="reconteo-modal-qty" class="form-input" min="0" step="1" required placeholder="0">
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="reconteo-modal-damaged">Cantidad en Mal Estado</label>
+            <input type="number" id="reconteo-modal-damaged" class="form-input" min="0" step="1" value="0" placeholder="0">
+            <small style="color: var(--text-dim); font-size: 0.78rem; display: block; margin-top: 0.3rem;">Regla: Si la cantidad es 0 y hay mal estado >= 1, se computa como stock. Si la cantidad es >= 1, se toma solo la cantidad.</small>
+          </div>
+
+          <div class="modal-footer" style="padding: 1rem 0 0 0;">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-reconteo">Cancelar</button>
+            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Guardar Reconteo</button>
           </div>
         </form>
       </div>

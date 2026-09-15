@@ -20,17 +20,19 @@ router.get('/', authenticate, requireRole(['ADMIN']), (req, res) => {
 // POST /api/justifications (Submit a single justification)
 router.post('/', authenticate, requireRole(['ADMIN']), (req, res) => {
   try {
-    const { inventoryId, sku, justification, photoUrl, reasonType } = req.body;
-    if (!inventoryId || !sku) {
-      return res.status(400).json({ success: false, message: 'inventoryId y sku son obligatorios' });
+    const { inventoryId, sku, itemId, justification, photoUrl, reasonType, stage } = req.body;
+    if (!inventoryId || (!sku && !itemId)) {
+      return res.status(400).json({ success: false, message: 'inventoryId y sku/itemId son obligatorios' });
     }
 
     const saved = inventoryService.saveJustification({
       inventoryId,
       sku,
+      itemId,
       justification,
       photoUrl,
       reasonType,
+      stage: stage || 1,
       user: req.user
     });
 

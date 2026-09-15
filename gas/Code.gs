@@ -23,26 +23,64 @@ const CFG = {
 };
 
 const COL = {
-  SKU: 1,
-  Codigo_Barras: 2,
-  Descripcion: 3,
-  Ubicacion: 4,
-  Categoria: 5,
-  Clasificacion_ABC: 6,
-  Unidad: 7,
-  Costo_Unitario: 8,
-  Stock_Sistema: 9,
-  Stock_Fisico: 10,
-  Diferencia: 11,
-  Costo_Diferencia: 12,
-  Fecha_Ultimo_Conteo: 13,
-  Responsable: 14,
-  Estado: 15,
-  Mal_estado: 16,
-  Comentario: 17,
-  Razon: 18,
-  Comentario_Justificacion: 19
+  SKU: 1,                          // A
+  Codigo_Barras: 2,                // B
+  Descripcion: 3,                  // C
+  Ubicacion: 4,                    // D
+  Ubicacion_1: 5,                  // E
+  Ubicacion_2: 6,                  // F
+  Almacen: 7,                      // G
+  Clasificacion_ABC: 8,            // H
+  Unidad: 9,                       // I
+  Costo_Unitario: 10,              // J
+  Stock_Sistema: 11,               // K
+  Stock_Fisico: 12,                // L
+  Diferencia: 13,                  // M
+  Costo_Diferencia: 14,            // N
+  Fecha_Ultimo_Conteo: 15,         // O
+  Responsable: 16,                 // P
+  Mal_estado: 17,                  // Q
+  Fecha_Primera_Justificacion: 18, // R
+  Estado: 19,                      // S
+  Razon: 20,                       // T
+  Comentario_Justificacion: 21,    // U
+  Responsable_Justificacion: 22,   // V
+  Fecha_Reconteo: 23,              // W
+  Reconteo: 24,                    // X
+  Malestado_Reconteo: 25,          // Y
+  Diferencia_Final: 26,            // Z
+  Costo_Diferencia_Final: 27,      // AA
+  Fecha_Justificacion_2: 28,       // AB
+  Estado_Justificacion_2: 29,      // AC
+  Razon_Justificacion_2: 30,       // AD
+  Comentario_Justificacion_2: 31,  // AE
+  Responsable_Justificacion_2: 32, // AF
+  Fecha_Reconteo_2: 33,            // AG
+  Reconteo_2: 34,                  // AH
+  Malestado_Reconteo_2: 35,        // AI
+  Diferencia_Final_2: 36,          // AJ
+  Costo_Diferencia_Final_2: 37     // AK
 };
+
+const COL_HEADERS = [
+  'SKU', 'Codigo_Barras', 'Descripcion', 'Ubicación', 'Ubicación 1', 'Ubicación 2',
+  'Almacen', 'Clasificacion_ABC', 'Unidad', 'Costo_Unitario', 'Stock_Sistema',
+  'Stock_Fisico', 'Diferencia', 'Costo_Diferencia', 'Fecha_Ultimo_Conteo', 'Responsable',
+  'Mal_estado', 'FECHA PRIMERA JUSTIFICACION', 'Estado', 'Razón', 'Comentario Justificacion',
+  'RESPONSABLE JUSTIFICACION', 'Fecha reconteo', 'RECONTEO', 'MALESTADO RECONTEO',
+  'Diferencia Final', 'Costo Diferencia Final', 'FECHA JUSTIFICACION 2', 'ESTADO JUSTIFICACION 2',
+  'Razón JUSTIFICACION 2', 'Comentario JustificaciON 2', 'RESPONSABLE JUSTIFICACION 2',
+  'Fecha reconteo 2', 'RECONTEO 2', 'MALESTADO RECONTEO 2', 'Diferencia Final 2', 'Costo Diferencia Final 2'
+];
+
+function calculateEffectiveStock_(qty, damagedQty) {
+  if (qty === null || qty === undefined || qty === '') return null;
+  const c = Number(qty);
+  const d = (damagedQty !== null && damagedQty !== undefined && damagedQty !== '') ? Number(damagedQty) : 0;
+  if (c === 0 && d >= 1) return d;
+  if (c >= 1) return c;
+  return 0;
+}
 
 function doGet(e) {
   try {
@@ -402,20 +440,18 @@ function getCenterSheetFromSs_(ss, center) {
 
 function ensureColumns_(sheet) {
   const maxCols = sheet.getMaxColumns();
-  if (maxCols < COL.Comentario_Justificacion) {
-    sheet.insertColumnsAfter(maxCols, COL.Comentario_Justificacion - maxCols);
+  if (maxCols < COL.Costo_Diferencia_Final_2) {
+    sheet.insertColumnsAfter(maxCols, COL.Costo_Diferencia_Final_2 - maxCols);
   }
   if (sheet.getLastRow() >= 1) {
-    const headerRange = sheet.getRange(1, COL.Razon, 1, 2);
+    const headerRange = sheet.getRange(1, 1, 1, COL.Costo_Diferencia_Final_2);
     const headers = headerRange.getValues()[0];
     let needsUpdate = false;
-    if (!headers[0]) {
-      headers[0] = 'Razon';
-      needsUpdate = true;
-    }
-    if (!headers[1]) {
-      headers[1] = 'Comentario_Justificacion';
-      needsUpdate = true;
+    for (let c = 0; c < COL_HEADERS.length; c++) {
+      if (!headers[c] || String(headers[c]).trim() === '') {
+        headers[c] = COL_HEADERS[c];
+        needsUpdate = true;
+      }
     }
     if (needsUpdate) {
       headerRange.setValues([headers]);
@@ -428,7 +464,7 @@ function findExactRow_(sheet, sku, barcode, location) {
   if (lastRow < 2) return null;
 
   ensureColumns_(sheet);
-  const data = sheet.getRange(2, 1, lastRow - 1, COL.Comentario_Justificacion).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, COL.Costo_Diferencia_Final_2).getValues();
   const sTarget = norm_(sku);
   const bTarget = norm_(barcode);
   const lTarget = norm_(location);
@@ -455,7 +491,7 @@ function findBySkuBarcode_(sheet, sku, barcode) {
   if (lastRow < 2) return null;
 
   ensureColumns_(sheet);
-  const data = sheet.getRange(2, 1, lastRow - 1, COL.Comentario_Justificacion).getValues();
+  const data = sheet.getRange(2, 1, lastRow - 1, COL.Costo_Diferencia_Final_2).getValues();
   const sTarget = norm_(sku);
   const bTarget = norm_(barcode);
 
@@ -473,81 +509,227 @@ function findBySkuBarcode_(sheet, sku, barcode) {
 
 function updateExistingRow_(sheet, rowNumber, data) {
   ensureColumns_(sheet);
-  const row = sheet.getRange(rowNumber, 1, 1, COL.Comentario_Justificacion).getValues()[0];
+  const row = sheet.getRange(rowNumber, 1, 1, COL.Costo_Diferencia_Final_2).getValues()[0];
 
   const stockSistema = num_(row[COL.Stock_Sistema - 1]);
   const costoUnitario = num_(row[COL.Costo_Unitario - 1]);
 
-  const stockFisico = hasValue_(data.stockFisico) ? num_(data.stockFisico) : num_(row[COL.Stock_Fisico - 1]);
+  const stockFisico = hasValue_(data.stockFisico) ? num_(data.stockFisico) : (hasValue_(row[COL.Stock_Fisico - 1]) ? num_(row[COL.Stock_Fisico - 1]) : null);
   const malEstado = hasValue_(data.malEstado) ? num_(data.malEstado) : num_(row[COL.Mal_estado - 1]);
-  const comentario = data.comentario !== undefined ? String(data.comentario || '') : String(row[COL.Comentario - 1] || '');
 
-  // Columna R: Razon de Justificacion
-  const razon = hasValue_(data.razon) ? String(data.razon) :
-                (hasValue_(data.razonJustificacion) ? String(data.razonJustificacion) :
-                (hasValue_(data.reasonType) ? String(data.reasonType) :
-                (hasValue_(data.Razon) ? String(data.Razon) : String(row[COL.Razon - 1] || ''))));
+  // Conteo 1 & Regla 2: Stock Efectivo
+  if (stockFisico !== null) {
+    const eff1 = calculateEffectiveStock_(stockFisico, malEstado);
+    const dif1 = eff1 !== null ? (eff1 - stockSistema) : 0;
+    row[COL.Stock_Fisico - 1] = stockFisico;
+    row[COL.Diferencia - 1] = dif1;
+    row[COL.Costo_Diferencia - 1] = dif1 * costoUnitario;
+    row[COL.Fecha_Ultimo_Conteo - 1] = data.fechaUltimoConteo ? new Date(data.fechaUltimoConteo) : new Date();
+    row[COL.Responsable - 1] = data.responsable || data.username || row[COL.Responsable - 1] || '';
+    row[COL.Mal_estado - 1] = malEstado;
+    row[COL.Estado - 1] = dif1 === 0 ? 'CUADRA' : 'NO CUADRA';
+  }
 
-  // Columna S: Comentarios de la justificacion
-  const comentarioJust = hasValue_(data.comentarioJustificacion) ? String(data.comentarioJustificacion) :
-                         (hasValue_(data.justification) ? String(data.justification) :
-                         (hasValue_(data.comentariosJustificacion) ? String(data.comentariosJustificacion) :
-                         (hasValue_(data.Comentario_Justificacion) ? String(data.Comentario_Justificacion) : String(row[COL.Comentario_Justificacion - 1] || ''))));
+  // Ubicaciones adicionales
+  if (data.ubicacion1 || data.Ubicacion_1) row[COL.Ubicacion_1 - 1] = data.ubicacion1 || data.Ubicacion_1;
+  if (data.ubicacion2 || data.Ubicacion_2) row[COL.Ubicacion_2 - 1] = data.ubicacion2 || data.Ubicacion_2;
+  if (data.almacen || data.Almacen) row[COL.Almacen - 1] = data.almacen || data.Almacen;
 
-  const dif = stockFisico - stockSistema;
-  const costoDif = dif * costoUnitario;
+  // Justificación 1
+  if (hasValue_(data.fechaPrimeraJustificacion)) row[COL.Fecha_Primera_Justificacion - 1] = new Date(data.fechaPrimeraJustificacion);
+  if (hasValue_(data.razon)) row[COL.Razon - 1] = data.razon;
+  if (hasValue_(data.comentarioJustificacion)) row[COL.Comentario_Justificacion - 1] = data.comentarioJustificacion;
+  if (hasValue_(data.responsableJustificacion)) row[COL.Responsable_Justificacion - 1] = data.responsableJustificacion;
+  if (hasValue_(data.estado)) row[COL.Estado - 1] = data.estado;
 
-  row[COL.Stock_Fisico - 1] = stockFisico;
-  row[COL.Diferencia - 1] = dif;
-  row[COL.Costo_Diferencia - 1] = costoDif;
-  row[COL.Fecha_Ultimo_Conteo - 1] = data.fechaUltimoConteo ? new Date(data.fechaUltimoConteo) : new Date();
-  row[COL.Responsable - 1] = data.responsable || data.username || row[COL.Responsable - 1] || '';
-  row[COL.Estado - 1] = data.estado || inferEstado_(dif, malEstado);
-  row[COL.Mal_estado - 1] = malEstado;
-  row[COL.Comentario - 1] = comentario;
-  row[COL.Razon - 1] = razon;
-  row[COL.Comentario_Justificacion - 1] = comentarioJust;
+  // Reconteo 1 (Regla 1: cálculos solo si hay reconteo)
+  if (hasValue_(data.reconteo) && data.reconteo !== '') {
+    const rec1 = num_(data.reconteo);
+    const malRec1 = hasValue_(data.malestadoReconteo) ? num_(data.malestadoReconteo) : 0;
+    const effRec1 = calculateEffectiveStock_(rec1, malRec1);
+    const difRec1 = effRec1 !== null ? (effRec1 - stockSistema) : null;
+    row[COL.Reconteo - 1] = rec1;
+    row[COL.Malestado_Reconteo - 1] = malRec1;
+    row[COL.Fecha_Reconteo - 1] = data.fechaReconteo ? new Date(data.fechaReconteo) : new Date();
+    row[COL.Diferencia_Final - 1] = difRec1;
+    row[COL.Costo_Diferencia_Final - 1] = difRec1 !== null ? (difRec1 * costoUnitario) : '';
+  }
 
-  sheet.getRange(rowNumber, 1, 1, COL.Comentario_Justificacion).setValues([row]);
+  // Justificación 2
+  if (hasValue_(data.fechaJustificacion2)) row[COL.Fecha_Justificacion_2 - 1] = new Date(data.fechaJustificacion2);
+  if (hasValue_(data.estadoJustificacion2)) row[COL.Estado_Justificacion_2 - 1] = data.estadoJustificacion2;
+  if (hasValue_(data.razonJustificacion2)) row[COL.Razon_Justificacion_2 - 1] = data.razonJustificacion2;
+  if (hasValue_(data.comentarioJustificacion2)) row[COL.Comentario_Justificacion_2 - 1] = data.comentarioJustificacion2;
+  if (hasValue_(data.responsableJustificacion2)) row[COL.Responsable_Justificacion_2 - 1] = data.responsableJustificacion2;
+
+  // Reconteo 2 (Regla 1: cálculos solo si hay reconteo 2)
+  if (hasValue_(data.reconteo2) && data.reconteo2 !== '') {
+    const rec2 = num_(data.reconteo2);
+    const malRec2 = hasValue_(data.malestadoReconteo2) ? num_(data.malestadoReconteo2) : 0;
+    const effRec2 = calculateEffectiveStock_(rec2, malRec2);
+    const difRec2 = effRec2 !== null ? (effRec2 - stockSistema) : null;
+    row[COL.Reconteo_2 - 1] = rec2;
+    row[COL.Malestado_Reconteo_2 - 1] = malRec2;
+    row[COL.Fecha_Reconteo_2 - 1] = data.fechaReconteo2 ? new Date(data.fechaReconteo2) : new Date();
+    row[COL.Diferencia_Final_2 - 1] = difRec2;
+    row[COL.Costo_Diferencia_Final_2 - 1] = difRec2 !== null ? (difRec2 * costoUnitario) : '';
+  }
+
+  sheet.getRange(rowNumber, 1, 1, COL.Costo_Diferencia_Final_2).setValues([row]);
 }
 
 function appendNewLocationFromRow_(sheet, sourceRowNumber, data) {
   ensureColumns_(sheet);
-  const source = sheet.getRange(sourceRowNumber, 1, 1, COL.Comentario_Justificacion).getValues()[0];
+  const source = sheet.getRange(sourceRowNumber, 1, 1, COL.Costo_Diferencia_Final_2).getValues()[0];
   const row = source.slice();
 
-  const stockSistema = num_(row[COL.Stock_Sistema - 1]);
+  const stockSistema = 0; // Ubicación adicional stock sistema es 0
   const costoUnitario = num_(row[COL.Costo_Unitario - 1]);
 
   const nuevaUbicacion = String(
     data.newLocation || data.nuevaUbicacion || data.location || data.ubicacion || row[COL.Ubicacion - 1]
   ).trim();
 
-  const stockFisico = hasValue_(data.stockFisico) ? num_(data.stockFisico) : num_(row[COL.Stock_Fisico - 1]);
-  const malEstado = hasValue_(data.malEstado) ? num_(data.malEstado) : num_(row[COL.Mal_estado - 1]);
-  const comentario = data.comentario !== undefined ? String(data.comentario || '') : String(row[COL.Comentario - 1] || '');
-
-  // Columna R: Razon de Justificacion
-  const razon = hasValue_(data.razon) ? String(data.razon) :
-                (hasValue_(data.razonJustificacion) ? String(data.razonJustificacion) :
-                (hasValue_(data.reasonType) ? String(data.reasonType) :
-                (hasValue_(data.Razon) ? String(data.Razon) : String(row[COL.Razon - 1] || ''))));
-
-  // Columna S: Comentarios de la justificacion
-  const comentarioJust = hasValue_(data.comentarioJustificacion) ? String(data.comentarioJustificacion) :
-                         (hasValue_(data.justification) ? String(data.justification) :
-                         (hasValue_(data.comentariosJustificacion) ? String(data.comentariosJustificacion) :
-                         (hasValue_(data.Comentario_Justificacion) ? String(data.Comentario_Justificacion) : String(row[COL.Comentario_Justificacion - 1] || ''))));
-
-  const dif = stockFisico - stockSistema;
-  const costoDif = dif * costoUnitario;
+  const stockFisico = hasValue_(data.stockFisico) ? num_(data.stockFisico) : 0;
+  const malEstado = hasValue_(data.malEstado) ? num_(data.malEstado) : 0;
+  const eff = calculateEffectiveStock_(stockFisico, malEstado);
+  const dif = eff !== null ? (eff - stockSistema) : 0;
 
   row[COL.Ubicacion - 1] = nuevaUbicacion;
+  row[COL.Stock_Sistema - 1] = 0;
   row[COL.Stock_Fisico - 1] = stockFisico;
   row[COL.Diferencia - 1] = dif;
-  row[COL.Costo_Diferencia - 1] = costoDif;
+  row[COL.Costo_Diferencia - 1] = dif * costoUnitario;
   row[COL.Fecha_Ultimo_Conteo - 1] = data.fechaUltimoConteo ? new Date(data.fechaUltimoConteo) : new Date();
   row[COL.Responsable - 1] = data.responsable || data.username || row[COL.Responsable - 1] || '';
+  row[COL.Estado - 1] = dif === 0 ? 'CUADRA' : 'NO CUADRA';
+  row[COL.Mal_estado - 1] = malEstado;
+
+  sheet.appendRow(row);
+  return sheet.getLastRow();
+}
+
+function syncFromDriveRecordItems_(sheet, items, center, type) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2 || !items || !items.length) return;
+
+  ensureColumns_(sheet);
+  const range = sheet.getRange(2, 1, lastRow - 1, COL.Costo_Diferencia_Final_2);
+  const values = range.getValues();
+
+  const rowMap = new Map();
+  const skuMap = new Map();
+
+  for (let i = 0; i < values.length; i++) {
+    const r = values[i];
+    const s = norm_(r[COL.SKU - 1]);
+    const b = norm_(r[COL.Codigo_Barras - 1]);
+    const u = norm_(r[COL.Ubicacion - 1]);
+
+    const fullKey = `${s}|${b}|${u}`;
+    if (!rowMap.has(fullKey)) rowMap.set(fullKey, i);
+
+    const skuBarKey = `${s}|${b}`;
+    if (!rowMap.has(skuBarKey)) rowMap.set(skuBarKey, i);
+
+    if (s && !skuMap.has(s)) skuMap.set(s, i);
+  }
+
+  let hasUpdates = false;
+
+  items.forEach(it => {
+    const sku = String(it.SKU || it.sku || '').trim();
+    const barcode = String(it.Codigo_Barras || it.codigoBarras || it.barcode || '').trim();
+    const ubicacion = String(it.Ubicacion || it.ubicacion || '').trim();
+    if (!sku && !barcode) return;
+
+    const sNorm = norm_(sku);
+    const bNorm = norm_(barcode);
+    const uNorm = norm_(ubicacion);
+
+    let rowIndex = -1;
+    if (uNorm && rowMap.has(`${sNorm}|${bNorm}|${uNorm}`)) {
+      rowIndex = rowMap.get(`${sNorm}|${bNorm}|${uNorm}`);
+    } else if (rowMap.has(`${sNorm}|${bNorm}`)) {
+      rowIndex = rowMap.get(`${sNorm}|${bNorm}`);
+    } else if (skuMap.has(sNorm)) {
+      rowIndex = skuMap.get(sNorm);
+    }
+
+    if (rowIndex >= 0) {
+      const row = values[rowIndex];
+      const stockSistema = num_(row[COL.Stock_Sistema - 1]);
+      const costoUnitario = num_(row[COL.Costo_Unitario - 1]);
+
+      const stockFisico = hasValue_(it.Stock_Fisico) ? num_(it.Stock_Fisico) : (hasValue_(it.stockFisico) ? num_(it.stockFisico) : null);
+      const malEstado = hasValue_(it.Mal_estado) ? num_(it.Mal_estado) : (hasValue_(it.malEstado) ? num_(it.malEstado) : 0);
+
+      if (stockFisico !== null) {
+        const eff1 = calculateEffectiveStock_(stockFisico, malEstado);
+        const dif1 = eff1 !== null ? (eff1 - stockSistema) : 0;
+        row[COL.Stock_Fisico - 1] = stockFisico;
+        row[COL.Diferencia - 1] = dif1;
+        row[COL.Costo_Diferencia - 1] = dif1 * costoUnitario;
+        row[COL.Fecha_Ultimo_Conteo - 1] = it.Fecha_Ultimo_Conteo ? new Date(it.Fecha_Ultimo_Conteo) : new Date();
+        row[COL.Responsable - 1] = it.Responsable || it.responsable || row[COL.Responsable - 1] || '';
+        row[COL.Mal_estado - 1] = malEstado;
+        row[COL.Estado - 1] = dif1 === 0 ? 'CUADRA' : 'NO CUADRA';
+      }
+
+      // Ubicaciones 1 y 2
+      if (it.Ubicacion_1 || it.ubicacion1) row[COL.Ubicacion_1 - 1] = it.Ubicacion_1 || it.ubicacion1;
+      if (it.Ubicacion_2 || it.ubicacion2) row[COL.Ubicacion_2 - 1] = it.Ubicacion_2 || it.ubicacion2;
+      if (it.Almacen || it.almacen) row[COL.Almacen - 1] = it.Almacen || it.almacen || center;
+
+      // Justificación 1
+      if (hasValue_(it.Fecha_Primera_Justificacion)) row[COL.Fecha_Primera_Justificacion - 1] = new Date(it.Fecha_Primera_Justificacion);
+      if (hasValue_(it.Razon || it.razon)) row[COL.Razon - 1] = it.Razon || it.razon;
+      if (hasValue_(it.Comentario_Justificacion || it.comentarioJustificacion)) row[COL.Comentario_Justificacion - 1] = it.Comentario_Justificacion || it.comentarioJustificacion;
+      if (hasValue_(it.Responsable_Justificacion || it.responsableJustificacion)) row[COL.Responsable_Justificacion - 1] = it.Responsable_Justificacion || it.responsableJustificacion;
+      if (hasValue_(it.Estado)) row[COL.Estado - 1] = it.Estado;
+
+      // Reconteo 1 (Regla 1: cálculos condicionales)
+      if (hasValue_(it.Reconteo) && it.Reconteo !== '') {
+        const rec1 = num_(it.Reconteo);
+        const malRec1 = hasValue_(it.Malestado_Reconteo) ? num_(it.Malestado_Reconteo) : 0;
+        const effRec1 = calculateEffectiveStock_(rec1, malRec1);
+        const difRec1 = effRec1 !== null ? (effRec1 - stockSistema) : null;
+        row[COL.Reconteo - 1] = rec1;
+        row[COL.Malestado_Reconteo - 1] = malRec1;
+        row[COL.Fecha_Reconteo - 1] = it.Fecha_Reconteo ? new Date(it.Fecha_Reconteo) : new Date();
+        row[COL.Diferencia_Final - 1] = difRec1;
+        row[COL.Costo_Diferencia_Final - 1] = difRec1 !== null ? (difRec1 * costoUnitario) : '';
+      }
+
+      // Justificación 2
+      if (hasValue_(it.Fecha_Justificacion_2)) row[COL.Fecha_Justificacion_2 - 1] = new Date(it.Fecha_Justificacion_2);
+      if (hasValue_(it.Estado_Justificacion_2)) row[COL.Estado_Justificacion_2 - 1] = it.Estado_Justificacion_2;
+      if (hasValue_(it.Razon_Justificacion_2)) row[COL.Razon_Justificacion_2 - 1] = it.Razon_Justificacion_2;
+      if (hasValue_(it.Comentario_Justificacion_2)) row[COL.Comentario_Justificacion_2 - 1] = it.Comentario_Justificacion_2;
+      if (hasValue_(it.Responsable_Justificacion_2)) row[COL.Responsable_Justificacion_2 - 1] = it.Responsable_Justificacion_2;
+
+      // Reconteo 2 (Regla 1: cálculos condicionales)
+      if (hasValue_(it.Reconteo_2) && it.Reconteo_2 !== '') {
+        const rec2 = num_(it.Reconteo_2);
+        const malRec2 = hasValue_(it.Malestado_Reconteo_2) ? num_(it.Malestado_Reconteo_2) : 0;
+        const effRec2 = calculateEffectiveStock_(rec2, malRec2);
+        const difRec2 = effRec2 !== null ? (effRec2 - stockSistema) : null;
+        row[COL.Reconteo_2 - 1] = rec2;
+        row[COL.Malestado_Reconteo_2 - 1] = malRec2;
+        row[COL.Fecha_Reconteo_2 - 1] = it.Fecha_Reconteo_2 ? new Date(it.Fecha_Reconteo_2) : new Date();
+        row[COL.Diferencia_Final_2 - 1] = difRec2;
+        row[COL.Costo_Diferencia_Final_2 - 1] = difRec2 !== null ? (difRec2 * costoUnitario) : '';
+      }
+
+      hasUpdates = true;
+      saveDamagedPhotoIfAny_(it, center, type, sku);
+    }
+  });
+
+  if (hasUpdates) {
+    range.setValues(values);
+  }
+}
   row[COL.Estado - 1] = data.estado || inferEstado_(dif, malEstado);
   row[COL.Mal_estado - 1] = malEstado;
   row[COL.Comentario - 1] = comentario;
@@ -813,6 +995,18 @@ function inferEstado_(dif, malEstado) {
   if (malEstado > 0) return 'Dañado';
   if (dif === 0) return 'Correcto';
   return 'Diferencia';
+}
+
+// Regla 2: Lógica de Stock Efectivo según Mal Estado vs Conteo
+function calculateEffectiveStock_(qty, damagedQty) {
+  const d = (damagedQty !== null && damagedQty !== undefined && damagedQty !== '') ? Number(damagedQty) : 0;
+  if (qty === null || qty === undefined || qty === '') {
+    return d >= 1 ? d : null;
+  }
+  const c = Number(qty);
+  if (c === 0 && d >= 1) return d;
+  if (c >= 1) return c;
+  return 0;
 }
 
 function hasValue_(v) {

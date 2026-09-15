@@ -114,6 +114,25 @@ router.post('/:id/count', authenticate, async (req, res) => {
   }
 });
 
+// POST /api/inventories/:id/reconteo (Register Reconteo 1 or Reconteo 2)
+router.post('/:id/reconteo', authenticate, (req, res) => {
+  try {
+    const { sku, itemId, reconteoNum, qty, damagedQty } = req.body;
+    const result = inventoryService.recordReconteo({
+      inventoryId: req.params.id,
+      sku,
+      itemId,
+      reconteoNum: reconteoNum || 1,
+      qty,
+      damagedQty: damagedQty || 0,
+      user: req.user
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 // POST /api/inventories/:id/items/:itemId/request-unlock (Unlock item for modification)
 router.post('/:id/items/:itemId/request-unlock', authenticate, restrictCenter, (req, res) => {
   try {

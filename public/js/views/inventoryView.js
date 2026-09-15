@@ -921,7 +921,11 @@ window.InventoryView = {
         item.Stock_Fisico = qty;
         item.Mal_estado = damaged;
         item.locked = true;
-        item.Estado = 'Contado';
+        if (res && res.item) {
+          Object.assign(item, res.item);
+        } else {
+          item.Estado = 'Contado';
+        }
       }
 
       // Lock input fields to prevent accidental edits

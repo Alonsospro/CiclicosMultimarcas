@@ -60,29 +60,53 @@ const config = {
     referenceFolderId: '1dp0MUZ4HcCSpDejpF5JknWN_09ZCshU6'
   },
 
-  // Column contract definition (Cols A to Q)
+  // Official Column contract definition (Cols A to AK - 37 columns)
   columns: [
-    'SKU',                // A
-    'Codigo_Barras',      // B
-    'Descripcion',        // C
-    'Ubicacion',          // D
-    'Categoria',          // E
-    'Clasificacion_ABC',  // F
-    'Unidad',             // G
-    'Costo_Unitario',     // H (Hidden in blind count)
-    'Stock_Sistema',      // I (Hidden in blind count)
-    'Stock_Fisico',       // J
-    'Diferencia',         // K (Hidden in blind count)
-    'Costo_Diferencia',   // L (Hidden in blind count)
-    'Fecha_Ultimo_Conteo',// M
-    'Responsable',        // N
-    'Estado',             // O (Hidden in blind count)
-    'Mal_estado',         // P (Mal estado col P)
-    'Comentario'          // Q (Comentario col Q)
+    'SKU',                         // A
+    'Codigo_Barras',               // B
+    'Descripcion',                 // C
+    'Ubicacion',                   // D (Ubicación Original)
+    'Ubicacion_1',                 // E (Ubicación Extra 1)
+    'Ubicacion_2',                 // F (Ubicación Extra 2)
+    'Almacen',                     // G (Almacén / Centro)
+    'Clasificacion_ABC',           // H (ABC)
+    'Unidad',                      // I
+    'Costo_Unitario',              // J (Costo)
+    'Stock_Sistema',               // K (Stock de Sistema)
+    'Stock_Fisico',                // L (Primer Conteo)
+    'Diferencia',                  // M (Diferencia Conteo 1 vs Sistema)
+    'Costo_Diferencia',            // N (Costo Diferencia 1)
+    'Fecha_Ultimo_Conteo',         // O (Fecha/Hora Conteo 1)
+    'Responsable',                 // P (Responsable Conteo 1)
+    'Mal_estado',                  // Q (Mal Estado Conteo 1)
+    'Fecha_Primera_Justificacion', // R (Fecha/Hora 1ra Justificación)
+    'Estado',                      // S (Estado 1ra Justificación: CUADRA / NO CUADRA)
+    'Razon',                       // T (Razón 1ra Justificación)
+    'Comentario_Justificacion',    // U (Comentario 1ra Justificación)
+    'Responsable_Justificacion',   // V (Responsable 1ra Justificación)
+    'Fecha_Reconteo',              // W (Fecha/Hora 1er Reconteo)
+    'Reconteo',                    // X (Cantidad Total 1er Reconteo)
+    'Malestado_Reconteo',          // Y (Mal Estado 1er Reconteo)
+    'Diferencia_Final',            // Z (Diferencia Reconteo 1 vs Sistema)
+    'Costo_Diferencia_Final',      // AA (Costo Diferencia Final Reconteo 1)
+    'Fecha_Justificacion_2',       // AB (Fecha/Hora 2da Justificación)
+    'Estado_Justificacion_2',      // AC (Estado 2da Justificación: CUADRA / NO CUADRA)
+    'Razon_Justificacion_2',       // AD (Razón 2da Justificación)
+    'Comentario_Justificacion_2',  // AE (Comentario 2da Justificación)
+    'Responsable_Justificacion_2', // AF (Responsable 2da Justificación)
+    'Fecha_Reconteo_2',            // AG (Fecha/Hora 2do Reconteo)
+    'Reconteo_2',                  // AH (Cantidad Total 2do Reconteo)
+    'Malestado_Reconteo_2',        // AI (Mal Estado 2do Reconteo)
+    'Diferencia_Final_2',          // AJ (Diferencia Reconteo 2 vs Sistema)
+    'Costo_Diferencia_Final_2'     // AK (Costo Diferencia Final Reconteo 2)
   ],
 
   // Hidden columns for blind count (Auxiliar role)
-  blindCountHiddenCols: ['Costo_Unitario', 'Stock_Sistema', 'Diferencia', 'Costo_Diferencia', 'Estado'],
+  blindCountHiddenCols: [
+    'Costo_Unitario', 'Stock_Sistema', 'Diferencia', 'Costo_Diferencia',
+    'Estado', 'Diferencia_Final', 'Costo_Diferencia_Final',
+    'Estado_Justificacion_2', 'Diferencia_Final_2', 'Costo_Diferencia_Final_2'
+  ],
 
   // Allowed inventory types
   inventoryTypes: ['CICLICO', 'BARRIDO', 'MENSUAL', 'SEMANAL'],

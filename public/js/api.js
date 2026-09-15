@@ -134,6 +134,13 @@ window.API = {
     });
   },
 
+  registerReconteo(inventoryId, payload) {
+    return this.request(`/inventories/${inventoryId}/reconteo`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
   requestUnlockItem(inventoryId, itemId, payload = {}) {
     return this.request(`/inventories/${inventoryId}/items/${itemId}/request-unlock`, {
       method: 'POST',

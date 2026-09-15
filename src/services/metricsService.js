@@ -19,6 +19,18 @@ function isValidDate(d) {
   return d instanceof Date && !isNaN(d.getTime());
 }
 
+// Regla 2: Cálculo de stock efectivo considerando conteo y mal estado para el ERI
+function calculateEffectiveStock(qty, damagedQty) {
+  const d = (damagedQty !== null && damagedQty !== undefined && damagedQty !== '') ? Number(damagedQty) : 0;
+  if (qty === null || qty === undefined || qty === '') {
+    return d >= 1 ? d : null;
+  }
+  const c = Number(qty);
+  if (c === 0 && d >= 1) return d;
+  if (c >= 1) return c;
+  return 0;
+}
+
 let cachedGasHistory = null;
 let cachedGasHistoryTime = 0;
 const GAS_HISTORY_CACHE_TTL = 60000; // 60 seconds
@@ -398,14 +410,28 @@ class MetricsService {
         centerBreakdown[invCenter].totalAudited++;
         centerBreakdown[invCenter].locationsEvaluated++;
 
-        const stockFisico = item.Stock_Fisico || 0;
+        // Determine final effective count (Reconteo 2 > Reconteo 1 > Primer Conteo)
+        let finalEffectiveStock = null;
+        let finalDamaged = 0;
+        if (item.Reconteo_2 !== null && item.Reconteo_2 !== undefined && item.Reconteo_2 !== '') {
+          finalEffectiveStock = calculateEffectiveStock(item.Reconteo_2, item.Malestado_Reconteo_2);
+          finalDamaged = Number(item.Malestado_Reconteo_2 || 0);
+        } else if (item.Reconteo !== null && item.Reconteo !== undefined && item.Reconteo !== '') {
+          finalEffectiveStock = calculateEffectiveStock(item.Reconteo, item.Malestado_Reconteo);
+          finalDamaged = Number(item.Malestado_Reconteo || 0);
+        } else {
+          finalEffectiveStock = calculateEffectiveStock(item.Stock_Fisico, item.Mal_estado);
+          finalDamaged = Number(item.Mal_estado || 0);
+        }
+
+        const stockFisico = finalEffectiveStock !== null ? finalEffectiveStock : (item.Stock_Fisico || 0);
         const stockSistema = item.Stock_Sistema || 0;
         const diff = stockFisico - stockSistema;
         const unitCost = item.Costo_Unitario || 0;
         const diffCost = diff * unitCost;
         const absDiffCost = Math.abs(diffCost);
         const isAdditionalLoc = !!item.isAdditionalLocation;
-        const damaged = item.Mal_estado || 0;
+        const damaged = finalDamaged;
         const damagedCost = damaged * unitCost;
 
         if (damaged > 0) {
@@ -413,8 +439,8 @@ class MetricsService {
           totalDamagedCost += damagedCost;
         }
 
-        // Exact Match (Ítem Cuadrado)
-        const isExact = (diff === 0 && damaged === 0 && (!isAdditionalLoc || stockFisico === 0));
+        // Exact Match (Ítem Cuadrado según Regla 2: si stock efectivo == stock sistema, es Exacto)
+        const isExact = (diff === 0 && (!isAdditionalLoc || stockFisico === 0));
         if (isExact) {
           totalExactItems++;
           exactMatchingLocations++;
