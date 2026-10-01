@@ -33,13 +33,16 @@
     "displayName": "Bladimir Avalos",
     "cargo": "Auxiliar de Almacén",
     "role": "AUXILIAR",
-    "center": "1120",
-    "centerName": "Volvo - Km 14",
+    "center": "1300",
+    "centerName": "John Deere - Km 10",
     "clave": "BA0856",
     "isSuperadmin": false,
     "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbeIqwkTtNpvzSU1.8cx0xj0vtT1imjtOm",
     "createdAt": "2026-09-03T19:11:14.438Z",
-    "active": true
+    "active": true,
+    "allowedCenters": [
+      "1300"
+    ]
   },
   {
     "id": "USR-1120-Fernando",
@@ -47,13 +50,16 @@
     "displayName": "Luis Fernando Torrico",
     "cargo": "Auxiliar de Almacén",
     "role": "AUXILIAR",
-    "center": "1120",
-    "centerName": "Volvo - Km 14",
+    "center": "1300",
+    "centerName": "John Deere - Km 10",
     "clave": "LT3970",
     "isSuperadmin": false,
     "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbevz.r.LUau47/V5V6uORYIyjv845YOz6",
     "createdAt": "2026-09-03T19:11:14.609Z",
-    "active": true
+    "active": true,
+    "allowedCenters": [
+      "1300"
+    ]
   },
   {
     "id": "USR-1120-Brayan",
@@ -131,13 +137,16 @@
     "displayName": "Abraham Edson Quispe Flores",
     "cargo": "Auxiliar de Almacén",
     "role": "AUXILIAR",
-    "center": "1160",
-    "centerName": "Av. Banzer 3er anillo",
+    "center": "1120",
+    "centerName": "Volvo - Km 14",
     "clave": "AF3090",
     "isSuperadmin": false,
     "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbe1Exw1axrPklD2iR7r.zZreNMe7GeKEu",
     "createdAt": "2026-09-03T19:11:15.409Z",
-    "active": true
+    "active": true,
+    "allowedCenters": [
+      "1120"
+    ]
   },
   {
     "id": "USR-1180-Gustavo",
@@ -285,13 +294,16 @@
     "displayName": "German Mendez",
     "cargo": "Auxiliar de Almacén",
     "role": "AUXILIAR",
-    "center": "1300",
-    "centerName": "John Deere - Km 10",
+    "center": "1700",
+    "centerName": "Av. Grigota 3er anillo",
     "clave": "GM5157",
     "isSuperadmin": false,
     "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbeLJojashoI7uNuWFZ1umSaUpXd1ENEJ2",
     "createdAt": "2026-09-03T19:11:16.585Z",
-    "active": true
+    "active": true,
+    "allowedCenters": [
+      "1700"
+    ]
   },
   {
     "id": "USR-1300-Gabriel",
@@ -299,27 +311,16 @@
     "displayName": "Juan Gabriel Gutiérrez Méndez",
     "cargo": "Auxiliar de Almacén",
     "role": "AUXILIAR",
-    "center": "1300",
-    "centerName": "John Deere - Km 10",
+    "center": "1120",
+    "centerName": "Volvo - Km 14",
     "clave": "JM1114",
     "isSuperadmin": false,
     "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbeP70rG5a5CMpgxDXUtMq2DZm5LBjJh9C",
     "createdAt": "2026-09-03T19:11:16.760Z",
-    "active": true
-  },
-  {
-    "id": "USR-1300-Molina",
-    "username": "Molina",
-    "displayName": "Jorge Molina",
-    "cargo": "Auxiliar de Almacén",
-    "role": "AUXILIAR",
-    "center": "1300",
-    "centerName": "John Deere - Km 10",
-    "clave": "JM0416",
-    "isSuperadmin": false,
-    "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbeDr7bHkovXVJsZc2ZCo2tO2FsSxVFfpC",
-    "createdAt": "2026-09-03T19:11:16.885Z",
-    "active": true
+    "active": true,
+    "allowedCenters": [
+      "1120"
+    ]
   },
   {
     "id": "USR-1310-David",
@@ -397,13 +398,16 @@
     "displayName": "Diego Rodrigo Ramos Ibarra",
     "cargo": "Auxiliar de Almacén",
     "role": "AUXILIAR",
-    "center": "1700",
-    "centerName": "Av. Grigota 3er anillo",
+    "center": "1160",
+    "centerName": "Av. Banzer 3er anillo",
     "clave": "DI4741",
     "isSuperadmin": false,
     "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbeNTzoTfjuqH4pgu9uJMOIlhGoUOtSoGm",
     "createdAt": "2026-09-03T19:11:17.545Z",
-    "active": true
+    "active": true,
+    "allowedCenters": [
+      "1160"
+    ]
   },
   {
     "id": "USR-1800-Padilla",
@@ -583,6 +587,18 @@
     "centerName": "Global",
     "clave": "ABS",
     "isSuperadmin": false,
+    "permissions": {
+      "createInventory": true,
+      "deleteSnapshots": true,
+      "manageUsers": true,
+      "exportReports": true,
+      "recalculateMetrics": true,
+      "manageJustifications": true,
+      "viewAllCenters": true
+    },
+    "allowedCenters": [
+      "GLOBAL"
+    ],
     "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbezyeQHXUIcKbLPEKl4pBEozUOWKAs2s6",
     "createdAt": "2026-09-03T19:11:18.904Z",
     "active": true
@@ -597,6 +613,18 @@
     "centerName": "Global",
     "clave": "JCS",
     "isSuperadmin": false,
+    "permissions": {
+      "createInventory": true,
+      "deleteSnapshots": true,
+      "manageUsers": true,
+      "exportReports": true,
+      "recalculateMetrics": true,
+      "manageJustifications": true,
+      "viewAllCenters": true
+    },
+    "allowedCenters": [
+      "GLOBAL"
+    ],
     "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbePP0lHpi8ahH6rPgcopZhpIANKI1/0tW",
     "createdAt": "2026-09-03T19:11:19.010Z",
     "active": true
@@ -613,7 +641,8 @@
     "isSuperadmin": true,
     "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbezfxcK5jif3Zor8narvzTR40gD.HV05a",
     "createdAt": "2026-09-03T19:11:19.106Z",
-    "active": true
+    "active": true,
+    "email": "alonsospro@gmail.com"
   },
   {
     "id": "USR-ADMIN-GLOBAL",
@@ -627,90 +656,6 @@
     "isSuperadmin": false,
     "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbeLWhake.ydlIOonzvY5xekQp734.aO7a",
     "createdAt": "2026-09-03T19:11:19.201Z",
-    "active": true
-  },
-  {
-    "id": "USR-ENC-WARNES",
-    "username": "encargado_warnes",
-    "displayName": "Encargado Warnes (Test)",
-    "cargo": "Encargado de Almacén",
-    "role": "ENCARGADO",
-    "center": "WARNES",
-    "centerName": "Warnes",
-    "clave": "warnes2026",
-    "isSuperadmin": false,
-    "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbeNWj79br62qFFpApGbm1x1hCiQG43Uaq",
-    "createdAt": "2026-09-03T19:11:19.295Z",
-    "active": true
-  },
-  {
-    "id": "USR-AUX-WARNES-1",
-    "username": "auxiliar_warnes",
-    "displayName": "Carlos Pérez (Auxiliar Warnes)",
-    "cargo": "Auxiliar de Almacén",
-    "role": "AUXILIAR",
-    "center": "WARNES",
-    "centerName": "Warnes",
-    "clave": "auxiliar2026",
-    "isSuperadmin": false,
-    "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbeNJ6JQuXoBnwfKlvMvXeAidaAAfjPV7u",
-    "createdAt": "2026-09-03T19:11:19.388Z",
-    "active": true
-  },
-  {
-    "id": "USR-AUX-WARNES-2",
-    "username": "auxiliar_warnes2",
-    "displayName": "Jorge Medina (Auxiliar Warnes 2)",
-    "cargo": "Auxiliar de Almacén",
-    "role": "AUXILIAR",
-    "center": "WARNES",
-    "centerName": "Warnes",
-    "clave": "auxiliar2026",
-    "isSuperadmin": false,
-    "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbeNJ6JQuXoBnwfKlvMvXeAidaAAfjPV7u",
-    "createdAt": "2026-09-03T19:11:19.484Z",
-    "active": true
-  },
-  {
-    "id": "USR-ENC-CENTRAL",
-    "username": "encargado_central",
-    "displayName": "Encargado Central",
-    "cargo": "Encargado de Almacén",
-    "role": "ENCARGADO",
-    "center": "CENTRAL",
-    "centerName": "Central",
-    "clave": "central2026",
-    "isSuperadmin": false,
-    "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbeZ8xs6dkioLegdpyW27zDzVDA1ci8iXG",
-    "createdAt": "2026-09-03T19:11:19.580Z",
-    "active": true
-  },
-  {
-    "id": "USR-AUX-CENTRAL-1",
-    "username": "auxiliar_central",
-    "displayName": "Roberto Siles (Auxiliar Central)",
-    "cargo": "Auxiliar de Almacén",
-    "role": "AUXILIAR",
-    "center": "CENTRAL",
-    "centerName": "Central",
-    "clave": "auxiliar2026",
-    "isSuperadmin": false,
-    "passwordHash": "$2a$10$oT8Ni3EsEIskJDAMkGsGbeNJ6JQuXoBnwfKlvMvXeAidaAAfjPV7u",
-    "createdAt": "2026-09-03T19:11:19.675Z",
-    "active": true
-  },
-  {
-    "id": "USR-1120-MTLWI5EF",
-    "username": "test_user_mtlwi5ee",
-    "displayName": "Usuario Prueba Creado por Alonso",
-    "cargo": "Auxiliar de Almacén",
-    "role": "AUXILIAR",
-    "center": "1120",
-    "centerName": "Volvo - Km 14",
-    "clave": "testpassword123",
-    "isSuperadmin": false,
-    "passwordHash": "$2a$10$cl9zeKGDmsw6.ZwpJCL7N.Cl0Eb1p7kxjwsNMhbeO2ThUE8FkdzIW",
-    "createdAt": "2026-09-03T19:11:22.302Z",
     "active": true
   }
 ]

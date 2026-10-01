@@ -25,12 +25,32 @@ window.API = {
         headers
       });
 
-      if (response.status === 401) {
-        window.Auth.logout(true);
-        throw new Error('Sesión expirada. Por favor ingrese nuevamente.');
+      let data;
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        try {
+          data = await response.json();
+        } catch (jsonErr) {
+          const text = await response.text().catch(() => '');
+          data = { success: false, message: text || `Error del servidor (${response.status})` };
+        }
+      } else {
+        const text = await response.text().catch(() => '');
+        data = { success: false, message: text || `Error del servidor (${response.status})` };
       }
 
-      const data = await response.json();
+      if (response.status === 401) {
+        const isLoginEndpoint = endpoint === '/auth/login' || endpoint.endsWith('/auth/login');
+        if (isLoginEndpoint) {
+          throw new Error(data && data.message ? data.message : 'Usuario o contraseña incorrectos.');
+        } else {
+          if (window.Auth && typeof window.Auth.logout === 'function') {
+            window.Auth.logout(false);
+          }
+          throw new Error((data && data.message) || 'Sesión expirada. Por favor ingrese nuevamente.');
+        }
+      }
+
       if (!response.ok) {
         throw new Error(data.message || `Error del servidor: ${response.status}`);
       }
@@ -102,6 +122,10 @@ window.API = {
     return this.request(`/inventories/${id}`);
   },
 
+  getInventory(id) {
+    return this.getInventoryById(id);
+  },
+
   syncInventories(inventories) {
     return this.request('/inventories/sync', {
       method: 'POST',
@@ -142,7 +166,7 @@ window.API = {
   },
 
   requestUnlockItem(inventoryId, itemId, payload = {}) {
-    return this.request(`/inventories/${inventoryId}/items/${itemId}/request-unlock`, {
+    return this.request(`/inventories/${inventoryId}/items/${encodeURIComponent(itemId)}/request-unlock`, {
       method: 'POST',
       body: JSON.stringify(payload)
     });
@@ -169,6 +193,13 @@ window.API = {
     });
   },
 
+  updateCountItem(inventoryId, payload = {}) {
+    return this.request(`/inventories/${inventoryId}/update-count-item`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
   deleteInventory(inventoryId, payload = {}) {
     return this.request(`/inventories/${inventoryId}`, {
       method: 'DELETE',
@@ -176,10 +207,35 @@ window.API = {
     });
   },
 
-  deleteItem(inventoryId, itemId) {
-    return this.request(`/inventories/${inventoryId}/items/${itemId}`, {
-      method: 'DELETE'
+  getTrashInventories() {
+    return this.request('/inventories/trash');
+  },
+
+  restoreInventory(inventoryId) {
+    return this.request(`/inventories/${inventoryId}/restore`, {
+      method: 'POST'
     });
+  },
+
+  purgeAllInventories() {
+    return this.request('/inventories/purge-all', {
+      method: 'POST'
+    });
+  },
+
+  deleteItem(inventoryId, itemId, extraData = {}) {
+    const params = new URLSearchParams();
+    if (extraData.sku) params.set('sku', extraData.sku);
+    if (extraData.location) params.set('location', extraData.location);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/inventories/${inventoryId}/items/${encodeURIComponent(itemId)}${qs}`, {
+      method: 'DELETE',
+      body: JSON.stringify(extraData)
+    });
+  },
+
+  deleteInventoryItem(inventoryId, itemId, extraData = {}) {
+    return this.deleteItem(inventoryId, itemId, extraData);
   },
 
   // Barrido endpoints
@@ -204,13 +260,49 @@ window.API = {
   },
 
   // Justifications endpoints
-  getJustifications(center) {
-    const query = center ? `?center=${encodeURIComponent(center)}` : '';
+  getJustifications(center, options = {}) {
+    const params = new URLSearchParams();
+    if (center && center !== 'TODOS' && center !== 'GLOBAL') params.append('center', center);
+    if (options.status) params.append('status', options.status);
+    if (options.includeFinalized) params.append('includeFinalized', 'true');
+    const query = params.toString() ? `?${params.toString()}` : '';
     return this.request(`/justifications${query}`);
+  },
+
+  syncAllFromSheets() {
+    return this.request('/inventories/sync-all-sheets', {
+      method: 'POST'
+    });
+  },
+
+  backupDaily() {
+    return this.request('/inventories/backup-daily', {
+      method: 'POST'
+    });
+  },
+
+  syncInventoryFromSheet(inventoryId) {
+    return this.request(`/inventories/${inventoryId}/sync-sheet`, {
+      method: 'POST'
+    });
   },
 
   saveJustification(payload) {
     return this.request('/justifications', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  corroborateItem(inventoryId, payload) {
+    return this.request(`/justifications/${inventoryId}/corroborate`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
+  enableRecount(inventoryId, payload = {}) {
+    return this.request(`/justifications/${inventoryId}/enable-recount`, {
       method: 'POST',
       body: JSON.stringify(payload)
     });
@@ -232,9 +324,23 @@ window.API = {
     return this.request(`/history/${fileId}`);
   },
 
+  deleteSnapshot(fileId, data = {}) {
+    return this.request(`/history/${encodeURIComponent(fileId)}`, {
+      method: 'DELETE',
+      body: JSON.stringify(data)
+    });
+  },
+
   // Dashboard & Metrics endpoints
   getDashboardMetrics(params = {}) {
     return this.request(`/dashboard/metrics${this.buildQueryString(params)}`);
+  },
+
+  recalculateDashboardMetrics(params = {}) {
+    return this.request('/dashboard/recalculate', {
+      method: 'POST',
+      body: JSON.stringify(params)
+    });
   },
 
   getAuditLogs(params = {}) {
@@ -252,6 +358,10 @@ window.API = {
     if (metadata.date) formData.append('date', metadata.date);
     if (metadata.inventoryId) formData.append('inventoryId', metadata.inventoryId);
     if (metadata.itemId) formData.append('itemId', metadata.itemId);
+    if (metadata.type) formData.append('type', metadata.type);
+    if (metadata.prefix) formData.append('prefix', metadata.prefix);
+    if (metadata.isJustification2 !== undefined) formData.append('isJustification2', metadata.isJustification2);
+    if (metadata.round !== undefined) formData.append('round', metadata.round);
 
     return this.request('/photos/upload', {
       method: 'POST',

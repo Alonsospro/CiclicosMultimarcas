@@ -1,0 +1,29 @@
+[
+  {
+    "id": "LOG-1790713191314-tsks3",
+    "timestamp": "2026-09-29T20:19:51.314Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Cíclico Montero - 29/09/2026 creado con 76 ítems",
+    "user": "Jcarlos",
+    "center": "1310",
+    "targetId": "INV-CICLICO-1310-MUN4EDFZ"
+  },
+  {
+    "id": "LOG-1790781116440-swfwt",
+    "timestamp": "2026-09-30T15:11:56.440Z",
+    "action": "INVENTORY_DELETED",
+    "inventoryId": "INV-CICLICO-1310-MUN4EDFZ",
+    "user": "Alonso",
+    "center": "1310",
+    "reason": "Eliminación por el usuario"
+  },
+  {
+    "id": "LOG-1790781124929-7u67z",
+    "timestamp": "2026-09-30T15:12:04.929Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Cíclico Montero - 29/09/2026 creado con 76 ítems",
+    "user": "Alonso",
+    "center": "1310",
+    "targetId": "INV-CICLICO-1310-MUO8UFCT"
+  }
+]

@@ -3,15 +3,25 @@ window.BarridoView = {
   currentScannedProduct: null,
   isCameraActive: false,
   uploadedPhotoUrl: null,
+  uploadedJustPhotoUrl: null,
 
   init() {
     this.setupListeners();
-    this.initCenters();
+    this.updateCenterAccess();
   },
 
   initCenters() {
+    this.updateCenterAccess();
+  },
+
+  updateCenterAccess() {
+    const adminWrapper = document.getElementById('barrido-admin-center-wrapper');
+    const userWrapper = document.getElementById('barrido-user-center-wrapper');
     const select = document.getElementById('barrido-select-center');
-    if (!select) return;
+    const userCenterLabel = document.getElementById('barrido-user-center-label');
+
+    const user = window.Auth?.currentUser;
+    const isAdmin = !!(user && (user.role === 'ADMIN' || user.isSuperadmin));
 
     const centers = window.AppConfig?.centersList || [
       { code: '1120', displayName: '1120 - Volvo - Km 14' },
@@ -30,28 +40,51 @@ window.BarridoView = {
       { code: '5100', displayName: '5100 - Sucursal Tarija' }
     ];
 
-    select.innerHTML = centers.map(c => `<option value="${c.code}">${c.displayName || c.name || c.code}</option>`).join('');
-
-    const user = window.Auth?.currentUser;
-    if (user) {
-      if (user.role === 'ADMIN' || user.isSuperadmin) {
+    if (isAdmin) {
+      // Administrator: can view, inspect, and select any center
+      if (adminWrapper) adminWrapper.style.display = 'flex';
+      if (userWrapper) userWrapper.style.display = 'none';
+      if (select) {
         select.disabled = false;
-        if (user.center && user.center !== 'GLOBAL') {
+        select.innerHTML = centers.map(c => `<option value="${c.code}">${c.displayName || c.name || c.code}</option>`).join('');
+        if (user && user.center && user.center !== 'GLOBAL') {
           select.value = user.center;
-        } else {
+        } else if (!select.value) {
           select.value = '1120';
         }
-      } else {
-        select.value = user.center || '1120';
+      }
+    } else {
+      // Auxiliares & Encargados: NO capability to select other warehouses
+      // Automatically and strictly locked to the warehouse they belong to
+      const userCenterCode = user?.center || '1120';
+      const matchedCenter = centers.find(c => c.code === userCenterCode);
+      const displayCenterName = matchedCenter?.displayName || (user?.centerName ? `${userCenterCode} - ${user.centerName}` : userCenterCode);
+
+      if (adminWrapper) adminWrapper.style.display = 'none';
+      if (userWrapper) userWrapper.style.display = 'inline-flex';
+      if (userCenterLabel) userCenterLabel.textContent = displayCenterName;
+
+      if (select) {
+        // Single option locked to their assigned center
+        select.innerHTML = `<option value="${userCenterCode}" selected>${displayCenterName}</option>`;
+        select.value = userCenterCode;
         select.disabled = true;
       }
     }
   },
 
   getSelectedCenter() {
+    const user = window.Auth?.currentUser;
+    const isAdmin = !!(user && (user.role === 'ADMIN' || user.isSuperadmin));
+
+    // Auxiliares and Encargados are strictly locked to their assigned warehouse
+    if (!isAdmin) {
+      return (user && user.center && user.center !== 'GLOBAL') ? user.center : '1120';
+    }
+
+    // Admins can select from dropdown
     const select = document.getElementById('barrido-select-center');
     if (select && select.value) return select.value;
-    const user = window.Auth?.currentUser;
     if (user && user.center && user.center !== 'GLOBAL') return user.center;
     return '1120';
   },
@@ -101,18 +134,16 @@ window.BarridoView = {
       }
     });
 
-    // Toggle + Ubicación distinta / adicional button
-    document.getElementById('btn-barrido-toggle-alt-loc')?.addEventListener('click', () => {
-      const locInput = document.getElementById('barrido-input-loc');
+    // Checkbox for manual additional location toggle
+    document.getElementById('barrido-chk-is-new-loc')?.addEventListener('change', (e) => {
       const isNewLocInput = document.getElementById('barrido-is-new-location');
-      if (locInput) {
-        locInput.value = '';
-        locInput.placeholder = 'Escriba o escanee la nueva ubicación física...';
-        locInput.focus();
-        if (isNewLocInput) isNewLocInput.value = 'true';
-        const alertBox = document.getElementById('barrido-loc-diff-alert');
-        if (alertBox) alertBox.style.display = 'block';
-        window.Toast.warning('Modo ubicación adicional activo. Ingrese el nuevo rack/pasillo.');
+      if (isNewLocInput) {
+        isNewLocInput.value = e.target.checked ? 'true' : 'false';
+      }
+      if (e.target.checked) {
+        window.Toast.info('Modo multi-ubicación activado: se creará una nueva fila adicional.');
+      } else {
+        window.Toast.info('Modo actualización: se guardará esta ubicación en el ítem actual sin duplicar.');
       }
     });
 
@@ -141,8 +172,19 @@ window.BarridoView = {
       const file = e.target.files[0];
       if (!file) return;
 
-      const center = document.getElementById('barrido-select-center')?.value || window.Auth.currentUser?.center || '1120';
-      const sku = this.currentScannedProduct?.SKU || '';
+      // Leer localmente como DataURL Base64 de inmediato para previsualizar y asegurar el payload
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        this.uploadedPhotoBase64 = event.target.result;
+        if (previewImg) {
+          previewImg.src = this.uploadedPhotoBase64;
+          previewImg.style.display = 'block';
+        }
+      };
+      reader.readAsDataURL(file);
+
+      const center = this.getSelectedCenter();
+      const sku = this.currentScannedProduct?.item?.SKU || this.currentScannedProduct?.SKU || document.getElementById('barrido-input-code')?.value || '';
       const dateStr = new Date().toISOString().split('T')[0];
 
       try {
@@ -152,18 +194,71 @@ window.BarridoView = {
           photoType: 'malestado',
           sku,
           center,
-          date: dateStr
+          date: dateStr,
+          type: 'BARRIDO'
         });
         if (res.photo && res.photo.url) {
           this.uploadedPhotoUrl = res.photo.url;
-          if (previewImg) {
-            previewImg.src = res.photo.url;
-            previewImg.style.display = 'block';
-          }
           window.Toast.success('Foto de avería lista para guardar en Google Drive');
         }
       } catch (err) {
         window.Toast.danger(err.message || 'Error al subir foto.');
+      }
+    });
+
+    // Justification photo toggle and file selection
+    const btnToggleJustPhoto = document.getElementById('btn-toggle-barrido-just-photo');
+    const justPhotoBox = document.getElementById('barrido-just-photo-box');
+    const lblToggleJustPhoto = document.getElementById('lbl-toggle-just-photo');
+    const justPhotoZone = document.getElementById('zone-barrido-just-photo');
+    const justPhotoInput = document.getElementById('input-barrido-just-photo-file');
+    const justPreviewImg = document.getElementById('img-barrido-just-preview');
+
+    btnToggleJustPhoto?.addEventListener('click', () => {
+      if (!justPhotoBox) return;
+      const isHidden = justPhotoBox.style.display === 'none' || !justPhotoBox.style.display;
+      justPhotoBox.style.display = isHidden ? 'block' : 'none';
+      if (lblToggleJustPhoto) {
+        lblToggleJustPhoto.textContent = isHidden ? 'Ocultar' : 'Adjuntar Foto';
+      }
+    });
+
+    justPhotoZone?.addEventListener('click', () => justPhotoInput?.click());
+
+    justPhotoInput?.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        this.uploadedJustPhotoBase64 = event.target.result;
+        if (justPreviewImg) {
+          justPreviewImg.src = this.uploadedJustPhotoBase64;
+          justPreviewImg.style.display = 'block';
+        }
+      };
+      reader.readAsDataURL(file);
+
+      const center = this.getSelectedCenter();
+      const sku = this.currentScannedProduct?.item?.SKU || this.currentScannedProduct?.SKU || document.getElementById('barrido-input-code')?.value || '';
+      const dateStr = new Date().toISOString().split('T')[0];
+
+      try {
+        window.Toast.info('Subiendo foto de justificación a Google Drive...');
+        const res = await window.API.uploadPhoto(file, {
+          category: 'justificaciones',
+          photoType: 'justificaciones',
+          sku,
+          center,
+          date: dateStr,
+          type: 'BARRIDO'
+        });
+        if (res.photo && res.photo.url) {
+          this.uploadedJustPhotoUrl = res.photo.url;
+          window.Toast.success('Foto de justificación vinculada con éxito');
+        }
+      } catch (err) {
+        window.Toast.danger(err.message || 'Error al subir foto de justificación.');
       }
     });
 
@@ -172,6 +267,8 @@ window.BarridoView = {
       e.preventDefault();
       if (!this.currentScannedProduct) return;
 
+      const descInput = document.getElementById('barrido-input-desc');
+      const itemDesc = descInput ? descInput.value.trim() : '';
       const loc = document.getElementById('barrido-input-loc').value.trim();
       const qtyVal = document.getElementById('barrido-input-qty').value;
       const damagedVal = document.getElementById('barrido-input-damaged').value;
@@ -179,8 +276,15 @@ window.BarridoView = {
       const qty = qtyVal !== '' ? parseInt(qtyVal, 10) : 0;
       const damaged = damagedVal !== '' ? parseInt(damagedVal, 10) : 0;
 
+      if (!itemDesc) {
+        window.Toast.warning('Debe ingresar el nombre o descripción del ítem.');
+        descInput?.focus();
+        return;
+      }
+
       if (!loc) {
         window.Toast.warning('Debe ingresar la ubicación física.');
+        document.getElementById('barrido-input-loc')?.focus();
         return;
       }
 
@@ -192,10 +296,17 @@ window.BarridoView = {
 
       try {
         const item = this.currentScannedProduct.item;
+        const isNewDiscovery = !this.currentScannedProduct.found || this.currentScannedProduct.source === 'NEW_DISCOVERY';
         const origLoc = item.UbicacionOriginal || item.Ubicacion || '';
-        const isNewLocFlag = document.getElementById('barrido-is-new-location')?.value === 'true';
-        const isDifferentLoc = (origLoc && origLoc.toUpperCase() !== loc.toUpperCase());
-        const isNewLoc = isNewLocFlag || isDifferentLoc;
+
+        // Si es un ítem nuevo no registrado en sistema, la ubicación ingresada es la PRINCIPAL (isNewLocation = false)
+        let isNewLoc = false;
+        if (!isNewDiscovery) {
+          // Solo si el contador lo activa explícitamente en la casilla de verificación
+          const chk = document.getElementById('barrido-chk-is-new-loc');
+          isNewLoc = !!(chk && chk.checked);
+        }
+
         const center = this.getSelectedCenter();
         const comment = document.getElementById('barrido-input-comment')?.value.trim() || '';
 
@@ -203,20 +314,31 @@ window.BarridoView = {
           inventoryId: this.currentScannedProduct.inventoryId || null,
           itemId: item.id || null,
           sku: item.SKU,
+          barcode: item.Codigo_Barras || '',
+          descripcion: itemDesc,
+          description: itemDesc,
           stockFisico: qty,
           malEstado: damaged,
           location: loc,
           isNewLocation: isNewLoc,
           center,
           photoUrl: this.uploadedPhotoUrl,
+          photoBase64: this.uploadedPhotoBase64 || '',
+          justificationPhotoUrl: this.uploadedJustPhotoUrl,
+          justificationPhoto: this.uploadedJustPhotoBase64 || '',
           comentario: comment,
-          reason: isNewLoc ? `Barrido: Ubicación adicional en ${loc}` : 'Barrido físico confirmado'
+          categoria: 'repuesto',
+          reason: isNewDiscovery 
+            ? `Nuevo ítem detectado: Ubicación Principal asignada en ${loc}` 
+            : (isNewLoc ? `Barrido: Ubicación adicional en ${loc}` : 'Barrido físico confirmado')
         });
 
         window.Toast.success(
-          isNewLoc
-            ? `✅ Registrado ${qty} unid. de ${item.SKU} como ubicación adicional en '${loc}'`
-            : `✅ Registrado ${qty} unid. de ${item.SKU} en '${loc}'`
+          isNewDiscovery
+            ? `✅ Registrado nuevo ítem '${itemDesc}' con ubicación principal '${loc}'`
+            : (isNewLoc
+                ? `✅ Registrado ${qty} unid. de ${item.SKU} como ubicación adicional en '${loc}'`
+                : `✅ Registrado ${qty} unid. de ${item.SKU} en '${loc}'`)
         );
         this.resetBarridoForm();
       } catch (err) {
@@ -260,19 +382,58 @@ window.BarridoView = {
     });
   },
 
+  isInvalidOrMissingLocation(loc) {
+    if (!loc) return true;
+    const s = String(loc).trim().toUpperCase();
+    return (
+      s === '' ||
+      s === 'S/U' ||
+      s === 'S.U.' ||
+      s === 'SIN UBICACION' ||
+      s === 'SIN UBICACIÓN' ||
+      s === 'SIN UBIC' ||
+      s === 'N/A' ||
+      s === 'NA' ||
+      s === 'PENDIENTE' ||
+      s === '0' ||
+      s === '-' ||
+      s === '--' ||
+      s === 'NO TIENE' ||
+      s === 'DESCONOCIDO' ||
+      s === 'NO ASIGNADA' ||
+      s === 'NUEVA_UBICACION'
+    );
+  },
+
   checkLocationDifference() {
     if (!this.currentScannedProduct) return;
     const origLoc = (this.currentScannedProduct.item?.UbicacionOriginal || this.currentScannedProduct.item?.Ubicacion || '').trim().toUpperCase();
     const currentLoc = (document.getElementById('barrido-input-loc')?.value || '').trim().toUpperCase();
     const alertBox = document.getElementById('barrido-loc-diff-alert');
+    const noLocAlert = document.getElementById('barrido-no-loc-alert');
+    const chkNewLoc = document.getElementById('barrido-chk-is-new-loc');
     const isNewLocInput = document.getElementById('barrido-is-new-location');
+
+    const hasMissingOrigLoc = this.isInvalidOrMissingLocation(origLoc);
+
+    if (hasMissingOrigLoc) {
+      if (noLocAlert) noLocAlert.style.display = 'block';
+      if (alertBox) alertBox.style.display = 'none';
+      if (isNewLocInput) isNewLocInput.value = 'false';
+      if (chkNewLoc) chkNewLoc.checked = false;
+      return;
+    } else {
+      if (noLocAlert) noLocAlert.style.display = 'none';
+    }
 
     if (currentLoc && origLoc && currentLoc !== origLoc) {
       if (alertBox) alertBox.style.display = 'block';
-      if (isNewLocInput) isNewLocInput.value = 'true';
+      // ONLY set isNewLocation if manual checkbox is checked! Do NOT auto-set to true!
+      if (isNewLocInput) isNewLocInput.value = (chkNewLoc && chkNewLoc.checked) ? 'true' : 'false';
     } else {
       if (alertBox) alertBox.style.display = 'none';
       if (isNewLocInput) isNewLocInput.value = 'false';
+      if (chkNewLoc) chkNewLoc.checked = false;
     }
   },
 
@@ -335,6 +496,7 @@ window.BarridoView = {
   displayScannedItem(data) {
     this.currentScannedProduct = data;
     const item = data.item;
+    const isNewDiscovery = !data.found || data.source === 'NEW_DISCOVERY';
 
     document.getElementById('barrido-empty-state').style.display = 'none';
     const form = document.getElementById('form-barrido-count');
@@ -361,7 +523,7 @@ window.BarridoView = {
         sourceBadge.innerHTML = `<i class="fa-solid fa-box-archive"></i> Inventario Local`;
       } else {
         sourceBadge.className = 'badge badge-warning';
-        sourceBadge.innerHTML = `<i class="fa-solid fa-plus-circle"></i> Nuevo en Pasillo`;
+        sourceBadge.innerHTML = `<i class="fa-solid fa-sparkles"></i> Nuevo / Descubierto en Pasillo`;
       }
     }
 
@@ -373,18 +535,74 @@ window.BarridoView = {
     }
     document.getElementById('barrido-item-abc').textContent = `ABC: ${item.Clasificacion_ABC || 'C'}`;
 
-    // 4. Descripción del Producto
-    document.getElementById('barrido-item-desc').textContent = item.Descripcion || 'Sin descripción disponible';
+    // 4. Descripción del Producto / Nombre
+    const descInput = document.getElementById('barrido-input-desc');
+    if (descInput) {
+      if (isNewDiscovery) {
+        descInput.value = (item.Descripcion && !item.Descripcion.includes('Ítem Descubierto')) ? item.Descripcion : '';
+        descInput.placeholder = 'Escriba el nombre o descripción del repuesto...';
+      } else {
+        descInput.value = item.Descripcion || '';
+        descInput.placeholder = 'Nombre o descripción del repuesto...';
+      }
+    }
 
-    // 5. Ubicación Original
-    const origLoc = item.UbicacionOriginal || item.Ubicacion || 'No asignada';
-    document.getElementById('barrido-item-orig-loc').textContent = origLoc;
+    // 5. Configuración de Ubicación Principal vs Existente
+    const origLocContainer = document.getElementById('barrido-orig-loc-container');
+    const newItemNotice = document.getElementById('barrido-new-item-notice');
+    const locLabel = document.getElementById('barrido-loc-label');
+    const primaryLocAlert = document.getElementById('barrido-primary-loc-alert');
+    const locDiffAlert = document.getElementById('barrido-loc-diff-alert');
+    const locInput = document.getElementById('barrido-input-loc');
+    const isNewLocInput = document.getElementById('barrido-is-new-location');
 
-    // 6. Campos del Formulario
-    document.getElementById('barrido-input-loc').value = item.Ubicacion || (origLoc !== 'No asignada' ? origLoc : '');
-    document.getElementById('barrido-is-new-location').value = 'false';
-    document.getElementById('barrido-loc-diff-alert').style.display = 'none';
+    if (isNewDiscovery) {
+      if (origLocContainer) origLocContainer.style.display = 'none';
+      if (newItemNotice) newItemNotice.style.display = 'block';
+      if (locLabel) locLabel.innerHTML = '<i class="fa-solid fa-star" style="color: #38bdf8;"></i> Ubicación Física Principal:';
+      if (primaryLocAlert) primaryLocAlert.style.display = 'block';
+      if (locDiffAlert) locDiffAlert.style.display = 'none';
+      if (isNewLocInput) isNewLocInput.value = 'false';
+      if (locInput) {
+        locInput.value = item.Ubicacion || '';
+        locInput.placeholder = 'Ej: RACK-A1-02 (Asignar como Ubicación Principal)...';
+      }
+      if (descInput && !descInput.value) {
+        descInput.focus();
+      } else if (locInput) {
+        locInput.focus();
+      }
+    } else {
+      if (origLocContainer) origLocContainer.style.display = 'flex';
+      if (newItemNotice) newItemNotice.style.display = 'none';
+      if (locLabel) locLabel.innerHTML = '<i class="fa-solid fa-location-dot"></i> Ubicación Física Contada:';
+      if (primaryLocAlert) primaryLocAlert.style.display = 'none';
+      const origLoc = item.UbicacionOriginal || item.Ubicacion || 'No asignada';
+      const hasMissingLoc = this.isInvalidOrMissingLocation(origLoc);
+      const origLocSpan = document.getElementById('barrido-item-orig-loc');
+      if (origLocSpan) {
+        if (hasMissingLoc) {
+          origLocSpan.innerHTML = '<span style="color: #ef4444; font-weight: 800; background: rgba(239, 68, 68, 0.2); padding: 2px 8px; border-radius: 4px; border: 1.5px solid #ef4444;"><i class="fa-solid fa-triangle-exclamation"></i> SIN UBICACIÓN</span>';
+        } else {
+          origLocSpan.textContent = origLoc;
+        }
+      }
+      if (locInput) {
+        locInput.value = item.Ubicacion || (origLoc !== 'No asignada' && !hasMissingLoc ? origLoc : '');
+        locInput.placeholder = 'Ej: RACK-A1-02...';
+      }
+      if (isNewLocInput) isNewLocInput.value = 'false';
+      const chkNewLoc = document.getElementById('barrido-chk-is-new-loc');
+      if (chkNewLoc) chkNewLoc.checked = false;
+      this.checkLocationDifference();
+      const qtyInput = document.getElementById('barrido-input-qty');
+      if (qtyInput) {
+        qtyInput.focus();
+        qtyInput.select();
+      }
+    }
 
+    // 6. Cantidades, comentarios y fotos
     document.getElementById('barrido-input-qty').value = (item.Stock_Fisico !== null && item.Stock_Fisico !== undefined) ? item.Stock_Fisico : 1;
     document.getElementById('barrido-input-damaged').value = item.Mal_estado || 0;
     const commentInput = document.getElementById('barrido-input-comment');
@@ -393,19 +611,26 @@ window.BarridoView = {
     const photoBox = document.getElementById('barrido-photo-box');
     photoBox.style.display = (item.Mal_estado > 0) ? 'block' : 'none';
     this.uploadedPhotoUrl = null;
+    this.uploadedPhotoBase64 = null;
     const previewImg = document.getElementById('img-barrido-preview');
     if (previewImg) previewImg.style.display = 'none';
 
-    const qtyInput = document.getElementById('barrido-input-qty');
-    if (qtyInput) {
-      qtyInput.focus();
-      qtyInput.select();
-    }
+    this.uploadedJustPhotoUrl = null;
+    this.uploadedJustPhotoBase64 = null;
+    const justPhotoBox = document.getElementById('barrido-just-photo-box');
+    if (justPhotoBox) justPhotoBox.style.display = 'none';
+    const justPreviewImg = document.getElementById('img-barrido-just-preview');
+    if (justPreviewImg) justPreviewImg.style.display = 'none';
+    const lblToggleJustPhoto = document.getElementById('lbl-toggle-just-photo');
+    if (lblToggleJustPhoto) lblToggleJustPhoto.textContent = 'Adjuntar Foto';
   },
 
   resetBarridoForm() {
     this.currentScannedProduct = null;
     this.uploadedPhotoUrl = null;
+    this.uploadedPhotoBase64 = null;
+    this.uploadedJustPhotoUrl = null;
+    this.uploadedJustPhotoBase64 = null;
     const form = document.getElementById('form-barrido-count');
     if (form) {
       form.reset();
@@ -420,6 +645,9 @@ window.BarridoView = {
     const manualInput = document.getElementById('input-barrido-manual');
     if (manualInput) manualInput.value = '';
 
+    const descInput = document.getElementById('barrido-input-desc');
+    if (descInput) descInput.value = '';
+
     const commentInput = document.getElementById('barrido-input-comment');
     if (commentInput) commentInput.value = '';
 
@@ -428,5 +656,25 @@ window.BarridoView = {
 
     const photoBox = document.getElementById('barrido-photo-box');
     if (photoBox) photoBox.style.display = 'none';
+
+    const justPhotoBox = document.getElementById('barrido-just-photo-box');
+    if (justPhotoBox) justPhotoBox.style.display = 'none';
+    const justPreviewImg = document.getElementById('img-barrido-just-preview');
+    if (justPreviewImg) justPreviewImg.style.display = 'none';
+    const lblToggleJustPhoto = document.getElementById('lbl-toggle-just-photo');
+    if (lblToggleJustPhoto) lblToggleJustPhoto.textContent = 'Adjuntar Foto';
+
+    const primaryLocAlert = document.getElementById('barrido-primary-loc-alert');
+    if (primaryLocAlert) primaryLocAlert.style.display = 'none';
+    const locDiffAlert = document.getElementById('barrido-loc-diff-alert');
+    if (locDiffAlert) locDiffAlert.style.display = 'none';
+    const noLocAlert = document.getElementById('barrido-no-loc-alert');
+    if (noLocAlert) noLocAlert.style.display = 'none';
+    const chkNewLoc = document.getElementById('barrido-chk-is-new-loc');
+    if (chkNewLoc) chkNewLoc.checked = false;
+    const isNewLocInput = document.getElementById('barrido-is-new-location');
+    if (isNewLocInput) isNewLocInput.value = 'false';
+    const newItemNotice = document.getElementById('barrido-new-item-notice');
+    if (newItemNotice) newItemNotice.style.display = 'none';
   }
 };

@@ -1,0 +1,107 @@
+[
+  {
+    "id": "LOG-1789977560068-q6qkn",
+    "timestamp": "2026-09-21T07:59:20.068Z",
+    "action": "RECALCULATE_METRICS",
+    "details": "Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (0 inventarios actualizados)",
+    "user": "Administrador",
+    "center": "GLOBAL"
+  },
+  {
+    "id": "LOG-1789977593200-uwzoh",
+    "timestamp": "2026-09-21T07:59:53.200Z",
+    "action": "RECALCULATE_METRICS",
+    "details": "Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (0 inventarios actualizados)",
+    "user": "admin",
+    "center": "GLOBAL"
+  },
+  {
+    "id": "LOG-1789980244539-lm3oc",
+    "timestamp": "2026-09-21T08:44:04.539Z",
+    "action": "RECALCULATE_METRICS",
+    "details": "Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (3 inventarios actualizados)",
+    "user": "Administrador",
+    "center": "GLOBAL"
+  },
+  {
+    "id": "LOG-1789980629384-1ijez",
+    "timestamp": "2026-09-21T08:50:29.384Z",
+    "action": "RECALCULATE_METRICS",
+    "details": "Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (2 inventarios actualizados)",
+    "user": "Alonso",
+    "center": "GLOBAL"
+  },
+  {
+    "id": "LOG-1789980947333-2vkb8",
+    "timestamp": "2026-09-21T08:55:47.333Z",
+    "action": "RECALCULATE_METRICS",
+    "details": "Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (2 inventarios actualizados)",
+    "user": "Alonso",
+    "center": "GLOBAL"
+  },
+  {
+    "id": "LOG-1789980995857-x791q",
+    "timestamp": "2026-09-21T08:56:35.857Z",
+    "action": "RECALCULATE_METRICS",
+    "details": "Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (2 inventarios actualizados)",
+    "user": "Alonso",
+    "center": "GLOBAL"
+  },
+  {
+    "id": "LOG-1789981704030-5f0pg",
+    "timestamp": "2026-09-21T09:08:24.030Z",
+    "action": "RECALCULATE_METRICS",
+    "details": "Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (2 inventarios actualizados)",
+    "user": "Alonso",
+    "center": "GLOBAL"
+  },
+  {
+    "id": "LOG-1790195223039-5c0lk",
+    "timestamp": "2026-09-23T20:27:03.039Z",
+    "action": "RECALCULATE_METRICS",
+    "details": "Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (3 inventarios actualizados)",
+    "user": "Jcarlos",
+    "center": "GLOBAL"
+  },
+  {
+    "id": "LOG-1790195329971-jsty4",
+    "timestamp": "2026-09-23T20:28:49.971Z",
+    "action": "RECALCULATE_METRICS",
+    "details": "Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (2 inventarios actualizados)",
+    "user": "Jcarlos",
+    "center": "GLOBAL"
+  },
+  {
+    "id": "LOG-1790196113731-f1eda",
+    "timestamp": "2026-09-23T20:41:53.731Z",
+    "action": "RECALCULATE_METRICS",
+    "details": "Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (4 inventarios actualizados)",
+    "user": "Administrador",
+    "center": "GLOBAL"
+  },
+  {
+    "id": "LOG-1790196169315-6hvxd",
+    "timestamp": "2026-09-23T20:42:49.315Z",
+    "action": "RECALCULATE_METRICS",
+    "details": "Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (4 inventarios actualizados)",
+    "user": "Administrador",
+    "center": "GLOBAL"
+  },
+  {
+    "id": "LOG-1790686597831-vi6q2",
+    "timestamp": "2026-09-29T12:56:37.831Z",
+    "action": "RECALCULATE_METRICS",
+    "details": "Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (8 inventarios actualizados)",
+    "user": "Alonso",
+    "center": "GLOBAL"
+  },
+  {
+    "id": "LOG-1790690949314-gs48h",
+    "timestamp": "2026-09-29T14:09:09.314Z",
+    "action": "SNAPSHOT_DELETED",
+    "details": "Snapshot \"TEST-SNAPSHOT-999\" (GLOBAL) eliminado por Alonso. Cálculos consolidados depurados.",
+    "user": "Alonso Rios",
+    "center": "GLOBAL",
+    "targetId": "TEST-SNAPSHOT-999"
+  }
+]

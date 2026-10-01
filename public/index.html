@@ -17,15 +17,18 @@
   <!-- FontAwesome Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
-  <!-- Chart.js & Html5-QRCode CDNs -->
+  <!-- Chart.js & Html5-QRCode & html2pdf & SheetJS Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="/js/vendor/html2pdf.bundle.min.js"></script>
+  <script>if (typeof html2pdf === 'undefined') { document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"><\\/script>'); }</script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <!-- App Stylesheets -->
-  <link rel="stylesheet" href="/css/design-tokens.css">
-  <link rel="stylesheet" href="/css/layout.css">
-  <link rel="stylesheet" href="/css/components.css">
-  <link rel="stylesheet" href="/css/responsive.css">
+  <link rel="stylesheet" href="/css/design-tokens.css?v=2.2">
+  <link rel="stylesheet" href="/css/layout.css?v=2.2">
+  <link rel="stylesheet" href="/css/components.css?v=2.2">
+  <link rel="stylesheet" href="/css/responsive.css?v=2.2">
 </head>
 <body>
   <!-- Ambient background glow elements -->
@@ -36,39 +39,100 @@
     <!-- Top Navigation Bar -->
     <header class="navbar" id="main-navbar" style="display: none;">
       <div class="nav-brand">
-        <img src="/nibol.svg" alt="NIBOL" class="brand-logo-img">
-        <span class="brand-badge">INVENTARIOS</span>
+        <div class="logo-rotator-container" id="nav-logo-rotator" title="NIBOL Multimarcas (Clic para cambiar marca)">
+          <div class="logo-rotator-viewport">
+            <img src="/logos/nibol.svg" alt="NIBOL S.A." class="brand-logo-img is-active" id="nav-logo-a">
+            <img src="/logos/john-deere.svg" alt="John Deere" class="brand-logo-img is-inactive" id="nav-logo-b">
+          </div>
+          <div class="logo-rotator-sheen"></div>
+        </div>
       </div>
 
       <nav>
         <ul class="nav-links" id="nav-links">
           <li><button class="nav-item-btn active" data-view="inventories"><i class="fa-solid fa-list-check"></i> Inventarios</button></li>
           <li class="role-encargado-admin"><button class="nav-item-btn" data-view="assignments"><i class="fa-solid fa-user-tag"></i> Asignaciones</button></li>
-          <li class="role-admin-only"><button class="nav-item-btn" data-view="justifications" style="color: #f59e0b;"><i class="fa-solid fa-clipboard-check"></i> Justificaciones</button></li>
-          <li class="role-encargado-admin"><button class="nav-item-btn" data-view="history"><i class="fa-solid fa-clock-rotate-left"></i> Historial Drive</button></li>
+          <li class="role-encargado-admin"><button class="nav-item-btn" data-view="justifications" style="color: #f59e0b;"><i class="fa-solid fa-clipboard-check"></i> Justificaciones</button></li>
           <li class="role-encargado-admin"><button class="nav-item-btn" data-view="dashboard"><i class="fa-solid fa-chart-pie"></i> Métricas & ERU</button></li>
-          <li class="role-superadmin-alonso-only"><button class="nav-item-btn" data-view="users"><i class="fa-solid fa-users-gear"></i> Accesos</button></li>
         </ul>
       </nav>
 
       <div class="nav-user-panel">
-        <button class="btn btn-secondary btn-sm" id="btn-gas-health" title="Verificar conexión Google Apps Script" style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; padding: 0.3rem 0.6rem;">
+        <button class="btn btn-secondary btn-sm nav-icon-btn" id="btn-gas-health" title="Verificar conexión Google Apps Script (Apps Script Conectado)" aria-label="Verificar conexión Google Apps Script">
           <i class="fa-solid fa-cloud" id="gas-status-icon" style="color: var(--success, #16a34a);"></i>
-          <span id="gas-status-text" class="d-none d-sm-inline">Apps Script Conectado</span>
         </button>
 
-        <button class="btn btn-secondary btn-sm" id="btn-toggle-theme" title="Cambiar tema">
+        <button class="btn btn-secondary btn-sm nav-icon-btn" id="btn-toggle-theme" title="Cambiar tema" aria-label="Cambiar tema">
           <i class="fa-solid fa-moon"></i>
         </button>
 
-        <div class="user-tag" id="user-info-badge">
-          <span class="user-name" id="nav-user-name">Usuario</span>
-          <span class="user-role" id="nav-user-role">ROL - CENTRO</span>
-        </div>
+        <!-- User Dropdown Menu -->
+        <div class="user-dropdown-wrapper" id="user-dropdown-wrapper">
+          <button type="button" class="user-dropdown-trigger" id="user-dropdown-trigger" aria-haspopup="true" aria-expanded="false" title="Menú de usuario">
+            <div class="user-avatar-circle" id="user-avatar-initials">U</div>
+            <div class="user-tag" id="user-info-badge">
+              <span class="user-name" id="nav-user-name">Usuario</span>
+              <span class="user-role" id="nav-user-role">ROL - CENTRO</span>
+            </div>
+            <i class="fa-solid fa-chevron-down user-dropdown-caret" id="user-dropdown-caret"></i>
+          </button>
 
-        <button class="btn btn-danger btn-sm" id="btn-logout" title="Cerrar Sesión">
-          <i class="fa-solid fa-right-from-bracket"></i> Salir
-        </button>
+          <!-- Dropdown Submenu Panel -->
+          <div class="user-dropdown-menu" id="user-dropdown-menu" role="menu">
+            <div class="user-dropdown-header">
+              <div class="dropdown-header-name" id="dropdown-user-name">Usuario</div>
+              <div class="dropdown-header-role" id="dropdown-user-role">ROL - CENTRO</div>
+            </div>
+
+            <div class="dropdown-menu-list">
+              <!-- Historial Drive (Encargados y Admins) -->
+              <div class="dropdown-item-wrap role-encargado-admin">
+                <button type="button" class="dropdown-menu-item nav-item-btn" data-view="history" role="menuitem">
+                  <span class="dropdown-item-icon-box"><i class="fa-solid fa-clock-rotate-left"></i></span>
+                  <div class="dropdown-item-content">
+                    <span class="dropdown-item-label">Historial Drive</span>
+                    <span class="dropdown-item-desc">Auditoría y hojas sincronizadas</span>
+                  </div>
+                </button>
+              </div>
+
+              <!-- Accesos (Superadmin Alonso) -->
+              <div class="dropdown-item-wrap role-superadmin-alonso-only">
+                <button type="button" class="dropdown-menu-item nav-item-btn" data-view="users" role="menuitem">
+                  <span class="dropdown-item-icon-box"><i class="fa-solid fa-users-gear"></i></span>
+                  <div class="dropdown-item-content">
+                    <span class="dropdown-item-label">Accesos</span>
+                    <span class="dropdown-item-desc">Gestión de cuentas y usuarios</span>
+                  </div>
+                </button>
+              </div>
+
+              <!-- Borrar Snapshots (Exclusivo Superadmin Alonso) -->
+              <div class="dropdown-item-wrap role-superadmin-alonso-only">
+                <button type="button" class="dropdown-menu-item" id="btn-menu-manage-snapshots" onclick="window.SnapshotManagerModal && window.SnapshotManagerModal.open()" role="menuitem">
+                  <span class="dropdown-item-icon-box" style="color: #ef4444;"><i class="fa-solid fa-trash-can"></i></span>
+                  <div class="dropdown-item-content">
+                    <span class="dropdown-item-label" style="color: #ef4444; font-weight: 600;">Borrar Snapshots</span>
+                    <span class="dropdown-item-desc">Depurar histórico y recálculo consolidado</span>
+                  </div>
+                </button>
+              </div>
+
+              <div class="dropdown-menu-divider"></div>
+
+              <!-- Botón Salir -->
+              <div class="dropdown-item-wrap">
+                <button type="button" class="dropdown-menu-item dropdown-item-danger" id="btn-logout" role="menuitem">
+                  <span class="dropdown-item-icon-box danger"><i class="fa-solid fa-right-from-bracket"></i></span>
+                  <div class="dropdown-item-content">
+                    <span class="dropdown-item-label">Salir</span>
+                    <span class="dropdown-item-desc">Cerrar sesión activa</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </header>
 
@@ -80,22 +144,31 @@
         <div style="max-width: 440px; margin: 4rem auto 2rem auto;">
           <div class="card" style="padding: 2.25rem;">
             <div style="text-align: center; margin-bottom: 2rem;">
-              <div class="login-brand-logo-wrapper">
-                <img src="/nibol.svg" alt="NIBOL Logo" class="login-brand-logo">
+              <div class="login-brand-logo-wrapper" id="login-logo-rotator" title="Multimarcas (Clic para cambiar marca)">
+                <div class="logo-rotator-viewport">
+                  <img src="/logos/nibol.svg" alt="NIBOL S.A." class="login-brand-logo is-active" id="login-logo-a">
+                  <img src="/logos/john-deere.svg" alt="John Deere" class="login-brand-logo is-inactive" id="login-logo-b">
+                </div>
+                <div class="logo-rotator-sheen"></div>
               </div>
-              <h1 style="font-size: 1.5rem; font-weight: 800; color: var(--text-main); margin-top: 0.5rem; margin-bottom: 0.25rem;">NIBOL S.A.</h1>
-              <p style="color: var(--text-muted); font-size: 0.88rem;">Sistema de Inventarios Cíclicos & Barrido</p>
+
+              <p style="color: var(--text-muted); font-size: 0.95rem; font-weight: 600; margin-top: 1.15rem; margin-bottom: 0.25rem;">Sistema de Inventarios Multimarcas</p>
             </div>
 
             <form id="form-login">
               <div class="form-group">
-                <label class="form-label" for="login-username"><i class="fa-solid fa-user"></i> Usuario</label>
-                <input type="text" id="login-username" class="form-input" placeholder="Ingrese su usuario" autocomplete="username" required>
+                <label class="form-label" for="login-username"><i class="fa-solid fa-user"></i> Usuario o Email</label>
+                <input type="text" id="login-username" class="form-input" placeholder="Ingrese su usuario o email" autocomplete="username" required>
               </div>
 
               <div class="form-group">
                 <label class="form-label" for="login-password"><i class="fa-solid fa-lock"></i> Contraseña o PIN</label>
-                <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password" required>
+                <div style="position: relative; display: flex; align-items: center;">
+                  <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password" required style="padding-right: 2.75rem; width: 100%;">
+                  <button type="button" id="btn-toggle-password" style="position: absolute; right: 0.75rem; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.35rem; display: flex; align-items: center; justify-content: center;" title="Mostrar / Ocultar contraseña">
+                    <i class="fa-solid fa-eye" id="icon-toggle-password"></i>
+                  </button>
+                </div>
               </div>
 
               <div style="margin-top: 1.5rem;">
@@ -121,7 +194,22 @@
               <p class="stat-subtext" id="inv-header-subtitle">Listado de inventarios según centro y permisos</p>
             </div>
             <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-              <select id="filter-inv-type" class="form-select" style="width: auto; min-width: 140px;">
+              <div style="position: relative; min-width: 200px;">
+                <input type="text" id="search-inventory-list" class="form-input" style="height: 38px; font-size: 0.88rem; padding-left: 2rem; padding-right: 2rem; width: 100%;" placeholder="Buscar inventario por nombre o código...">
+                <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: #64748b; font-size: 0.85rem; pointer-events: none;"></i>
+                <button id="btn-clear-search-inv" type="button" style="position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 0.9rem; display: none;" title="Limpiar">
+                  <i class="fa-solid fa-circle-xmark"></i>
+                </button>
+              </div>
+
+              <select id="filter-inv-status" class="form-select" style="width: auto; min-width: 160px; font-weight: 600; border-color: rgba(56, 189, 248, 0.4);">
+                <option value="ACTIVOS" selected>⚡ Activos / En Curso</option>
+                <option value="REVISION">📋 En Justificación / Reconteo</option>
+                <option value="CERRADOS">📦 Historial / Finalizados</option>
+                <option value="TODOS">Todos los estados</option>
+              </select>
+
+              <select id="filter-inv-type" class="form-select role-encargado-admin" style="width: auto; min-width: 140px;">
                 <option value="TODOS">Todos los tipos</option>
                 <option value="CICLICO">Cíclico</option>
                 <option value="BARRIDO">Barrido</option>
@@ -147,8 +235,20 @@
                 <option value="5100">5100 - Sucursal Tarija</option>
               </select>
 
+              <button class="btn btn-secondary role-encargado-admin" id="btn-sync-all-sheets" onclick="window.InventoryView.syncAllFromSheets(this)" title="Sincronizar y recuperar todos los conteos desde Google Sheets" style="color: #38bdf8; border-color: rgba(56, 189, 248, 0.4); font-weight: 700;">
+                <i class="fa-solid fa-arrows-rotate"></i> Sincronizar Sheets
+              </button>
+
+              <button class="btn btn-secondary role-encargado-admin" id="btn-backup-daily" onclick="window.InventoryView.triggerDailyBackup(this)" title="Respaldar estado actual de inventarios a Google Sheets / Drive" style="color: #10b981; border-color: rgba(16, 185, 129, 0.4); font-weight: 700;">
+                <i class="fa-solid fa-cloud-arrow-up"></i> Respaldar a Sheets
+              </button>
+
               <button class="btn btn-primary role-inventory-creator-only" id="btn-open-new-inv-modal">
                 <i class="fa-solid fa-plus"></i> Nuevo Inventario
+              </button>
+
+              <button class="btn btn-secondary role-admin-only" id="btn-purge-all-invs" title="Limpiar todo el historial y pruebas a 0" style="display: none; color: #ef4444; border-color: rgba(239, 68, 68, 0.4);">
+                <i class="fa-solid fa-broom"></i> Limpiar Todo a 0
               </button>
             </div>
           </div>
@@ -159,7 +259,7 @@
                 <tr>
                   <th>ID / Código</th>
                   <th>Nombre del Inventario</th>
-                  <th>Tipo</th>
+                  <th class="role-encargado-admin col-inv-type">Tipo</th>
                   <th>Centro</th>
                   <th>Estado</th>
                   <th>Progreso</th>
@@ -186,30 +286,72 @@
               <div id="count-blind-banner" class="badge badge-warning" style="margin-top: 0.4rem; display: none;">
                 <i class="fa-solid fa-eye-slash"></i> MODO CONTEO CIEGO ACTIVO (Columnas de sistema ocultas)
               </div>
+              <div id="count-recount-banner" class="badge badge-info" style="margin-top: 0.4rem; display: none; background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8;">
+                <i class="fa-solid fa-rotate"></i> MODO RECONTEO FÍSICO ACTIVO (Verificación de ítems con diferencias)
+              </div>
             </div>
 
             <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+              <button class="btn btn-secondary btn-sm" id="btn-sync-inv-gas" onclick="window.InventoryView.syncCurrentInventoryFromSheet()" title="Sincronizar y actualizar conteos desde Google Sheets en tiempo real" style="border-color: rgba(56, 189, 248, 0.4); color: #38bdf8;">
+                <i class="fa-solid fa-rotate"></i> Sincronizar Google Sheets
+              </button>
               <button class="btn btn-secondary btn-sm" id="btn-open-cam-count">
                 <i class="fa-solid fa-camera"></i> Escanear Código
               </button>
-              <button class="btn btn-primary" id="btn-submit-inv-review">
+              <button class="btn btn-success" id="btn-submit-inv-review" title="Finalizar conteo y firmar digitalmente">
                 <i class="fa-solid fa-signature"></i> Finalizar Conteo y Firmar
               </button>
             </div>
           </div>
 
-          <!-- Search & Filter Items -->
+          <!-- Warehouse Mobile-First Progress & Filter Summary Bar -->
+          <div class="count-mobile-summary-bar" style="background: #090e1a; border: 1.5px solid #2d3b55; border-radius: 10px; padding: 12px 14px; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+              <span style="font-size: 0.88rem; color: #cbd5e1; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+                <i class="fa-solid fa-boxes-stacked" style="color: #38bdf8;"></i> Progreso del Conteo
+              </span>
+              <span id="count-progress-text" style="font-family: var(--font-mono); font-size: 1rem; font-weight: 800; color: #38bdf8;">
+                0 / 0 (0%)
+              </span>
+            </div>
+
+            <!-- High-Contrast Progress Bar -->
+            <div style="width: 100%; height: 10px; background: #1e293b; border-radius: 5px; overflow: hidden; margin-bottom: 12px; border: 1px solid #334155;">
+              <div id="count-progress-bar" style="width: 0%; height: 100%; background: #10b981; transition: width 0.3s ease; box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);"></div>
+            </div>
+
+            <!-- Quick Filter Tabs (Thumb-Friendly on Phones/Tablets) -->
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+              <button type="button" class="btn btn-secondary btn-sm count-filter-btn active" data-filter="all" onclick="window.InventoryView.setCountFilter('all', this)" style="flex: 1; min-height: 42px; font-size: 0.85rem; font-weight: 800; border-radius: 6px;">
+                TODOS (<span id="count-total-num">0</span>)
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm count-filter-btn" data-filter="pending" onclick="window.InventoryView.setCountFilter('pending', this)" style="flex: 1; min-height: 42px; font-size: 0.85rem; font-weight: 800; border-radius: 6px; color: #f59e0b;">
+                PENDIENTES (<span id="count-pending-num">0</span>)
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm count-filter-btn" data-filter="counted" onclick="window.InventoryView.setCountFilter('counted', this)" style="flex: 1; min-height: 42px; font-size: 0.85rem; font-weight: 800; border-radius: 6px; color: #10b981;">
+                CONTADOS (<span id="count-counted-num">0</span>)
+              </button>
+            </div>
+          </div>
+
+          <!-- Search & Additional Location Action Bar -->
           <div style="display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap;">
-            <input type="text" id="search-count-items" class="form-input" style="flex: 1; min-width: 240px;" placeholder="Buscar por SKU, Código de Barras, Ubicación o Descripción...">
-            <button class="btn btn-secondary" id="btn-add-multiple-location">
-              <i class="fa-solid fa-location-dot"></i> + Nueva Ubicación (Fila Adicional)
+            <div style="flex: 1; min-width: 240px; position: relative;">
+              <input type="text" id="search-count-items" class="form-input" style="width: 100%; height: 46px; font-size: 0.95rem; font-weight: 600; padding-left: 2.5rem; padding-right: 2.5rem; background: #090e1a; border: 2px solid #334155; border-radius: 8px; color: #ffffff;" placeholder="Buscar SKU, código, ubicación o descripción...">
+              <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #64748b; font-size: 0.95rem; pointer-events: none;"></i>
+              <button id="btn-clear-search-count" type="button" style="position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 1.1rem; display: none;" title="Limpiar búsqueda">
+                <i class="fa-solid fa-circle-xmark"></i>
+              </button>
+            </div>
+            <button class="btn btn-secondary" id="btn-add-multiple-location" style="height: 46px; font-weight: 700; border-radius: 8px; border: 1.5px solid #0284c7; color: #38bdf8; background: #0f172a; white-space: nowrap;">
+              <i class="fa-solid fa-location-dot"></i> + Nueva Ubicación
             </button>
           </div>
 
-          <div class="table-responsive">
+          <div class="table-responsive count-table-container">
             <table class="data-table" id="table-count-items">
-              <thead id="thead-count-items">
-                <!-- Dynamically adjusted headers for blind vs full view -->
+              <thead id="thead-count-items" style="display: none;">
+                <!-- Table headers hidden for clean mobile-first card display -->
               </thead>
               <tbody id="tbody-count-items">
                 <!-- Dynamically rendered items -->
@@ -233,10 +375,21 @@
               <p class="stat-subtext">Lectura continua con cámara/lector láser y consulta directa en Google Sheets</p>
             </div>
             <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-              <div style="display: flex; align-items: center; gap: 0.4rem;">
-                <label for="barrido-select-center" style="font-size: 0.8rem; font-weight: 600; color: var(--text-dim);"><i class="fa-solid fa-warehouse"></i> Centro:</label>
-                <select id="barrido-select-center" class="form-select" style="min-width: 180px;"></select>
+              <!-- Admin: Select Center Dropdown (Only for Administrators) -->
+              <div id="barrido-admin-center-wrapper" style="display: flex; align-items: center; gap: 0.4rem;">
+                <label for="barrido-select-center" style="font-size: 0.8rem; font-weight: 600; color: var(--text-dim);"><i class="fa-solid fa-warehouse"></i> Centro (Admin):</label>
+                <select id="barrido-select-center" class="form-select" style="min-width: 190px;"></select>
               </div>
+
+              <!-- Auxiliares / Encargados: Fixed Assigned Center Display (Cannot change warehouse) -->
+              <div id="barrido-user-center-wrapper" style="display: none; align-items: center; gap: 0.55rem; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); padding: 0.4rem 0.85rem; border-radius: var(--radius-sm);">
+                <i class="fa-solid fa-lock" style="color: #38bdf8; font-size: 0.95rem;"></i>
+                <div style="display: flex; flex-direction: column;">
+                  <span style="font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); font-weight: 700;">Almacén Asignado</span>
+                  <span id="barrido-user-center-label" style="font-size: 0.88rem; font-weight: 700; color: #38bdf8; font-family: var(--font-mono);">-</span>
+                </div>
+              </div>
+
               <button class="btn btn-warning" id="btn-finish-barrido">
                 <i class="fa-solid fa-cloud-arrow-up"></i> Finalizar y Sincronizar Barrido
               </button>
@@ -305,14 +458,16 @@
                     <span class="badge badge-info" id="barrido-item-abc">ABC: A</span>
                   </div>
 
-                  <!-- Descripción Destacada -->
+                  <!-- Campo Nombre / Descripción del Ítem -->
                   <div style="margin: 0.5rem 0 0.75rem 0;">
-                    <span style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Descripción del Ítem:</span>
-                    <p style="font-size: 1.05rem; font-weight: 700; color: #ffffff; line-height: 1.35; margin: 0.15rem 0 0 0;" id="barrido-item-desc">Descripción del producto</p>
+                    <label class="form-label" for="barrido-input-desc" style="font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; margin-bottom: 0.25rem;">
+                      <i class="fa-solid fa-tag"></i> Nombre / Descripción del Ítem <span style="color: #f87171;">*</span>:
+                    </label>
+                    <input type="text" id="barrido-input-desc" class="form-input" placeholder="Nombre o descripción del repuesto..." style="font-size: 0.95rem; font-weight: 600;" required>
                   </div>
 
-                  <!-- Ubicación Original de Sistema -->
-                  <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(56, 189, 248, 0.08); padding: 0.6rem 0.85rem; border-radius: var(--radius-sm); border: 1px dashed rgba(56, 189, 248, 0.3);">
+                  <!-- Ubicación Original de Sistema (Visible solo si existe ubicación previa) -->
+                  <div id="barrido-orig-loc-container" style="display: flex; justify-content: space-between; align-items: center; background: rgba(56, 189, 248, 0.08); padding: 0.6rem 0.85rem; border-radius: var(--radius-sm); border: 1px dashed rgba(56, 189, 248, 0.3);">
                     <div>
                       <span style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;"><i class="fa-solid fa-map-pin"></i> Ubicación Original / Sistema:</span>
                       <div style="font-size: 1.05rem; font-weight: 700; color: #38bdf8; font-family: var(--font-mono);" id="barrido-item-orig-loc">-</div>
@@ -321,23 +476,51 @@
                       <i class="fa-solid fa-copy"></i> Usar Original
                     </button>
                   </div>
+
+                  <!-- Aviso informativo si el ítem es nuevo / no está en lista -->
+                  <div id="barrido-new-item-notice" style="display: none; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); padding: 0.6rem 0.85rem; border-radius: var(--radius-sm); margin-top: 0.6rem;">
+                    <div style="font-size: 0.82rem; color: #4ade80; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+                      <i class="fa-solid fa-sparkles"></i> Ítem no encontrado en la lista del sistema
+                    </div>
+                    <div style="font-size: 0.75rem; color: #94a3b8; margin-top: 3px;">
+                      Complete el nombre y la ubicación física. Esta ubicación se registrará como la <strong>Ubicación Principal</strong> del repuesto en la hoja de cálculo y base de datos.
+                    </div>
+                  </div>
                 </div>
 
-                <!-- Input de Ubicación de Conteo y Botón Ubicación Distinta -->
+                <!-- Input de Ubicación de Conteo -->
                 <div class="form-group" style="margin-bottom: 0.85rem;">
                   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-                    <label class="form-label" for="barrido-input-loc" style="margin-bottom: 0;">
+                    <label class="form-label" for="barrido-input-loc" id="barrido-loc-label" style="margin-bottom: 0;">
                       <i class="fa-solid fa-location-dot"></i> Ubicación Física Contada
                     </label>
-                    <button type="button" class="btn btn-warning btn-xs" id="btn-barrido-toggle-alt-loc" style="font-size: 0.72rem; padding: 3px 8px;">
-                      <i class="fa-solid fa-plus"></i> + Ubicación Distinta / Extra
-                    </button>
                   </div>
-                  <input type="text" id="barrido-input-loc" class="form-input" placeholder="Ej: RACK-A1-02 (o escanee/escriba nueva ubicación)" required>
+                  <input type="text" id="barrido-input-loc" class="form-input" placeholder="Ej: RACK-A1-02 (o escanee/escriba la ubicación)" required style="text-transform: uppercase; font-weight: 800;">
                   <input type="hidden" id="barrido-is-new-location" value="false">
 
-                  <div id="barrido-loc-diff-alert" style="display: none; font-size: 0.78rem; color: #f59e0b; margin-top: 0.35rem; background: rgba(245, 158, 11, 0.1); padding: 5px 8px; border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.25);">
-                    <i class="fa-solid fa-code-fork"></i> <strong>Ubicación distinta a la original:</strong> Se registrará como ubicación adicional sin sobreescribir la original.
+                  <!-- High Contrast Alert: Missing or Invalid Location in System -->
+                  <div id="barrido-no-loc-alert" style="display: none; font-size: 0.82rem; color: #fecaca; margin-top: 0.4rem; background: rgba(220, 38, 38, 0.25); padding: 8px 10px; border-radius: 6px; border: 1.5px solid #ef4444; font-weight: 700;">
+                    <i class="fa-solid fa-triangle-exclamation" style="color: #f87171; font-size: 0.95rem;"></i>
+                    <strong>ALERTA:</strong> Este producto no tiene ubicación válida en el sistema. Ingrese la ubicación física real para asignarla.
+                  </div>
+
+                  <!-- Alert: Different Location with Manual Option -->
+                  <div id="barrido-loc-diff-alert" style="display: none; font-size: 0.82rem; color: #fef3c7; margin-top: 0.4rem; background: rgba(245, 158, 11, 0.2); padding: 8px 10px; border-radius: 6px; border: 1.5px solid #f59e0b;">
+                    <div style="display: flex; align-items: center; gap: 6px; font-weight: 800;">
+                      <i class="fa-solid fa-triangle-exclamation" style="color: #fbbf24;"></i>
+                      <span>Ubicación distinta a la registrada en sistema</span>
+                    </div>
+                    <div style="font-size: 0.76rem; color: #cbd5e1; margin-top: 3px;">
+                      Por defecto se actualizará esta ubicación. Si este producto existe en dos o más lugares a la vez, active la casilla:
+                    </div>
+                    <label style="display: flex; align-items: center; gap: 8px; margin-top: 6px; cursor: pointer; color: #fef08a; font-weight: 800; font-size: 0.82rem;">
+                      <input type="checkbox" id="barrido-chk-is-new-loc" style="width: 17px; height: 17px; accent-color: #f59e0b;">
+                      <span>Registrar manualmente como NUEVA UBICACIÓN ADICIONAL (Multi-Rack)</span>
+                    </label>
+                  </div>
+
+                  <div id="barrido-primary-loc-alert" style="display: none; font-size: 0.78rem; color: #38bdf8; margin-top: 0.35rem; background: rgba(56, 189, 248, 0.1); padding: 5px 8px; border-radius: 4px; border: 1px solid rgba(56, 189, 248, 0.25);">
+                    <i class="fa-solid fa-star"></i> <strong>Ubicación Principal:</strong> Esta ubicación física se registrará como la ubicación primaria de este ítem.
                   </div>
                 </div>
 
@@ -365,12 +548,32 @@
                   <img id="img-barrido-preview" class="photo-preview-img" style="display: none;" alt="Evidencia">
                 </div>
 
-                <!-- Comentario (Columna Q) -->
+                <!-- Justification photo trigger (Opcional / Justificación) -->
+                <div style="margin-bottom: 1rem;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                    <span style="font-size: 0.8rem; font-weight: 600; color: #94a3b8;">
+                      <i class="fa-solid fa-image"></i> Foto de Justificación (Opcional)
+                    </span>
+                    <button type="button" class="btn btn-secondary btn-xs" id="btn-toggle-barrido-just-photo" style="font-size: 0.72rem; padding: 2px 7px;">
+                      <i class="fa-solid fa-camera"></i> <span id="lbl-toggle-just-photo">Adjuntar Foto</span>
+                    </button>
+                  </div>
+                  <div id="barrido-just-photo-box" style="display: none;">
+                    <div class="photo-upload-zone" id="zone-barrido-just-photo">
+                      <i class="fa-solid fa-camera-rotate" style="font-size: 1.4rem; color: #f59e0b;"></i>
+                      <p style="font-size: 0.82rem; margin-top: 0.25rem;">Tomar o subir foto de justificación / conteo</p>
+                      <input type="file" id="input-barrido-just-photo-file" accept="image/*" capture="environment" style="display: none;">
+                    </div>
+                    <img id="img-barrido-just-preview" class="photo-preview-img" style="display: none; border-color: rgba(245,158,11,0.4);" alt="Foto Justificación">
+                  </div>
+                </div>
+
+                <!-- Comentario / Observación / Justificación (Columna Q) -->
                 <div class="form-group" style="margin-bottom: 1rem;">
                   <label class="form-label" for="barrido-input-comment" style="font-size: 0.8rem; margin-bottom: 0.3rem;">
-                    <i class="fa-solid fa-comment-dots"></i> Comentario / Observación (Columna Q)
+                    <i class="fa-solid fa-comment-dots"></i> Comentario / Observación de Justificación (Columna Q - 17)
                   </label>
-                  <input type="text" id="barrido-input-comment" class="form-input" placeholder="Observación opcional para la hoja de cálculo...">
+                  <input type="text" id="barrido-input-comment" class="form-input" placeholder="Comentario u observación que se guardará en la columna Q...">
                 </div>
 
                 <button type="submit" class="btn btn-primary btn-block btn-lg" id="btn-save-barrido-item">
@@ -439,17 +642,27 @@
         </div>
       </section>
 
-      <!-- VIEW: JUSTIFICATIONS (ADMIN ONLY) -->
+      <!-- VIEW: JUSTIFICATIONS (ADMIN/ENCARGADO) -->
       <section id="view-justifications" class="view-container">
         <div class="card" style="border-top: 4px solid var(--warning);">
           <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <div>
               <h2 class="card-title" style="color: var(--warning);">
-                <i class="fa-solid fa-clipboard-check"></i> Panel de Justificaciones y Cierre Final (Admin)
+                <i class="fa-solid fa-clipboard-check"></i> Panel de Justificaciones y Cierre Final (Admin/Encargado)
               </h2>
               <p class="stat-subtext">Revisión de diferencias, mermas, fotos de mal estado y creación en Google Drive</p>
             </div>
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+              <!-- Selector de Modo de Visualización (Vista Lista vs Vista Pop-up) -->
+              <div class="just-view-mode-group" role="group" aria-label="Modo de visualización de justificaciones">
+                <button type="button" class="just-view-mode-btn active" data-mode="list" onclick="window.JustificationsView.setViewMode('list')" title="Visualización en tabla completa de ítems con doble barra de desplazamiento">
+                  <i class="fa-solid fa-table-list"></i> Vista Lista
+                </button>
+                <button type="button" class="just-view-mode-btn" data-mode="popup" onclick="window.JustificationsView.setViewMode('popup')" title="Visualización rápida secuencial por tarjeta emergente centrada">
+                  <i class="fa-solid fa-window-maximize"></i> Vista Pop-up
+                </button>
+              </div>
+
               <select id="filter-just-center" class="form-select" style="width: auto; min-width: 180px;">
                 <option value="TODOS">Todos los centros</option>
                 <option value="1120">1120 - Volvo - Km 14</option>
@@ -467,6 +680,23 @@
                 <option value="3200">3200 - Centro Foton Blanco Galindo</option>
                 <option value="5100">5100 - Sucursal Tarija</option>
               </select>
+
+              <select id="filter-just-status" class="form-select" style="width: auto; min-width: 190px;" title="Filtrar por estado del inventario">
+                <option value="ALL" selected>Mostrar: Todos (Activos y Finalizados)</option>
+                <option value="PENDIENTE">Solo Pendientes de Justificar</option>
+                <option value="REVISADO">Solo Finalizados / Revisados</option>
+              </select>
+
+              <button 
+                type="button" 
+                id="btn-sync-all-just-sheets" 
+                class="btn btn-secondary" 
+                onclick="window.JustificationsView.refreshAllPendingFromSheets()" 
+                title="Volver a actualizar los ítems y montos que necesitan justificar desde el archivo de Google Sheets"
+                style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600;"
+              >
+                <i class="fa-solid fa-arrows-rotate"></i> Actualizar desde Sheets
+              </button>
             </div>
           </div>
 
@@ -575,8 +805,14 @@
               <option value="TODOS">📊 Consolidado (Todos los del período)</option>
             </select>
 
-            <button class="btn btn-secondary btn-sm" id="btn-dash-refresh" title="Actualizar Métricas">
+            <button class="btn btn-secondary btn-sm" id="btn-dash-refresh" title="Actualizar Vista de Métricas">
               <i class="fa-solid fa-arrows-rotate"></i>
+            </button>
+            <button class="btn btn-warning btn-sm" id="btn-dash-recalculate" title="Recalcular métricas leyendo datos actualizados de la base de datos y Google Sheets" style="font-weight: 600; color: #1e293b;">
+              <i class="fa-solid fa-calculator"></i> Recalcular Métricas
+            </button>
+            <button class="btn btn-primary btn-sm" id="btn-dash-print-report" title="Generar e imprimir informe administrativo en PDF del inventario seleccionado">
+              <i class="fa-solid fa-file-pdf"></i> Imprimir Informe PDF
             </button>
           </div>
         </div>
@@ -588,30 +824,37 @@
             <span id="dash-banner-inventory-title" style="font-weight: 700; color: var(--text-main); font-size: 0.92rem;">-</span>
             <span id="dash-banner-inventory-meta" style="color: var(--text-muted); font-size: 0.8rem;">-</span>
           </div>
-          <button type="button" class="btn btn-secondary btn-xs" id="btn-dash-clear-inventory" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;">
-            <i class="fa-solid fa-layer-group"></i> Ver Consolidado
-          </button>
+          <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <button type="button" class="btn btn-warning btn-xs" id="btn-dash-banner-recalculate" style="font-size: 0.75rem; padding: 0.25rem 0.65rem; font-weight: 600; color: #1e293b;" title="Recalcular este inventario con la base de datos y Google Sheets">
+              <i class="fa-solid fa-calculator"></i> Recalcular
+            </button>
+            <button type="button" class="btn btn-primary btn-xs" id="btn-dash-banner-print-report" style="font-size: 0.75rem; padding: 0.25rem 0.65rem;" title="Generar e imprimir informe administrativo en PDF">
+              <i class="fa-solid fa-file-pdf"></i> Imprimir Informe PDF
+            </button>
+            <button type="button" class="btn btn-secondary btn-xs" id="btn-dash-clear-inventory" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;">
+              <i class="fa-solid fa-layer-group"></i> Ver Consolidado
+            </button>
+          </div>
         </div>
 
-        <!-- 6 Core KPI Cards Grid -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;" id="dash-stats-grid">
-          
-          <!-- 1. ERI (Exactitud de Registro de Inventario) -->
-          <div class="metric-kpi-card" style="border-left: 4px solid var(--primary);">
+        <!-- Resumen General Complementario (Total ítems, ERU, Contadores) -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.85rem; margin-bottom: 1.25rem;">
+          <!-- Card Total SKUs / Auditados -->
+          <div class="metric-kpi-card" style="border-left: 4px solid #6366f1;">
             <div class="metric-kpi-header">
-              <span class="stat-label">Exactitud Registro (ERI)</span>
-              <div class="metric-kpi-icon" style="background: rgba(16, 185, 129, 0.15); color: var(--primary);">
-                <i class="fa-solid fa-clipboard-check"></i>
+              <span class="stat-label">Total SKUs Auditados</span>
+              <div class="metric-kpi-icon" style="background: rgba(99, 102, 241, 0.15); color: #818cf8;">
+                <i class="fa-solid fa-boxes-stacked"></i>
               </div>
             </div>
-            <div class="metric-kpi-val" id="stat-eri" style="color: var(--primary);">100.0%</div>
+            <div class="metric-kpi-val" id="stat-dash-total-skus" style="color: #a5b4fc;">0</div>
             <div class="metric-kpi-footer">
-              <span id="stat-eri-detail">0 exactos de 0 auditados</span>
-              <span class="badge badge-exacto" id="stat-eri-badge">Índice ERI</span>
+              <span id="stat-dash-total-items">0 ítems / registros evaluados</span>
+              <span class="badge badge-neutral" id="stat-dash-plan-badge">Alcance Total</span>
             </div>
           </div>
 
-          <!-- 2. ERU (Exactitud de Ubicación & Multi-Ubicación) -->
+          <!-- Card ERU (Exactitud Ubicación) -->
           <div class="metric-kpi-card" style="border-left: 4px solid #38bdf8;">
             <div class="metric-kpi-header">
               <span class="stat-label">Exactitud Ubicación (ERU)</span>
@@ -626,54 +869,7 @@
             </div>
           </div>
 
-          <!-- 3. Ítems Cuadrados (Concuerdan Cantidad) -->
-          <div class="metric-kpi-card" style="border-left: 4px solid #22c55e;">
-            <div class="metric-kpi-header">
-              <span class="stat-label">Ítems Cuadrados</span>
-              <div class="metric-kpi-icon" style="background: rgba(34, 197, 94, 0.15); color: #22c55e;">
-                <i class="fa-solid fa-equals"></i>
-              </div>
-            </div>
-            <div class="metric-kpi-val" id="stat-squared-count" style="color: #22c55e;">0</div>
-            <div class="metric-kpi-footer">
-              <span id="stat-squared-detail">100.0% de concordancia</span>
-              <span class="badge badge-exacto" id="stat-squared-val-badge">$0.00 en stock</span>
-            </div>
-          </div>
-
-          <!-- 4. Discrepancias Totales (Sobrantes & Faltantes) -->
-          <div class="metric-kpi-card" style="border-left: 4px solid #f59e0b;">
-            <div class="metric-kpi-header">
-              <span class="stat-label">Discrepancias Totales</span>
-              <div class="metric-kpi-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
-                <i class="fa-solid fa-scale-unbalanced"></i>
-              </div>
-            </div>
-            <div class="metric-kpi-val" id="stat-discrepancies-count" style="color: #f59e0b;">0</div>
-            <div class="metric-kpi-footer" style="flex-direction: column; align-items: flex-start; gap: 0.25rem;">
-              <div style="display: flex; justify-content: space-between; width: 100%;">
-                <span style="color: #38bdf8;"><i class="fa-solid fa-circle-plus"></i> Sobrantes: <strong id="stat-sobrantes-val">0 uds</strong></span>
-                <span style="color: #ef4444;"><i class="fa-solid fa-circle-minus"></i> Faltantes: <strong id="stat-faltantes-val">0 uds</strong></span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 5. Impacto Financiero -->
-          <div class="metric-kpi-card" style="border-left: 4px solid var(--danger);">
-            <div class="metric-kpi-header">
-              <span class="stat-label">Impacto Financiero</span>
-              <div class="metric-kpi-icon" style="background: rgba(239, 68, 68, 0.15); color: var(--danger);">
-                <i class="fa-solid fa-sack-dollar"></i>
-              </div>
-            </div>
-            <div class="metric-kpi-val" id="stat-diff-cost" style="color: var(--danger);">$0.00</div>
-            <div class="metric-kpi-footer">
-              <span id="stat-net-diff-cost">Neto: $0.00</span>
-              <span class="badge badge-neutral" id="stat-damaged-cost-badge">Averías: $0.00</span>
-            </div>
-          </div>
-
-          <!-- 6. Exactitud de Contadores (Con Tracking de Re-ediciones) -->
+          <!-- Card Exactitud de Contadores -->
           <div class="metric-kpi-card" style="border-left: 4px solid #a855f7;">
             <div class="metric-kpi-header">
               <span class="stat-label">Exactitud de Contadores</span>
@@ -683,8 +879,238 @@
             </div>
             <div class="metric-kpi-val" id="stat-worker-accuracy" style="color: #a855f7;">100.0%</div>
             <div class="metric-kpi-footer">
-              <span id="stat-worker-edits-total">0 re-ediciones registradas</span>
+              <span id="stat-worker-edits-total">0 re-ediciones</span>
               <span class="badge badge-reedit zero" id="stat-worker-rating-badge">Confiable</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- MATRIZ DE LOS 3 ERIs (Cantidad de Ítems [Principal], SKU, Monetario) -->
+        <div style="margin-bottom: 1.5rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; padding: 0 0.25rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+              <span style="font-size: 0.95rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-main); display: flex; align-items: center; gap: 0.45rem;">
+                <i class="fa-solid fa-bullseye" style="color: var(--primary);"></i> Matriz Oficial: Los 3 ERIs
+              </span>
+              <span class="badge badge-success" style="font-size: 0.72rem; font-weight: 800; padding: 0.25rem 0.6rem; letter-spacing: 0.5px;">★ PRINCIPAL: ERI CANTIDAD DE ÍTEMS</span>
+            </div>
+            <span class="badge badge-neutral" style="font-size: 0.72rem;">Inicial (1er Conteo) ➔ Final (Post-Reconteo)</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem;">
+            <!-- 1. ERI PRINCIPAL: ERI DE CANTIDAD DE ITEMS (INICIAL Y FINAL) -->
+            <div class="metric-kpi-card" style="border: 2px solid var(--primary); background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(15, 23, 42, 0.7) 100%); box-shadow: 0 4px 14px rgba(16, 185, 129, 0.15);">
+              <div class="metric-kpi-header">
+                <div>
+                  <span class="badge badge-success" style="font-size: 0.65rem; font-weight: 800; letter-spacing: 0.5px; margin-bottom: 0.25rem; display: inline-block;">★ ERI PRINCIPAL</span>
+                  <span class="stat-label" style="font-size: 0.95rem; font-weight: 800; color: var(--text-main); display: block;">ERI Cantidad de Ítems</span>
+                  <small style="font-size: 0.72rem; color: #94a3b8; display: block; margin-top: 1px;">Existencias físicas totales (1 SKU puede contener &gt; 1 ítem)</small>
+                </div>
+                <div class="metric-kpi-icon" style="background: rgba(16, 185, 129, 0.25); color: var(--primary);">
+                  <i class="fa-solid fa-boxes-stacked"></i>
+                </div>
+              </div>
+              <div style="display: flex; align-items: baseline; gap: 0.85rem; margin: 0.5rem 0; flex-wrap: wrap;">
+                <div>
+                  <small style="display: block; font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim); font-weight: 700;">Final</small>
+                  <span class="metric-kpi-val" id="stat-eri-items-final" style="color: #10b981; font-size: 2.2rem; line-height: 1; font-weight: 900;">100.0%</span>
+                </div>
+                <div style="border-left: 1px solid rgba(255,255,255,0.15); padding-left: 0.85rem;">
+                  <small style="display: block; font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim); font-weight: 700;">Inicial (1er Conteo)</small>
+                  <span id="stat-eri-items-inicial" style="font-size: 1.35rem; font-weight: 700; color: #94a3b8;">100.0%</span>
+                </div>
+                <div style="margin-left: auto;">
+                  <span id="stat-eri-items-diff" class="badge badge-success" style="font-size: 0.75rem; font-weight: 700;">+0.0%</span>
+                </div>
+              </div>
+              <div class="metric-kpi-footer" style="padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.08);">
+                <span id="stat-eri-items-detail" style="font-size: 0.78rem; font-weight: 600; color: var(--text-main);">0 de 0 existencias cuadradas</span>
+                <span class="badge badge-neutral" style="font-size: 0.7rem;">Existencias Físicas</span>
+              </div>
+            </div>
+
+            <!-- 2. ERI DE SKU (INICIAL Y FINAL) -->
+            <div class="metric-kpi-card" style="border-left: 4px solid #38bdf8;">
+              <div class="metric-kpi-header">
+                <div>
+                  <span class="badge badge-info" style="font-size: 0.65rem; font-weight: 700; margin-bottom: 0.25rem; display: inline-block;">NIVEL SKU</span>
+                  <span class="stat-label" style="font-size: 0.95rem; font-weight: 800; color: var(--text-main); display: block;">ERI de SKU</span>
+                </div>
+                <div class="metric-kpi-icon" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">
+                  <i class="fa-solid fa-barcode"></i>
+                </div>
+              </div>
+              <div style="display: flex; align-items: baseline; gap: 0.85rem; margin: 0.5rem 0; flex-wrap: wrap;">
+                <div>
+                  <small style="display: block; font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim); font-weight: 700;">Final</small>
+                  <span class="metric-kpi-val" id="stat-eri-sku-final" style="color: #38bdf8; font-size: 2.2rem; line-height: 1; font-weight: 800;">100.0%</span>
+                </div>
+                <div style="border-left: 1px solid rgba(255,255,255,0.15); padding-left: 0.85rem;">
+                  <small style="display: block; font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim); font-weight: 700;">Inicial</small>
+                  <span id="stat-eri-sku-inicial" style="font-size: 1.35rem; font-weight: 700; color: #94a3b8;">100.0%</span>
+                </div>
+                <div style="margin-left: auto;">
+                  <span id="stat-eri-sku-diff" class="badge badge-info" style="font-size: 0.75rem; font-weight: 700;">+0.0%</span>
+                </div>
+              </div>
+              <div class="metric-kpi-footer" style="padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.08);">
+                <span id="stat-eri-sku-detail" style="font-size: 0.78rem; font-weight: 600; color: var(--text-main);">0 de 0 SKUs exactos</span>
+                <span class="badge badge-neutral" style="font-size: 0.7rem;">Consol. Códigos</span>
+              </div>
+            </div>
+
+            <!-- 3. ERI MONETARIO (INICIAL Y FINAL) -->
+            <div class="metric-kpi-card" style="border-left: 4px solid #fbbf24;">
+              <div class="metric-kpi-header">
+                <div>
+                  <span class="badge badge-warning" style="font-size: 0.65rem; font-weight: 700; margin-bottom: 0.25rem; display: inline-block; background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3);">FINANCIERO / VALOR</span>
+                  <span class="stat-label" style="font-size: 0.95rem; font-weight: 800; color: var(--text-main); display: block;">ERI Monetario</span>
+                </div>
+                <div class="metric-kpi-icon" style="background: rgba(251, 191, 36, 0.15); color: #fbbf24;">
+                  <i class="fa-solid fa-hand-holding-dollar"></i>
+                </div>
+              </div>
+              <div style="display: flex; align-items: baseline; gap: 0.85rem; margin: 0.5rem 0; flex-wrap: wrap;">
+                <div>
+                  <small style="display: block; font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim); font-weight: 700;">Final</small>
+                  <span class="metric-kpi-val" id="stat-eri-money-final" style="color: #fbbf24; font-size: 2.2rem; line-height: 1; font-weight: 800;">100.0%</span>
+                </div>
+                <div style="border-left: 1px solid rgba(255,255,255,0.15); padding-left: 0.85rem;">
+                  <small style="display: block; font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim); font-weight: 700;">Inicial</small>
+                  <span id="stat-eri-money-inicial" style="font-size: 1.35rem; font-weight: 700; color: #94a3b8;">100.0%</span>
+                </div>
+                <div style="margin-left: auto;">
+                  <span id="stat-eri-money-diff" class="badge badge-neutral" style="font-size: 0.75rem; font-weight: 700; color: #fbbf24;">+0.0%</span>
+                </div>
+              </div>
+              <div class="metric-kpi-footer" style="padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.08);">
+                <span id="stat-eri-money-detail" style="font-size: 0.78rem; font-weight: 600; color: var(--text-main);">Valor auditado: Bs. 0.00</span>
+                <span class="badge badge-neutral" style="font-size: 0.7rem;">Valor de Inventario</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECCIÓN 1: PRIMER CONTEO -->
+        <div style="margin-bottom: 1.25rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; padding: 0 0.25rem;">
+            <span style="font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--primary); display: flex; align-items: center; gap: 0.4rem;">
+              <i class="fa-solid fa-clipboard-check"></i> Métricas de Primer Conteo (Línea Base)
+            </span>
+            <span class="badge badge-neutral" style="font-size: 0.7rem;">Evaluación Columna O & P</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;" id="dash-grid-first-count">
+            <!-- 1. Ítems Cuadrados 1er Conteo -->
+            <div class="metric-kpi-card" style="border-left: 4px solid #22c55e;">
+              <div class="metric-kpi-header">
+                <span class="stat-label">Ítems Cuadrados (1er Conteo)</span>
+                <div class="metric-kpi-icon" style="background: rgba(34, 197, 94, 0.15); color: #22c55e;">
+                  <i class="fa-solid fa-equals"></i>
+                </div>
+              </div>
+              <div class="metric-kpi-val" id="stat-squared-1er" style="color: #22c55e;">0</div>
+              <div class="metric-kpi-footer">
+                <span id="stat-squared-1er-detail">100.0% concordancia inicial</span>
+                <span class="badge badge-exacto" id="stat-squared-1er-badge">Col. O == 0</span>
+              </div>
+            </div>
+
+            <!-- 3. Discrepancias 1er Conteo -->
+            <div class="metric-kpi-card" style="border-left: 4px solid #f59e0b;">
+              <div class="metric-kpi-header">
+                <span class="stat-label">Discrepancias (1er Conteo)</span>
+                <div class="metric-kpi-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+                  <i class="fa-solid fa-scale-unbalanced"></i>
+                </div>
+              </div>
+              <div class="metric-kpi-val" id="stat-disc-1er" style="color: #f59e0b;">0</div>
+              <div class="metric-kpi-footer" style="flex-direction: column; align-items: flex-start; gap: 0.25rem;">
+                <div style="display: flex; justify-content: space-between; width: 100%;">
+                  <span style="color: #38bdf8;"><i class="fa-solid fa-circle-plus"></i> <strong id="stat-sobrantes-1er-val">+0 uds</strong></span>
+                  <span style="color: #ef4444;"><i class="fa-solid fa-circle-minus"></i> <strong id="stat-faltantes-1er-val">-0 uds</strong></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4. Impacto Financiero 1er Conteo -->
+            <div class="metric-kpi-card" style="border-left: 4px solid var(--danger);">
+              <div class="metric-kpi-header">
+                <span class="stat-label">Impacto Financiero (1er Conteo)</span>
+                <div class="metric-kpi-icon" style="background: rgba(239, 68, 68, 0.15); color: var(--danger);">
+                  <i class="fa-solid fa-sack-dollar"></i>
+                </div>
+              </div>
+              <div class="metric-kpi-val" id="stat-diff-cost-1er" style="color: var(--danger);">Bs. 0.00</div>
+              <div class="metric-kpi-footer">
+                <span id="stat-diff-cost-1er-detail">Desviación inicial (Col. P)</span>
+                <span class="badge badge-neutral" id="stat-diff-cost-1er-badge">Col. P</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECCIÓN 2: ESTADO FINAL (Justo debajo de las tarjetas de 1er Conteo) -->
+        <div style="margin-bottom: 1.5rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; padding: 0 0.25rem;">
+            <span style="font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #10b981; display: flex; align-items: center; gap: 0.4rem;">
+              <i class="fa-solid fa-flag-checkered"></i> Métricas de Estado Final (Post-Reconteo / Aclaradas)
+            </span>
+            <span class="badge badge-success" style="font-size: 0.7rem;">Última completada: Col. AM / AB / O</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;" id="dash-grid-final-count">
+            <!-- 1. Ítems Cuadrados Final -->
+            <div class="metric-kpi-card" style="border-left: 4px solid #059669;">
+              <div class="metric-kpi-header">
+                <span class="stat-label">Ítems Cuadrados (Final)</span>
+                <div class="metric-kpi-icon" style="background: rgba(5, 150, 105, 0.15); color: #059669;">
+                  <i class="fa-solid fa-check-double"></i>
+                </div>
+              </div>
+              <div class="metric-kpi-val" id="stat-squared-final" style="color: #10b981;">0</div>
+              <div class="metric-kpi-footer">
+                <span id="stat-squared-final-detail">100.0% concordancia final</span>
+                <span class="badge badge-success" id="stat-squared-final-badge">+0 subsanados</span>
+              </div>
+            </div>
+
+            <!-- 3. Discrepancias Final -->
+            <div class="metric-kpi-card" style="border-left: 4px solid #eab308;">
+              <div class="metric-kpi-header">
+                <span class="stat-label">Discrepancias (Final)</span>
+                <div class="metric-kpi-icon" style="background: rgba(234, 179, 8, 0.15); color: #eab308;">
+                  <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+              </div>
+              <div class="metric-kpi-val" id="stat-disc-final" style="color: #eab308;">0</div>
+              <div class="metric-kpi-footer" style="flex-direction: column; align-items: flex-start; gap: 0.25rem;">
+                <div style="display: flex; justify-content: space-between; width: 100%;">
+                  <span style="color: #38bdf8;"><i class="fa-solid fa-circle-plus"></i> <strong id="stat-sobrantes-final-val">+0 uds</strong></span>
+                  <span style="color: #ef4444;"><i class="fa-solid fa-circle-minus"></i> <strong id="stat-faltantes-final-val">-0 uds</strong></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 4. Impacto Financiero Final -->
+            <div class="metric-kpi-card" id="card-financial-impact" style="border-left: 4px solid var(--danger);">
+              <div class="metric-kpi-header">
+                <span class="stat-label" id="stat-financial-impact-label">Impacto Financiero (Final)</span>
+                <div class="metric-kpi-icon" style="background: rgba(239, 68, 68, 0.15); color: var(--danger);">
+                  <i class="fa-solid fa-sack-dollar"></i>
+                </div>
+              </div>
+              <div class="metric-kpi-val" id="stat-diff-cost-final" style="color: var(--danger);">Bs. 0.00</div>
+              <div class="metric-kpi-footer" style="flex-direction: column; align-items: flex-start; gap: 4px; width: 100%;">
+                <div id="stat-financial-recount-sub" style="font-size: 0.78rem; width: 100%; display: flex; justify-content: space-between; align-items: center;">
+                  <span style="color: var(--text-dim);" id="stat-diff-cost-final-detail">Aclarado: Bs. 0.00</span>
+                  <span class="badge badge-success" id="stat-clarified-badge" style="font-weight: 700;">Subsanado: +Bs. 0.00</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                  <span class="badge badge-neutral" id="stat-damaged-cost-badge">Averías: Bs. 0.00</span>
+                  <span id="stat-financial-tag" class="badge badge-success" style="font-size: 0.7rem;">Último Conteo</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -710,6 +1136,28 @@
 
         <!-- TAB 1: GRÁFICOS & BALANCE GENERAL -->
         <div class="dash-tab-pane active" id="tab-overview">
+          <!-- Overview Action Header -->
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem; background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 0.75rem 1.25rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <div style="background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); font-size: 1.15rem;">
+                <i class="fa-solid fa-chart-pie"></i>
+              </div>
+              <div>
+                <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-main);">
+                  Balance General y Analítica de Exactitud
+                </h4>
+                <p style="margin: 0; font-size: 0.78rem; color: var(--text-muted);">
+                  Consolidado ejecutivo de métricas ERI (Ítems, SKU, Valor), concordancia ERU y valuación financiera.
+                </p>
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <button type="button" class="btn btn-primary btn-sm" id="btn-export-overview-xlsx" title="Descargar consolidado completo de métricas (ERI, ERU, Impacto Financiero) en formato Excel .xlsx para reportes gerenciales" style="background: linear-gradient(135deg, #10b981 0%, #047857 100%); border-color: rgba(16, 185, 129, 0.5); font-weight: 700; display: inline-flex; align-items: center; gap: 0.45rem;">
+                <i class="fa-solid fa-file-excel"></i> Exportar Consolidado (.xlsx)
+              </button>
+            </div>
+          </div>
+
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 1.5rem;">
             
             <!-- Chart 1: Donut ERI vs ERU vs Cuadrados -->
@@ -738,7 +1186,7 @@
             <div class="card">
               <div class="card-header">
                 <h3 class="card-title"><i class="fa-solid fa-file-invoice-dollar"></i> Impacto Financiero por Clasificación ABC</h3>
-                <span class="badge badge-warning">Costo ($)</span>
+                <span class="badge badge-warning">Costo (Bs.)</span>
               </div>
               <div style="position: relative; height: 280px;">
                 <canvas id="chart-abc"></canvas>
@@ -753,6 +1201,40 @@
               </div>
               <div style="position: relative; height: 280px;">
                 <canvas id="chart-centers"></canvas>
+              </div>
+            </div>
+
+            <!-- Chart 5: Tendencia Histórica del ERI de Cantidad de Ítems (Últimos 5 Inventarios Cerrados) -->
+            <div class="card" style="grid-column: 1 / -1;">
+              <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
+                <div>
+                  <h3 class="card-title" style="display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fa-solid fa-chart-line" style="color: #10b981;"></i> Tendencia Histórica del ERI de Cantidad de Ítems • Últimos 5 Inventarios Cerrados
+                  </h3>
+                  <p class="stat-subtext" style="margin-top: 0.2rem;">
+                    Evolución de la exactitud en existencias físicas a lo largo de los últimos 5 inventarios cerrados y seguimiento frente a la escala corporativa NIBOL.
+                  </p>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+                  <span class="badge" id="badge-eri-trend-status" style="font-weight: 700; padding: 0.35rem 0.65rem; font-size: 0.78rem; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">
+                    <i class="fa-solid fa-arrow-trend-up"></i> Calculando tendencia...
+                  </span>
+                  <!-- Escala de Metas Corporativas NIBOL -->
+                  <div class="dash-target-scale" style="display: inline-flex; align-items: center; gap: 0.3rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-glass); padding: 0.2rem 0.45rem; border-radius: 9999px; font-size: 0.72rem;">
+                    <span style="color: var(--text-dim); font-weight: 700; margin-right: 0.15rem;"><i class="fa-solid fa-bullseye" style="color: #f59e0b;"></i> Metas:</span>
+                    <span class="badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.35);" title="Menos del 90% es considerado Mal">&lt;90% Mal</span>
+                    <span class="badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.35);" title="95% representa el Mínimo Aceptable">95% Mín. Aceptable</span>
+                    <span class="badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35);" title="98% representa nivel Excelente">98% Excelente</span>
+                    <span class="badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: rgba(6, 182, 212, 0.18); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.4);" title="100% representa nivel Perfecto">100% Perfecto</span>
+                  </div>
+                </div>
+              </div>
+              <div style="position: relative; height: 320px; padding: 0.5rem 0.25rem;">
+                <canvas id="chart-eri-historical-trend"></canvas>
+              </div>
+              <div class="card-footer" id="footer-eri-historical-trend" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.65rem 1rem; background: rgba(0, 0, 0, 0.15); border-top: 1px solid var(--border-glass); font-size: 0.8rem; color: var(--text-muted);">
+                <span><i class="fa-solid fa-circle-info" style="color: #38bdf8;"></i> Gráfico de líneas que visualiza la mejora o retroceso en la exactitud física respecto a ciclos anteriores.</span>
+                <span id="text-eri-trend-summary" style="font-weight: 600; color: var(--text-main);">-</span>
               </div>
             </div>
           </div>
@@ -845,6 +1327,9 @@
               <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                 <div class="pill-filter-group">
                   <button class="pill-btn active" data-disc-filter="ALL">Todos</button>
+                  <button class="pill-btn" data-disc-filter="1ER_CONTEO">1er Conteo</button>
+                  <button class="pill-btn" data-disc-filter="FINAL">Final (Pendientes)</button>
+                  <button class="pill-btn" data-disc-filter="SUBSANADO">Subsanados</button>
                   <button class="pill-btn" data-disc-filter="SOBRANTE">Sobrantes (+)</button>
                   <button class="pill-btn" data-disc-filter="FALTANTE">Faltantes (-)</button>
                   <button class="pill-btn" data-disc-filter="AVERIA">Averías</button>
@@ -869,7 +1354,7 @@
                     <th style="text-align: center;">Stock Físico</th>
                     <th style="text-align: center;">Diferencia</th>
                     <th style="text-align: right;">Costo Unit.</th>
-                    <th style="text-align: right;">Impacto ($)</th>
+                    <th style="text-align: right;">Impacto (Bs.)</th>
                     <th>Responsable</th>
                   </tr>
                 </thead>
@@ -930,6 +1415,7 @@
                   <th>Nombre Completo</th>
                   <th>Rol</th>
                   <th>Centro Asignado</th>
+                  <th>Accesos & Privilegios</th>
                   <th>Estado</th>
                   <th>Acciones</th>
                 </tr>
@@ -946,7 +1432,7 @@
 
     <!-- Footer -->
     <footer class="app-footer">
-      <p>&copy; 2026 NIBOL S.A. — Sistema Integrado de Inventarios | Todos los derechos reservados.</p>
+      <p>&copy; 2026 Alonso Rios | Almacén Multimarcas | Todos los derechos reservados.</p>
     </footer>
   </div>
 
@@ -983,14 +1469,56 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="modal-input-qty"><i class="fa-solid fa-calculator"></i> Cantidad Física Encontrada</label>
-            <input type="number" id="modal-input-qty" class="form-input" min="0" placeholder="0" required>
+            <label class="form-label" for="modal-input-qty"><i class="fa-solid fa-circle-check" style="color: #10b981;"></i> Buen Estado *</label>
+            <input type="number" id="modal-input-qty" class="form-input" min="0" placeholder="0" required oninput="window.InventoryView?.updateModalCountTotal?.()">
             <small style="color: var(--text-dim); font-size: 0.75rem;">Se permite confirmar con cantidad 0 si no hay stock físico.</small>
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="modal-input-damaged"><i class="fa-solid fa-triangle-exclamation"></i> Piezas en Mal Estado (Columna P)</label>
-            <input type="number" id="modal-input-damaged" class="form-input" min="0" value="0">
+            <label class="form-label" for="modal-input-damaged"><i class="fa-solid fa-triangle-exclamation" style="color: #ef4444;"></i> Mal Estado</label>
+            <input type="number" id="modal-input-damaged" class="form-input" min="0" value="0" oninput="window.InventoryView?.updateModalCountTotal?.()">
+          </div>
+
+          <!-- Total Conteo Visualización Compacta -->
+          <div style="margin-top: 0.5rem; margin-bottom: 0.85rem; padding: 6px 12px; background: rgba(2, 6, 23, 0.7); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+            <span style="color: var(--text-dim); font-weight: 600;"><i class="fa-solid fa-calculator" style="color: var(--primary);"></i> Total Conteo:</span>
+            <span id="modal-count-total-badge" style="font-family: var(--font-mono); font-size: 1rem; font-weight: 800; color: var(--primary); background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 8px; border-radius: 4px;">0</span>
+          </div>
+
+          <!-- Evidencia Fotográfica de Mal Estado en Modal Conteo / Nueva Ubicación -->
+          <div id="modal-count-photo-section" style="margin-top: 0.85rem; border-top: 1px solid var(--border-glass); padding-top: 0.85rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <label class="form-label" style="margin-bottom: 0; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.88rem;">
+                <i class="fa-solid fa-camera" style="color: #ef4444;"></i> Evidencia de Mal Estado
+              </label>
+              <span id="modal-count-photo-badge" class="badge badge-secondary" style="font-size: 0.72rem;">Opcional</span>
+            </div>
+
+            <input type="hidden" id="modal-count-photo-url-val" value="">
+            <input type="file" id="modal-count-photo-file-input" accept="image/*" capture="environment" style="display: none;">
+
+            <div
+              id="modal-count-photo-zone"
+              class="photo-upload-zone"
+              style="cursor: pointer; padding: 0.85rem 1rem; text-align: center; border: 2px dashed #475569; border-radius: var(--radius-md); background: rgba(239, 68, 68, 0.04); transition: all 0.2s ease;"
+            >
+              <i class="fa-solid fa-cloud-arrow-up" style="font-size: 1.5rem; color: #ef4444; margin-bottom: 0.3rem;"></i>
+              <div style="font-size: 0.88rem; font-weight: 700; color: var(--text-main);" id="modal-count-photo-zone-title">Tomar Foto o Subir Evidencia</div>
+              <small style="color: var(--text-dim); display: block; font-size: 0.75rem; margin-top: 2px;">Adjunte foto si hay piezas dañadas</small>
+            </div>
+
+            <div id="modal-count-photo-preview-box" style="text-align: center; display: none; margin-top: 0.65rem; background: rgba(16, 185, 129, 0.08); padding: 0.65rem; border-radius: var(--radius-md); border: 1px solid rgba(16, 185, 129, 0.3);">
+              <img id="modal-count-photo-preview-img" src="" alt="Evidencia de Mal Estado" style="max-height: 140px; border-radius: 6px; margin: 0 auto; display: block; border: 1px solid var(--border-glass);" />
+              <div style="display: flex; justify-content: center; align-items: center; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap;">
+                <span style="color: var(--success); font-size: 0.8rem; font-weight: 600;"><i class="fa-solid fa-check-circle"></i> Foto lista</span>
+                <button type="button" class="btn btn-secondary btn-sm" id="modal-count-btn-change-photo" style="padding: 2px 8px; font-size: 0.75rem;">
+                  <i class="fa-solid fa-arrows-rotate"></i> Cambiar
+                </button>
+                <button type="button" class="btn btn-danger btn-sm" id="modal-count-btn-remove-photo" style="padding: 2px 8px; font-size: 0.75rem;">
+                  <i class="fa-solid fa-trash"></i> Quitar
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="modal-footer" style="padding: 1rem 0 0 0; margin-top: 1rem;">
@@ -1175,112 +1703,365 @@
     </div>
   </div>
 
-  <!-- Modal: Justification Form -->
+  <!-- Modal: Justification Form (Pop-up Centrado con Navegación Secuencial) -->
   <div class="modal-overlay" id="modal-justification">
-    <div class="modal-box">
-      <div class="modal-header">
-        <h3 class="card-title"><i class="fa-solid fa-gavel"></i> Justificar Diferencia / Mal Estado</h3>
-        <button class="close-btn" data-close-modal="modal-justification">&times;</button>
+    <div class="modal-box just-popup-box">
+      <div class="modal-header" style="background: rgba(15, 23, 42, 0.4); border-bottom: 1px solid var(--border-glass); padding: 0.9rem 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <h3 class="card-title" style="margin: 0; font-size: 1.05rem;">
+            <i class="fa-solid fa-gavel" style="color: var(--warning);"></i> 
+            <span id="just-modal-title">Justificar Diferencia</span>
+          </h3>
+          <span class="badge" id="just-modal-item-counter" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 0.75rem;">
+            Ítem 1 de 1
+          </span>
+          <label style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.75rem; color: var(--text-dim); margin: 0; cursor: pointer;" title="Al pulsar Siguiente, saltar directo al próximo ítem sin justificar">
+            <input type="checkbox" id="just-chk-skip-justified" style="accent-color: var(--primary);"> Solo pendientes
+          </label>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <span style="font-size: 0.72rem; color: var(--text-muted); display: none;" class="desktop-only" id="just-keyboard-hints" title="Atajos: ◀ Anterior, ▶ Siguiente, Ctrl+Enter Guardar">
+            <i class="fa-regular fa-keyboard"></i> ◀ / ▶
+          </span>
+          <button class="close-btn" data-close-modal="modal-justification">&times;</button>
+        </div>
       </div>
-      <div class="modal-body">
-        <div style="background: var(--bg-card); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; border: 1px solid var(--border-glass);">
-          <div style="display: flex; justify-content: space-between;">
-            <h4 id="just-modal-sku" style="color: var(--warning); font-size: 1.1rem; font-weight: 700;">JD-AH12345</h4>
-            <span class="badge badge-danger" id="just-modal-diff">Dif: -2</span>
+
+      <div class="modal-body" style="padding: 1.15rem 1.25rem;">
+        <!-- Card de Información Detallada del Ítem Actual -->
+        <div id="just-modal-item-card" style="background: var(--bg-card); padding: 0.9rem 1.1rem; border-radius: var(--radius-md); margin-bottom: 1rem; border: 1px solid var(--border-glass); transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <h4 id="just-modal-sku" style="color: var(--warning); font-size: 1.15rem; font-weight: 800; margin: 0; font-family: var(--font-mono);">JD-AH12345</h4>
+              <span class="badge badge-neutral" id="just-modal-abc" style="font-size: 0.72rem;">ABC: -</span>
+              <span class="badge badge-info" id="just-modal-almacen" style="font-size: 0.72rem; display: none;"><i class="fa-solid fa-warehouse"></i> <span id="just-modal-almacen-val">-</span></span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span class="badge" id="just-modal-diff" style="font-size: 0.85rem; font-weight: 700;">Dif: -2</span>
+              <span class="badge" id="just-modal-status-badge" style="font-size: 0.75rem;">Pendiente</span>
+            </div>
           </div>
-          <p id="just-modal-desc" style="font-size: 0.9rem; color: var(--text-main);">Descripción</p>
-          <p id="just-modal-cost" style="font-size: 0.8rem; color: var(--danger); margin-top: 0.3rem;">Impacto: -$136.40</p>
+
+          <p id="just-modal-desc" style="font-size: 0.88rem; color: var(--text-main); margin: 0.35rem 0 0.5rem 0; line-height: 1.35; font-weight: 500;">Descripción del repuesto</p>
+
+          <!-- Grid de Métricas y Comparativa (Sistema vs Físico vs Reconteo) -->
+          <div class="just-grid-details" id="just-modal-grid-metrics">
+            <div class="just-grid-cell">
+              <span class="lbl"><i class="fa-solid fa-map-pin"></i> Ubicación</span>
+              <span class="val" id="just-modal-loc" style="color: #38bdf8;">-</span>
+            </div>
+            <div class="just-grid-cell" id="just-modal-cell-almacen" style="display: none;">
+              <span class="lbl"><i class="fa-solid fa-warehouse"></i> Almacén</span>
+              <span class="val" id="just-modal-almacen-cell" style="color: #38bdf8;">-</span>
+            </div>
+            <div class="just-grid-cell">
+              <span class="lbl"><i class="fa-solid fa-desktop"></i> Stock Sistema</span>
+              <span class="val" id="just-modal-sys-stock">-</span>
+            </div>
+            <div class="just-grid-cell">
+              <span class="lbl"><i class="fa-solid fa-box-archive"></i> 1er Físico</span>
+              <span class="val" id="just-modal-phys-stock">-</span>
+            </div>
+            <div class="just-grid-cell" id="just-modal-cell-recount" style="display: none;">
+              <span class="lbl" id="just-modal-lbl-recount" style="color: #38bdf8;"><i class="fa-solid fa-rotate-right"></i> Reconteo Físico</span>
+              <span class="val" id="just-modal-recount-stock" style="color: #38bdf8;">-</span>
+            </div>
+            <div class="just-grid-cell">
+              <span class="lbl"><i class="fa-solid fa-triangle-exclamation"></i> Mal Estado</span>
+              <span class="val" id="just-modal-damaged" style="color: #ef4444;">0</span>
+            </div>
+            <div class="just-grid-cell">
+              <span class="lbl"><i class="fa-solid fa-dollar-sign"></i> Impacto Costo</span>
+              <span class="val" id="just-modal-cost" style="color: #ef4444;">Bs. 0.00</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Banner Informativo Cuando el Ítem ya Cuadró -->
+        <div id="just-modal-cuadro-alert" style="display: none; background: rgba(16, 185, 129, 0.12); border: 1.5px solid #10b981; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.85rem; justify-content: space-between; align-items: center; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem; color: #10b981; font-weight: 600; font-size: 0.88rem;">
+            <i class="fa-solid fa-circle-check" style="font-size: 1.25rem;"></i>
+            <span id="just-modal-cuadro-text">El ítem ha cuadrado en el reconteo (Diferencia = 0).</span>
+          </div>
+          <span class="badge badge-success" style="font-size: 0.75rem; white-space: nowrap;">Listo para confirmar</span>
         </div>
 
         <form id="form-submit-justification">
           <input type="hidden" id="just-modal-inv-id">
           <input type="hidden" id="just-modal-sku-input">
-          <input type="hidden" id="just-modal-stage" value="1">
+          <input type="hidden" id="just-modal-almacen-input">
+          <input type="hidden" id="just-modal-location-input">
+          <input type="hidden" id="just-modal-item-key">
+          <input type="hidden" id="just-modal-item-idx">
+          <input type="hidden" id="just-modal-item-id">
+          <input type="hidden" id="just-modal-is-second-just" value="false">
 
-          <div style="margin-bottom: 0.75rem;">
-            <span id="just-modal-stage-badge" class="badge badge-info" style="font-weight: 700;">1ra Justificación (Col. R-V)</span>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="just-select-reason">Tipo de Justificación</label>
-            <select id="just-select-reason" class="form-select" required>
-              <option value="AJUSTE_OPERATIVO">Ajuste por Error de Conteo Anterior</option>
-              <option value="MERMA_ROTURA">Merma / Producto en Mal Estado</option>
-              <option value="TRASPASO_PENDIENTE">Traspaso entre Centros Pendiente</option>
-              <option value="SOBRANTE_SIN_CODIFICAR">Sobrante Físico Sin Codificar</option>
-              <option value="OTRO">Otro Motivo Aprobado</option>
+          <div class="form-group" style="background: rgba(15, 23, 42, 0.5); padding: 0.75rem 0.9rem; border-radius: 8px; border: 1.5px solid #334155; margin-bottom: 0.85rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+              <label class="form-label" for="just-select-corroboration" style="color: #38bdf8; font-weight: 700; margin-bottom: 0;">
+                <i class="fa-solid fa-code-compare"></i> Resultado de Revisión / Justificación
+              </label>
+              <span style="font-size: 0.72rem; color: var(--text-dim);">Actualiza Col. Q</span>
+            </div>
+            <select id="just-select-corroboration" class="form-select" style="font-weight: 600;">
+              <option value="CUADRA">✅ Cuadra (Marca como justificado / Conforme)</option>
+              <option value="NO_CUADRA">🔄 No cuadra (Enviar a lista de reconteo)</option>
             </select>
           </div>
 
-          <div class="form-group">
-            <label class="form-label" for="just-input-text">Explicación / Detalle de la Justificación</label>
-            <textarea id="just-input-text" class="form-textarea" rows="3" placeholder="Detalle las razones del ajuste y la auditoría..." required></textarea>
+          <div class="form-group" style="margin-bottom: 0.85rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+              <label class="form-label" for="just-select-reason" style="margin-bottom: 0;">Tipo de Justificación</label>
+              <span style="font-size: 0.72rem; color: var(--text-dim);">Col. R (Motivo)</span>
+            </div>
+            <select id="just-select-reason" class="form-select">
+              <option value="faltante en inventario anual">faltante en inventario anual</option>
+              <option value="Sobrante del inventario anual">Sobrante del inventario anual</option>
+              <option value="venta del repuesto">venta del repuesto</option>
+              <option value="transferencia">transferencia</option>
+              <option value="balanceo">balanceo</option>
+              <option value="devolucion a fabrica">devolucion a fabrica</option>
+              <option value="otro">otro</option>
+            </select>
           </div>
 
-          <div class="form-group">
-            <label class="form-label">Foto de Evidencia (Binario)</label>
-            <div class="photo-upload-zone" id="zone-just-photo">
-              <i class="fa-solid fa-camera" style="font-size: 1.5rem; color: var(--primary);"></i>
-              <p style="font-size: 0.85rem; margin-top: 0.3rem;">Subir foto de respaldo</p>
+          <div class="form-group" style="margin-bottom: 0.85rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+              <label class="form-label" for="just-input-text" style="margin-bottom: 0;">Explicación / Detalle de la Justificación</label>
+              <span style="font-size: 0.72rem; color: var(--text-dim);">Col. S (Comentario)</span>
+            </div>
+            <textarea id="just-input-text" class="form-textarea" rows="2" placeholder="Detalle las razones del ajuste y la auditoría..."></textarea>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0.85rem;">
+            <label class="form-label" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+              <span>Foto de Evidencia (Google Drive)</span>
+              <span style="font-size: 0.72rem; color: #10b981;"><i class="fa-solid fa-cloud-arrow-up"></i> Sincronización Inmediata</span>
+            </label>
+            <div class="photo-upload-zone" id="zone-just-photo" style="padding: 0.85rem; cursor: pointer;">
+              <i class="fa-solid fa-cloud-arrow-up" style="font-size: 1.3rem; color: var(--primary);"></i>
+              <p style="font-size: 0.82rem; margin-top: 0.2rem; color: var(--text-dim);">Haga clic para tomar foto o seleccionar archivo</p>
               <input type="file" id="input-just-photo-file" accept="image/*" style="display: none;">
             </div>
+            <div id="just-photo-status" style="display: none; margin-top: 0.4rem; font-size: 0.8rem;"></div>
             <input type="hidden" id="just-photo-url">
-            <img id="img-just-preview" class="photo-preview-img" style="display: none;" alt="Preview">
+            <input type="hidden" id="just-drive-url">
+            <input type="hidden" id="just-drive-file-id">
+            <img id="img-just-preview" class="photo-preview-img" style="display: none; margin-top: 0.5rem; max-height: 160px; border-radius: 8px; border: 1px solid var(--border-glass);" alt="Preview">
           </div>
 
-          <div class="modal-footer" style="padding: 1rem 0 0 0;">
-            <button type="button" class="btn btn-secondary" data-close-modal="modal-justification">Cancelar</button>
-            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-save"></i> Guardar Justificación</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
+          <!-- Barra de Navegación y Acciones del Pop-up -->
+          <div class="modal-footer" style="padding: 0.9rem 0 0 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
+            <div style="display: flex; gap: 0.4rem;">
+              <button type="button" class="just-nav-floating-btn" id="btn-just-prev-item" onclick="window.JustificationsView.navigatePopup(-1)" title="Ir al ítem anterior (Flecha Izquierda)">
+                <i class="fa-solid fa-chevron-left"></i> Anterior
+              </button>
+              <button type="button" class="just-nav-floating-btn" id="btn-just-next-item" onclick="window.JustificationsView.navigatePopup(1)" title="Ir al ítem siguiente (Flecha Derecha)">
+                Siguiente <i class="fa-solid fa-chevron-right"></i>
+              </button>
+            </div>
 
-  <!-- Modal: Reconteo Form (Reconteo 1 y Reconteo 2) -->
-  <div class="modal-overlay" id="modal-reconteo">
-    <div class="modal-box">
-      <div class="modal-header">
-        <h3 class="card-title"><i class="fa-solid fa-calculator"></i> <span id="reconteo-modal-title">Registrar Reconteo</span></h3>
-        <button class="close-btn" data-close-modal="modal-reconteo">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div style="background: var(--bg-card); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; border: 1px solid var(--border-glass);">
-          <div style="display: flex; justify-content: space-between;">
-            <h4 id="reconteo-modal-sku" style="color: var(--primary); font-size: 1.1rem; font-weight: 700;">JD-AH12345</h4>
-            <span class="badge badge-warning" id="reconteo-modal-stage-badge">1er Reconteo (Cols. W-AA)</span>
-          </div>
-          <p id="reconteo-modal-desc" style="font-size: 0.9rem; color: var(--text-main);">Descripción</p>
-          <p id="reconteo-modal-system" style="font-size: 0.85rem; color: var(--text-dim); margin-top: 0.3rem;">Stock Sistema: 0</p>
-        </div>
-
-        <form id="form-submit-reconteo">
-          <input type="hidden" id="reconteo-modal-inv-id">
-          <input type="hidden" id="reconteo-modal-sku-input">
-          <input type="hidden" id="reconteo-modal-item-id">
-          <input type="hidden" id="reconteo-modal-num" value="1">
-
-          <div class="form-group">
-            <label class="form-label" for="reconteo-modal-qty">Cantidad Total Recontada</label>
-            <input type="number" id="reconteo-modal-qty" class="form-input" min="0" step="1" required placeholder="0">
-          </div>
-
-          <div class="form-group">
-            <label class="form-label" for="reconteo-modal-damaged">Cantidad en Mal Estado</label>
-            <input type="number" id="reconteo-modal-damaged" class="form-input" min="0" step="1" value="0" placeholder="0">
-            <small style="color: var(--text-dim); font-size: 0.78rem; display: block; margin-top: 0.3rem;">Regla: Si la cantidad es 0 y hay mal estado >= 1, se computa como stock. Si la cantidad es >= 1, se toma solo la cantidad.</small>
-          </div>
-
-          <div class="modal-footer" style="padding: 1rem 0 0 0;">
-            <button type="button" class="btn btn-secondary" data-close-modal="modal-reconteo">Cancelar</button>
-            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Guardar Reconteo</button>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <button type="button" class="btn btn-secondary btn-sm" data-close-modal="modal-justification">Cerrar</button>
+              <button type="submit" class="btn btn-primary btn-sm" id="btn-save-justification">
+                <i class="fa-solid fa-save"></i> Guardar
+              </button>
+              <button type="button" class="btn btn-success btn-sm" id="btn-save-and-next" onclick="window.JustificationsView.saveAndAdvance()" title="Guarda la justificación actual y avanza automáticamente al próximo ítem">
+                <i class="fa-solid fa-forward-step"></i> Guardar y Siguiente
+              </button>
+            </div>
           </div>
         </form>
       </div>
     </div>
   </div>
 
-  <!-- Modal: Delete Inventory with Password/Key Confirmation -->
+  <!-- Modal: Reabrir Inventario (1er Conteo, Reconteo 1, Reconteo 2 y Sincronización) -->
+  <div class="modal-overlay" id="modal-reopen-inventory">
+    <div class="modal-box" style="max-width: 520px;">
+      <div class="modal-header" style="background: rgba(15, 23, 42, 0.4); border-bottom: 1px solid var(--border-glass); padding: 0.9rem 1.25rem;">
+        <h3 class="card-title" style="color: var(--warning); margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="fa-solid fa-lock-open"></i> <span>Reabrir Inventario</span>
+        </h3>
+        <button class="close-btn" data-close-modal="modal-reopen-inventory">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.15rem 1.25rem;">
+        <form id="form-reopen-inventory">
+          <input type="hidden" id="reopen-modal-inv-id">
+
+          <!-- Info resumen del inventario a reabrir -->
+          <div style="background: var(--bg-card); padding: 0.85rem 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; border: 1px solid var(--border-glass);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+              <strong id="reopen-modal-inv-name" style="color: var(--text-main); font-size: 0.95rem;">-</strong>
+              <span id="reopen-modal-status-badge" class="badge badge-warning">-</span>
+            </div>
+            <div style="display: flex; gap: 0.75rem; font-size: 0.8rem; color: var(--text-dim); flex-wrap: wrap;">
+              <span><i class="fa-solid fa-hashtag"></i> ID: <strong id="reopen-modal-id-display" style="font-family: var(--font-mono); color: var(--primary);">-</strong></span>
+              <span><i class="fa-solid fa-building"></i> Centro: <strong id="reopen-modal-center-display">-</strong></span>
+            </div>
+          </div>
+
+          <!-- Selector de Fase -->
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" style="font-weight: 700; color: var(--text-main); margin-bottom: 0.5rem;">
+              <i class="fa-solid fa-list-ol"></i> Seleccione la Fase a Reabrir / Actualizar:
+            </label>
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+              <label style="display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid var(--border-glass); background: rgba(255,255,255,0.02); cursor: pointer;">
+                <input type="radio" name="reopen-target-phase" value="1ER_CONTEO" checked style="margin-top: 3px; accent-color: var(--warning);">
+                <div>
+                  <strong style="color: #f59e0b; font-size: 0.88rem;">1er Conteo Físico</strong>
+                  <p style="margin: 0; font-size: 0.78rem; color: var(--text-dim);">Vuelve el inventario a <strong>EN PROGRESO</strong> para permitir registrar o corregir el primer conteo.</p>
+                </div>
+              </label>
+
+              <label style="display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid var(--border-glass); background: rgba(255,255,255,0.02); cursor: pointer;">
+                <input type="radio" name="reopen-target-phase" value="RECONTEO_1" style="margin-top: 3px; accent-color: #38bdf8;">
+                <div>
+                  <strong style="color: #38bdf8; font-size: 0.88rem;">Reconteo 1 (1er Reconteo)</strong>
+                  <p style="margin: 0; font-size: 0.78rem; color: var(--text-dim);">Habilita el estado de <strong>EN RECONTEO</strong> para actualizar o realizar el 1er reconteo físico.</p>
+                </div>
+              </label>
+
+              <label style="display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid var(--border-glass); background: rgba(255,255,255,0.02); cursor: pointer;">
+                <input type="radio" name="reopen-target-phase" value="RECONTEO_2" style="margin-top: 3px; accent-color: #a855f7;">
+                <div>
+                  <strong style="color: #a855f7; font-size: 0.88rem;">Reconteo 2 (2do Reconteo)</strong>
+                  <p style="margin: 0; font-size: 0.78rem; color: var(--text-dim);">Habilita el <strong>2do Reconteo</strong> para actualizar o registrar las cantidades de Reconteo 2 (Cols AJ-AN).</p>
+                </div>
+              </label>
+
+              <label style="display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid var(--border-glass); background: rgba(255,255,255,0.02); cursor: pointer;">
+                <input type="radio" name="reopen-target-phase" value="JUSTIFICACION" style="margin-top: 3px; accent-color: #10b981;">
+                <div>
+                  <strong style="color: #10b981; font-size: 0.88rem;">Solo Justificaciones</strong>
+                  <p style="margin: 0; font-size: 0.78rem; color: var(--text-dim);">Pasa a <strong>PENDIENTE JUSTIFICACIÓN</strong> para justificar discrepancias manteniendo conteos.</p>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <!-- Opción de sincronización desde Google Sheets -->
+          <div class="form-group" style="margin-bottom: 1rem; background: rgba(16, 185, 129, 0.07); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 0.75rem 0.9rem;">
+            <label style="display: flex; align-items: center; gap: 0.5rem; margin: 0; cursor: pointer; color: #10b981; font-weight: 600; font-size: 0.85rem;">
+              <input type="checkbox" id="reopen-chk-sync-gas" checked style="accent-color: #10b981; transform: scale(1.15);">
+              <span><i class="fa-solid fa-cloud-arrow-down"></i> Sincronizar cantidades desde Google Sheets</span>
+            </label>
+            <p style="margin: 0.3rem 0 0 1.6rem; font-size: 0.76rem; color: var(--text-dim);">
+              Descarga y actualiza automáticamente los valores más recientes de <strong>1er Conteo, Reconteo 1 y Reconteo 2</strong> registrados en la hoja de cálculo.
+            </p>
+          </div>
+
+          <!-- Motivo de reapertura -->
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" for="reopen-modal-reason">Motivo de Reapertura</label>
+            <textarea id="reopen-modal-reason" class="form-textarea" rows="2" placeholder="Ej: Ajuste de cantidades físicas tras reconteo, corrección de digitación..."></textarea>
+          </div>
+
+          <div class="modal-footer" style="padding: 0.85rem 0 0 0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-reopen-inventory">Cancelar</button>
+            <button type="submit" class="btn btn-warning" id="btn-submit-reopen">
+              <i class="fa-solid fa-lock-open"></i> Confirmar y Reabrir
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Actualizar Cantidad de Conteo Directamente (1er Conteo / Reconteo 1 / Reconteo 2) -->
+  <div class="modal-overlay" id="modal-edit-count-justification">
+    <div class="modal-box" style="max-width: 480px;">
+      <div class="modal-header" style="background: rgba(15, 23, 42, 0.4); border-bottom: 1px solid var(--border-glass); padding: 0.9rem 1.25rem;">
+        <h3 class="card-title" style="color: var(--primary); margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="fa-solid fa-pen-to-square"></i> <span>Actualizar Cantidad de Conteo</span>
+        </h3>
+        <button class="close-btn" data-close-modal="modal-edit-count-justification">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.15rem 1.25rem;">
+        <form id="form-edit-count-justification">
+          <input type="hidden" id="edit-count-inv-id">
+          <input type="hidden" id="edit-count-sku">
+          <input type="hidden" id="edit-count-item-id">
+          <input type="hidden" id="edit-count-location">
+          <input type="hidden" id="edit-count-almacen">
+
+          <!-- Card de Información del Repuesto -->
+          <div style="background: var(--bg-card); padding: 0.85rem 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; border: 1px solid var(--border-glass);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+              <strong id="edit-count-sku-display" style="color: var(--warning); font-family: var(--font-mono); font-size: 1.05rem;">-</strong>
+              <span id="edit-count-almacen-display" class="badge badge-info">-</span>
+            </div>
+            <p id="edit-count-desc-display" style="font-size: 0.85rem; color: var(--text-main); margin: 0.2rem 0 0.4rem 0;">-</p>
+            <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-dim);">
+              <span>Ubicación: <strong id="edit-count-loc-display" style="color: #38bdf8;">-</strong></span>
+              <span>Stock Sist.: <strong id="edit-count-sys-display" style="font-family: var(--font-mono); color: var(--text-main);">-</strong></span>
+              <span>Costo Unit.: <strong id="edit-count-cost-display" style="font-family: var(--font-mono); color: var(--text-main);">-</strong></span>
+            </div>
+          </div>
+
+          <!-- Selector de Fase para la Cantidad -->
+          <div class="form-group" style="margin-bottom: 0.85rem;">
+            <label class="form-label" style="font-weight: 700; margin-bottom: 0.35rem;">Fase de Conteo a Modificar:</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.4rem;">
+              <label style="border: 1px solid var(--border-glass); border-radius: 6px; padding: 0.45rem; text-align: center; cursor: pointer; background: rgba(255,255,255,0.02); font-size: 0.78rem;">
+                <input type="radio" name="edit-count-phase" value="1ER_CONTEO" checked style="accent-color: var(--warning); display: block; margin: 0 auto 3px;">
+                <span style="font-weight: 600; color: #f59e0b;">1er Conteo</span>
+              </label>
+              <label style="border: 1px solid var(--border-glass); border-radius: 6px; padding: 0.45rem; text-align: center; cursor: pointer; background: rgba(255,255,255,0.02); font-size: 0.78rem;">
+                <input type="radio" name="edit-count-phase" value="RECONTEO_1" style="accent-color: #38bdf8; display: block; margin: 0 auto 3px;">
+                <span style="font-weight: 600; color: #38bdf8;">Reconteo 1</span>
+              </label>
+              <label style="border: 1px solid var(--border-glass); border-radius: 6px; padding: 0.45rem; text-align: center; cursor: pointer; background: rgba(255,255,255,0.02); font-size: 0.78rem;">
+                <input type="radio" name="edit-count-phase" value="RECONTEO_2" style="accent-color: #a855f7; display: block; margin: 0 auto 3px;">
+                <span style="font-weight: 600; color: #a855f7;">Reconteo 2</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Campos de Cantidad Físico y Averías -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.85rem;">
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" for="edit-count-stock-fisico">Físico Buen Estado</label>
+              <input type="number" id="edit-count-stock-fisico" class="form-input" min="0" step="1" required style="font-size: 1.1rem; font-weight: 700; font-family: var(--font-mono); text-align: center;">
+            </div>
+            <div class="form-group" style="margin: 0;">
+              <label class="form-label" for="edit-count-mal-estado">Averías / Mal Estado</label>
+              <input type="number" id="edit-count-mal-estado" class="form-input" min="0" step="1" value="0" style="font-size: 1.1rem; font-weight: 700; font-family: var(--font-mono); text-align: center; color: var(--danger);">
+            </div>
+          </div>
+
+          <!-- Feedback en vivo de la Diferencia Resultante -->
+          <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 0.75rem 0.9rem; margin-bottom: 0.85rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem;">
+              <span>Total Físico (Buen + Mal):</span>
+              <strong id="edit-count-preview-total" style="font-family: var(--font-mono); font-size: 0.95rem;">0</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; margin-top: 0.25rem;">
+              <span>Nueva Diferencia:</span>
+              <strong id="edit-count-preview-diff" style="font-family: var(--font-mono); font-size: 0.95rem;">0</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; margin-top: 0.25rem;">
+              <span>Nuevo Impacto Costo:</span>
+              <strong id="edit-count-preview-cost" style="font-family: var(--font-mono); font-size: 0.95rem;">Bs. 0.00</strong>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0.85rem;">
+            <label class="form-label" for="edit-count-reason">Motivo del Ajuste (Opcional)</label>
+            <input type="text" id="edit-count-reason" class="form-input" placeholder="Ej: Error de conteo en pasillo / Corrección física">
+          </div>
+
+          <div class="modal-footer" style="padding: 0.75rem 0 0 0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-edit-count-justification">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btn-save-edit-count">
+              <i class="fa-solid fa-save"></i> Guardar y Sincronizar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
   <div class="modal-overlay" id="modal-delete-confirm">
     <div class="modal-box" style="max-width: 440px;">
       <div class="modal-header">
@@ -1288,6 +2069,7 @@
         <button class="close-btn" data-close-modal="modal-delete-confirm">&times;</button>
       </div>
       <div class="modal-body">
+        <div id="delete-modal-warning" style="display: none; margin-bottom: 1rem;"></div>
         <p style="font-size: 0.9rem; margin-bottom: 1rem;">
           Esta acción es destructiva y quedará registrada en la auditoría. Ingrese la clave de administrador para confirmar:
         </p>
@@ -1295,8 +2077,8 @@
         <form id="form-delete-confirm">
           <input type="hidden" id="delete-modal-inv-id">
           <div class="form-group">
-            <label class="form-label" for="delete-modal-key">Clave de Confirmación (Opcional)</label>
-            <input type="text" id="delete-modal-key" class="form-input" placeholder="ADM26" value="ADM26">
+            <label class="form-label" for="delete-modal-key">Clave de Confirmación Requerida</label>
+            <input type="text" id="delete-modal-key" class="form-input" placeholder="Escriba ADM26 para confirmar" value="" autocomplete="off">
           </div>
 
           <div class="form-group">
@@ -1307,6 +2089,154 @@
           <div class="modal-footer" style="padding: 1rem 0 0 0;">
             <button type="button" class="btn btn-secondary" data-close-modal="modal-delete-confirm">Cancelar</button>
             <button type="submit" class="btn btn-danger"><i class="fa-solid fa-trash"></i> Eliminar Definitivamente</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Agregar Ubicación Adicional Manual -->
+  <div class="modal-overlay" id="modal-add-location">
+    <div class="modal-box" style="max-width: 450px;">
+      <div class="modal-header">
+        <h3 class="card-title" style="display: flex; align-items: center; gap: 0.5rem; color: #38bdf8;">
+          <i class="fa-solid fa-plus"></i> Agregar Ubicación Adicional
+        </h3>
+        <button type="button" class="close-btn" data-close-modal="modal-add-location">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-add-location">
+          <input type="hidden" id="add-loc-item-id">
+          <div style="background: rgba(255,255,255,0.03); padding: 0.75rem 1rem; border-radius: var(--radius-md); margin-bottom: 1rem; border: 1px solid var(--border-glass);">
+            <div style="font-size: 0.78rem; color: var(--text-dim); margin-bottom: 0.2rem;">Producto:</div>
+            <div id="add-loc-sku-display" style="color: #38bdf8; font-family: var(--font-mono); font-size: 1.1rem; font-weight: 800;">-</div>
+            <div id="add-loc-desc-display" style="font-size: 0.85rem; color: #ffffff; margin-top: 3px;">-</div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="add-loc-input-location">
+              <i class="fa-solid fa-location-dot" style="color: #38bdf8;"></i> Nueva Ubicación Física Adicional *
+            </label>
+            <input
+              type="text"
+              id="add-loc-input-location"
+              class="form-input"
+              placeholder="Ej: RACK-A2-05 o EST-01"
+              style="text-transform: uppercase; font-weight: 800; font-size: 1rem; height: 44px;"
+              required
+            />
+            <small style="color: var(--text-dim); display: block; margin-top: 4px; font-size: 0.78rem;">
+              Se guardará en la <strong>Columna E</strong> (Ubicación 1) o <strong>Columna F</strong> (Ubicación 2) de este mismo producto, sin crear filas duplicadas ni conteos paralelos.
+            </small>
+          </div>
+
+          <div class="modal-footer" style="padding: 1rem 0 0 0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-add-location">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btn-submit-add-location" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+              <i class="fa-solid fa-plus"></i> Guardar Ubicación Adicional
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Delete Additional Location Confirmation -->
+  <div class="modal-overlay" id="modal-delete-location-confirm">
+    <div class="modal-box" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 class="card-title" style="color: var(--danger);"><i class="fa-solid fa-trash-can"></i> Eliminar Ubicación Adicional</h3>
+        <button class="close-btn" data-close-modal="modal-delete-location-confirm">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.9rem; margin-bottom: 0.75rem; color: var(--text-primary);">
+          ¿Está seguro de eliminar esta fila creada por nueva ubicación?
+        </p>
+        <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.25rem;">
+          <div style="font-size: 0.85rem; margin-bottom: 0.25rem;">
+            <strong>SKU:</strong> <span id="delete-loc-sku" style="font-family: monospace; color: var(--text-primary);">-</span>
+          </div>
+          <div style="font-size: 0.85rem;">
+            <strong>Ubicación:</strong> <span id="delete-loc-name" style="color: var(--danger); font-weight: 600;">-</span>
+          </div>
+        </div>
+        <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 1.25rem;">
+          Esta acción eliminará de forma segura esta fila creada por nueva ubicación para evitar registros accidentales.
+        </p>
+        <input type="hidden" id="delete-loc-item-id">
+        <div class="modal-footer" style="padding: 0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button type="button" class="btn btn-secondary" data-close-modal="modal-delete-location-confirm">Cancelar</button>
+          <button type="button" class="btn btn-danger" id="btn-confirm-delete-location" onclick="window.InventoryView.executeDeleteAdditionalLocation()">
+            <i class="fa-solid fa-trash-can"></i> Sí, Eliminar Ubicación
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Unlock / Enable Re-count Confirmation -->
+  <div class="modal-overlay" id="modal-unlock-count-confirm">
+    <div class="modal-box" style="max-width: 490px;">
+      <div class="modal-header">
+        <h3 class="card-title" style="color: #f59e0b; display: flex; align-items: center; gap: 0.5rem;">
+          <i class="fa-solid fa-rotate-right"></i> Habilitar Reconteo de Ítem
+        </h3>
+        <button class="close-btn" data-close-modal="modal-unlock-count-confirm">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.9rem; margin-bottom: 0.75rem; color: var(--text-primary);">
+          ¿Desea habilitar nuevamente el conteo para este ítem ya registrado?
+        </p>
+
+        <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem; font-size: 0.85rem;">
+            <span><strong>SKU:</strong> <span id="unlock-sku" style="font-family: var(--font-mono); color: var(--primary); font-weight: 700;">-</span></span>
+            <span><strong>Ubicación:</strong> <span id="unlock-location" style="font-weight: 600; color: #38bdf8;">-</span></span>
+          </div>
+          <div style="font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 0.45rem;" id="unlock-desc">-</div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.82rem; border-top: 1px dashed rgba(245, 158, 11, 0.3); padding-top: 0.4rem; margin-top: 0.35rem; flex-wrap: wrap; gap: 0.5rem;">
+            <span>Conteo Actual: <strong id="unlock-current-qty" style="color: var(--success); font-family: var(--font-mono); font-size: 0.9rem;">-</strong></span>
+            <span>Mal Estado: <strong id="unlock-current-damaged" style="color: var(--danger); font-family: var(--font-mono); font-size: 0.9rem;">0</strong></span>
+            <span>Reconteos Previos: <strong id="unlock-previous-recounts" style="color: #f59e0b; font-family: var(--font-mono); font-size: 0.9rem;">0</strong></span>
+          </div>
+        </div>
+
+        <form id="form-unlock-count" onsubmit="event.preventDefault(); window.InventoryView.executeUnlockItem();">
+          <input type="hidden" id="unlock-item-id">
+          
+          <div class="form-group" style="margin-bottom: 1rem;">
+            <label class="form-label" for="unlock-reason-select" style="font-size: 0.85rem; font-weight: 600;">
+              Motivo del Reconteo / Rectificación:
+            </label>
+            <select id="unlock-reason-select" class="form-input" style="margin-bottom: 0.5rem;" onchange="window.InventoryView.handleUnlockReasonChange(this.value)">
+              <option value="Corrección de cantidad física">Corrección de cantidad física</option>
+              <option value="Verificación por diferencia detectada">Verificación por diferencia detectada</option>
+              <option value="Error involuntario de digitación">Error involuntario de digitación</option>
+              <option value="Detección de unidades en mal estado">Detección de unidades en mal estado</option>
+              <option value="Reconteo solicitado por supervisor">Reconteo solicitado por supervisor</option>
+              <option value="OTRO">Otro motivo (especificar)...</option>
+            </select>
+            <input
+              type="text"
+              id="unlock-reason-custom"
+              class="form-input"
+              placeholder="Especifique el motivo detallado de la corrección..."
+              style="display: none; font-size: 0.85rem;"
+            />
+          </div>
+
+          <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 6px; padding: 0.6rem 0.85rem; margin-bottom: 1.25rem; font-size: 0.78rem; color: var(--text-dim); display: flex; align-items: flex-start; gap: 0.5rem;">
+            <i class="fa-solid fa-circle-info" style="color: #38bdf8; margin-top: 0.15rem;"></i>
+            <div>
+              Al habilitar el reconteo, las casillas de la fila se desbloquearán para que ingrese la nueva cantidad. Esta modificación se registrará en el historial y auditoría para calcular la <strong>eficiencia y confiabilidad del contador</strong>.
+            </div>
+          </div>
+
+          <div class="modal-footer" style="padding: 0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-unlock-count-confirm">Cancelar</button>
+            <button type="submit" class="btn btn-warning" id="btn-confirm-unlock" style="display: inline-flex; align-items: center; gap: 0.4rem;">
+              <i class="fa-solid fa-unlock"></i> Habilitar Reconteo
+            </button>
           </div>
         </form>
       </div>
@@ -1378,6 +2308,119 @@
         </form>
       </div>
     </div>
+  </div>
+
+  <!-- Modal: Gestionar Accesos y Privilegios del Administrador -->
+  <div class="modal-overlay" id="modal-user-permissions">
+    <div class="modal-box" style="max-width: 660px;">
+      <div class="modal-header">
+        <div>
+          <h3 class="card-title"><i class="fa-solid fa-user-shield" style="color: var(--primary);"></i> Gestión de Accesos y Privilegios</h3>
+          <p class="stat-subtext" id="perm-modal-subtitle" style="margin-top: 0.2rem;">Configuración de permisos y alcance del administrador</p>
+        </div>
+        <button class="close-btn" data-close-modal="modal-user-permissions">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-user-permissions">
+          <input type="hidden" id="perm-user-id">
+
+          <!-- User Card Header -->
+          <div style="background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border-glass); border-radius: var(--radius-md); padding: 0.85rem 1rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <strong id="perm-user-display" style="font-size: 1.05rem; color: var(--text-main); display: block;">Usuario</strong>
+              <div style="font-size: 0.78rem; color: var(--text-dim);" id="perm-user-login-badge">Login: -</div>
+            </div>
+            <div style="text-align: right;">
+              <span class="badge badge-primary" id="perm-user-role-badge">ADMINISTRADOR</span>
+              <div style="font-size: 0.72rem; color: var(--text-dim); margin-top: 0.2rem;" id="perm-user-center-badge">Centro: GLOBAL</div>
+            </div>
+          </div>
+
+          <!-- Permisos del Sistema -->
+          <h4 style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.65rem; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="fa-solid fa-key" style="color: #f59e0b;"></i> Privilegios Operativos y Administrativos
+          </h4>
+
+          <div style="display: flex; flex-direction: column; gap: 0.65rem; margin-bottom: 1.25rem;">
+            <!-- 1. Crear Inventarios -->
+            <label style="display: flex; align-items: flex-start; gap: 0.75rem; background: var(--bg-surface); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border-glass); cursor: pointer;">
+              <input type="checkbox" id="perm-create-inv" style="margin-top: 0.25rem; transform: scale(1.15);">
+              <div>
+                <strong style="font-size: 0.85rem; color: var(--text-main); display: block;">Apertura y Creación de Inventarios (Cíclico / Barrido)</strong>
+                <span style="font-size: 0.75rem; color: var(--text-dim);">Autoriza crear nuevos inventarios, aperturar cortes y sincronizar plantillas maestras desde Google Apps Script.</span>
+              </div>
+            </label>
+
+            <!-- 2. Eliminar Snapshots -->
+            <label style="display: flex; align-items: flex-start; gap: 0.75rem; background: var(--bg-surface); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border-glass); cursor: pointer;">
+              <input type="checkbox" id="perm-delete-snapshots" style="margin-top: 0.25rem; transform: scale(1.15);">
+              <div>
+                <strong style="font-size: 0.85rem; color: #f87171; display: block;"><i class="fa-solid fa-trash-can"></i> Eliminación y Depuración de Snapshots Históricos</strong>
+                <span style="font-size: 0.75rem; color: var(--text-dim);">Autoriza eliminar snapshots en el historial y purgar cálculos consolidados para evitar distorsiones en métricas.</span>
+              </div>
+            </label>
+
+            <!-- 3. Gestión de Usuarios -->
+            <label style="display: flex; align-items: flex-start; gap: 0.75rem; background: var(--bg-surface); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border-glass); cursor: pointer;">
+              <input type="checkbox" id="perm-manage-users" style="margin-top: 0.25rem; transform: scale(1.15);">
+              <div>
+                <strong style="font-size: 0.85rem; color: var(--text-main); display: block;"><i class="fa-solid fa-users-gear" style="color: #38bdf8;"></i> Gestión de Usuarios y Accesos</strong>
+                <span style="font-size: 0.75rem; color: var(--text-dim);">Autoriza acceder al panel de usuarios, crear auxiliares/encargados y actualizar contraseñas.</span>
+              </div>
+            </label>
+
+            <!-- 4. Exportación de Reportes PDF y Excel -->
+            <label style="display: flex; align-items: flex-start; gap: 0.75rem; background: var(--bg-surface); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border-glass); cursor: pointer;">
+              <input type="checkbox" id="perm-export-reports" style="margin-top: 0.25rem; transform: scale(1.15);">
+              <div>
+                <strong style="font-size: 0.85rem; color: var(--text-main); display: block;"><i class="fa-solid fa-file-pdf" style="color: #ef4444;"></i> Exportación de Reportes Oficiales (PDF &amp; Excel XLSX)</strong>
+                <span style="font-size: 0.75rem; color: var(--text-dim);">Autoriza exportar informes administrativos oficiales en PDF y balances gerenciales en hojas .xlsx.</span>
+              </div>
+            </label>
+
+            <!-- 5. Recalcular Métricas Consolidadas -->
+            <label style="display: flex; align-items: flex-start; gap: 0.75rem; background: var(--bg-surface); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border-glass); cursor: pointer;">
+              <input type="checkbox" id="perm-recalc-metrics" style="margin-top: 0.25rem; transform: scale(1.15);">
+              <div>
+                <strong style="font-size: 0.85rem; color: var(--text-main); display: block;"><i class="fa-solid fa-rotate" style="color: #f59e0b;"></i> Recálculo Forzado de Métricas y Sincronización</strong>
+                <span style="font-size: 0.75rem; color: var(--text-dim);">Permite forzar sincronización de auditoría y recálculo de fórmulas de stock y exactitud (ERI/ERU).</span>
+              </div>
+            </label>
+
+            <!-- 6. Gestión de Justificaciones -->
+            <label style="display: flex; align-items: flex-start; gap: 0.75rem; background: var(--bg-surface); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border-glass); cursor: pointer;">
+              <input type="checkbox" id="perm-manage-just" style="margin-top: 0.25rem; transform: scale(1.15);">
+              <div>
+                <strong style="font-size: 0.85rem; color: var(--text-main); display: block;"><i class="fa-solid fa-scale-balanced" style="color: #10b981;"></i> Aprobación y Conciliación de Justificaciones</strong>
+                <span style="font-size: 0.75rem; color: var(--text-dim);">Permite dictaminar justificaciones de sobrantes, faltantes y transferencias de almacén.</span>
+              </div>
+            </label>
+          </div>
+
+          <!-- Alcance de Centros -->
+          <h4 style="font-size: 0.88rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.65rem; display: flex; align-items: center; gap: 0.4rem;">
+            <i class="fa-solid fa-building" style="color: #38bdf8;"></i> Alcance de Sedes y Centros Operativos
+          </h4>
+          <div style="background: var(--bg-surface); padding: 0.75rem 0.85rem; border-radius: var(--radius-sm); border: 1px solid var(--border-glass); margin-bottom: 1.25rem;">
+            <label style="display: flex; align-items: center; gap: 0.6rem; cursor: pointer; margin-bottom: 0.65rem;">
+              <input type="checkbox" id="perm-center-global" style="transform: scale(1.15);">
+              <strong style="font-size: 0.85rem; color: var(--text-main);">Acceso Global a Todos los Centros de NIBOL</strong>
+            </label>
+            <div id="perm-centers-selector-area" style="display: flex; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.35rem; border-top: 1px dashed var(--border-glass);">
+              <!-- Dynamically populated chips -->
+            </div>
+          </div>
+
+          <div class="modal-footer" style="padding: 1rem 0 0 0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <button type="button" class="btn btn-secondary" data-close-modal="modal-user-permissions">Cancelar</button>
+            <button type="submit" class="btn btn-primary" id="btn-save-user-permissions">
+              <i class="fa-solid fa-save"></i> Guardar Accesos y Privilegios
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
   <!-- Modal: Worker Count Details & Re-editions History -->
   <div class="modal-overlay" id="modal-worker-history">
     <div class="modal-box" style="max-width: 680px;">
@@ -1488,11 +2531,11 @@
   <!-- Modal: Google Apps Script Diagnostics & Inventory Detection Console -->
   <div class="modal-overlay" id="modal-gas-diagnostics">
     <div class="modal-box" style="max-width: 900px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.35); box-shadow: 0 25px 50px rgba(0,0,0,0.7); border-radius: var(--radius-lg, 12px);">
-      <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding: 1rem 1.25rem; display: flex; justify-content: space-between; align-items: center;">
+      <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.1); padding: 1rem 1.25rem; display: flex; justify-content: space-between; align-items: center; position: relative;">
         <h3 class="card-title" style="color: #38bdf8; display: flex; align-items: center; gap: 0.6rem; font-size: 1.1rem; margin: 0;">
           <i class="fa-solid fa-terminal"></i> Consola de Diagnóstico Google Apps Script & Detección
         </h3>
-        <button class="close-btn" data-close-modal="modal-gas-diagnostics">&times;</button>
+        <button type="button" class="close-btn" id="btn-close-gas-diag" onclick="window.closeGasDiagnosticsModal()" data-close-modal="modal-gas-diagnostics" aria-label="Cerrar modal">&times;</button>
       </div>
 
       <div class="modal-body" style="overflow-y: auto; padding: 1.25rem; display: flex; flex-direction: column; gap: 1.25rem;">
@@ -1576,7 +2619,153 @@
         <button type="button" class="btn btn-primary btn-sm" id="btn-rerun-gas-diagnostics" style="display: inline-flex; align-items: center; gap: 0.4rem;">
           <i class="fa-solid fa-rotate"></i> Re-ejecutar Diagnóstico
         </button>
-        <button type="button" class="btn btn-secondary btn-sm" data-close-modal="modal-gas-diagnostics">Cerrar</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="btn-dismiss-gas-diag" onclick="window.closeGasDiagnosticsModal()" data-close-modal="modal-gas-diagnostics">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Reporte Ejecutivo de Métricas en PDF -->
+  <div class="modal-overlay" id="modal-metrics-report">
+    <div class="modal-container" style="max-width: 1080px; width: 96%; max-height: 95vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: var(--radius-lg);">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--border-glass); background: var(--bg-surface);">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <div style="background: rgba(16, 185, 129, 0.15); color: var(--primary); padding: 0.45rem 0.65rem; border-radius: var(--radius-sm);">
+            <i class="fa-solid fa-file-pdf" style="font-size: 1.15rem;"></i>
+          </div>
+          <div>
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: var(--text-main); margin: 0;" id="report-modal-title">
+              Informe Administrativo • Control de Inventario Cíclico
+            </h3>
+            <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;" id="report-modal-subtitle">
+              Auditoría de Stock, Conciliación Operativa, Análisis Gráfico y Dictamen Contable en PDF
+            </p>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <button type="button" class="btn btn-primary btn-sm" id="btn-report-download-pdf" title="Exportar y descargar informe administrativo como archivo PDF oficial">
+            <i class="fa-solid fa-file-pdf"></i> Exportar a PDF
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-report-native-print" title="Imprimir documento en impresora física o PDF de sistema">
+            <i class="fa-solid fa-print"></i> Imprimir Documento
+          </button>
+          <button type="button" class="btn-close" data-close-modal="modal-metrics-report" title="Cerrar modal" style="margin-left: 0.25rem;">&times;</button>
+        </div>
+      </div>
+
+      <!-- Report Scrollable Viewport (Stylized Paper) -->
+      <div id="report-preview-viewport" style="flex: 1; overflow-y: auto; padding: 1.25rem 0.75rem; background: #cbd5e1; display: flex; justify-content: center;">
+        <div id="report-printable-area" class="report-paper-sheet rep-exec-sheet" style="background: #ffffff; color: #0f172a; width: 100%; max-width: 960px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1); border-radius: 4px; padding: 1.25rem 1.5rem; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+          <!-- Content dynamically rendered by window.MetricsReportModal -->
+        </div>
+      </div>
+
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.25rem; border-top: 1px solid var(--border-glass); background: var(--bg-surface);">
+        <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem;">
+          <i class="fa-solid fa-circle-check" style="color: var(--primary);"></i>
+          <span>Informe consolidado con resumen de gestión, conciliación de discrepancias, ajustes contables y gráficos.</span>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" data-close-modal="modal-metrics-report">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Selección de Inventario para Reporte -->
+  <div class="modal-overlay" id="modal-select-inventory-report">
+    <div class="modal-container" style="max-width: 490px; width: 92%;">
+      <div class="modal-header">
+        <h3 class="modal-title"><i class="fa-solid fa-clipboard-list" style="color: var(--primary);"></i> Seleccionar Inventario para Reporte</h3>
+        <button type="button" class="btn-close" data-close-modal="modal-select-inventory-report">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1rem 1.25rem;">
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem; line-height: 1.5;">
+          El reporte ejecutivo de auditoría se genera a partir de las métricas de un inventario específico. Selecciona el inventario a auditar:
+        </p>
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="select-report-target-inventory" class="form-label" style="font-weight: 600;">Inventario a reportar:</label>
+          <select id="select-report-target-inventory" class="form-select" style="width: 100%;">
+            <!-- Rendered dynamically -->
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.85rem 1.25rem;">
+        <button type="button" class="btn btn-secondary btn-sm" data-close-modal="modal-select-inventory-report">Cancelar</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-confirm-report-inventory">
+          <i class="fa-solid fa-file-pdf"></i> Generar Reporte
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Administración y Borrado de Snapshots (Exclusivo Alonso) -->
+  <div class="modal-overlay" id="modal-manage-snapshots">
+    <div class="modal-container" style="max-width: 860px; width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-glass); padding: 1rem 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div style="background: rgba(239, 68, 68, 0.15); color: #ef4444; width: 38px; height: 38px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 1.15rem;">
+            <i class="fa-solid fa-trash-can-arrow-up"></i>
+          </div>
+          <div>
+            <h3 class="modal-title" style="margin: 0; font-size: 1.1rem; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 0.5rem;">
+              Administración de Snapshots
+              <span class="badge badge-danger" style="font-size: 0.68rem; text-transform: uppercase;">Exclusivo Alonso</span>
+            </h3>
+            <p style="margin: 0; font-size: 0.78rem; color: var(--text-muted);">
+              Borrado definitivo de cortes históricos y depuración de datos de cálculo para consolidados
+            </p>
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-close-modal="modal-manage-snapshots" title="Cerrar">&times;</button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.25rem; overflow-y: auto; flex: 1;">
+        <!-- Info alert -->
+        <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: var(--radius-md); padding: 0.85rem 1rem; margin-bottom: 1.25rem; display: flex; gap: 0.75rem; align-items: flex-start;">
+          <i class="fa-solid fa-shield-halved" style="color: #ef4444; font-size: 1.25rem; margin-top: 0.15rem;"></i>
+          <div style="font-size: 0.83rem; color: var(--text-main); line-height: 1.45;">
+            <strong>Permiso exclusivo de Alonso:</strong> Solo desde este perfil puedes eliminar snapshots. Al borrar un snapshot se eliminará permanentemente de las métricas y del historial, y se depurarán automáticamente los datos de cálculo para evitar alteraciones en los consolidados operativos y financieros.
+          </div>
+        </div>
+
+        <!-- Snapshots Table Card -->
+        <div class="card" style="padding: 0; overflow: hidden; border: 1px solid var(--border-glass);">
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; background: var(--bg-surface); border-bottom: 1px solid var(--border-glass);">
+            <div style="font-weight: 600; font-size: 0.88rem; color: var(--text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <span>Snapshots Registrados</span>
+              <span id="badge-snapshots-count" class="badge badge-neutral" style="font-size: 0.72rem;">0 snapshot(s)</span>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="window.SnapshotManagerModal.loadSnapshots()" title="Refrescar listado" style="padding: 0.3rem 0.6rem; font-size: 0.78rem;">
+                <i class="fa-solid fa-arrows-rotate"></i> Actualizar
+              </button>
+            </div>
+          </div>
+
+          <div class="table-responsive" style="max-height: 380px;">
+            <table class="data-table" style="width: 100%; margin: 0;">
+              <thead>
+                <tr>
+                  <th>Archivo / Snapshot</th>
+                  <th>Centro</th>
+                  <th>Tipo</th>
+                  <th>Ítems</th>
+                  <th>Fecha Corte</th>
+                  <th style="text-align: right;">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-manage-snapshots">
+                <!-- Rendered dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-top: 1px solid var(--border-glass); background: var(--bg-surface);">
+        <button type="button" class="btn btn-warning btn-sm" id="btn-purge-recalc-snapshots" onclick="window.SnapshotManagerModal.purgeAndRecalculate()" style="display: flex; align-items: center; gap: 0.4rem;">
+          <i class="fa-solid fa-rotate"></i> Depurar y Recalcular Consolidados Ahora
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" data-close-modal="modal-manage-snapshots">Cerrar</button>
       </div>
     </div>
   </div>
@@ -1585,20 +2774,24 @@
   <div id="toast-container"></div>
 
   <!-- App Frontend JavaScript Modules -->
-  <script src="/js/config.js"></script>
-  <script src="/js/components/toastNotification.js"></script>
-  <script src="/js/components/confirmationModal.js"></script>
-  <script src="/js/components/scannerModal.js"></script>
-  <script src="/js/api.js"></script>
-  <script src="/js/auth.js"></script>
-  <script src="/js/views/loginView.js"></script>
-  <script src="/js/views/inventoryView.js"></script>
-  <script src="/js/views/barridoView.js"></script>
-  <script src="/js/views/assignmentsView.js"></script>
-  <script src="/js/views/justificationsView.js"></script>
-  <script src="/js/views/historyView.js"></script>
-  <script src="/js/views/dashboardView.js"></script>
-  <script src="/js/views/userManagementView.js"></script>
-  <script src="/js/app.js"></script>
+  <script src="/js/config.js?v=2.2"></script>
+  <script src="/js/components/buttonFeedback.js?v=2.2"></script>
+  <script src="/js/components/toastNotification.js?v=2.2"></script>
+  <script src="/js/components/confirmationModal.js?v=2.2"></script>
+  <script src="/js/components/scannerModal.js?v=2.2"></script>
+  <script src="/js/components/logoRotator.js?v=2.2"></script>
+  <script src="/js/api.js?v=2.2"></script>
+  <script src="/js/auth.js?v=2.2"></script>
+  <script src="/js/views/loginView.js?v=2.2"></script>
+  <script src="/js/views/inventoryView.js?v=2.2"></script>
+  <script src="/js/views/barridoView.js?v=2.2"></script>
+  <script src="/js/views/assignmentsView.js?v=2.2"></script>
+  <script src="/js/views/justificationsView.js?v=2.2"></script>
+  <script src="/js/views/historyView.js?v=2.2"></script>
+  <script src="/js/components/metricsReportModal.js?v=2.2"></script>
+  <script src="/js/components/snapshotManagerModal.js?v=2.2"></script>
+  <script src="/js/views/dashboardView.js?v=2.2"></script>
+  <script src="/js/views/userManagementView.js?v=2.2"></script>
+  <script src="/js/app.js?v=2.2"></script>
 </body>
 </html>

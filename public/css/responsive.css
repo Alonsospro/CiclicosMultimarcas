@@ -63,59 +63,89 @@ img, video, canvas, svg {
 
 /* ==========================================================================
    Mobile & Small Tablet Screens (max-width: 768px)
+   Centering all UI elements across the interface
    ========================================================================== */
 @media (max-width: 768px) {
-  /* Navbar Layout: 2 clear rows */
+  /* Centered Navbar Layout */
   .navbar {
-    padding: 0.65rem 0.85rem;
+    padding: 0.75rem 0.85rem;
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
+    justify-content: center;
+    text-align: center;
+    gap: 0.65rem;
   }
 
   .nav-brand {
     order: 1;
+    justify-content: center;
+    width: 100%;
+    text-align: center;
     gap: 0.5rem;
   }
 
   .brand-logo-img {
-    height: 26px;
-    max-width: 100px;
-  }
-
-  .brand-badge {
-    font-size: 0.7rem;
-    padding: 0.2rem 0.45rem;
+    height: 28px;
+    max-width: 110px;
+    margin: 0 auto;
   }
 
   .nav-user-panel {
     order: 2;
-    gap: 0.4rem;
+    justify-content: center;
+    width: 100%;
+    text-align: center;
+    gap: 0.5rem;
+  }
+
+  .user-dropdown-wrapper {
+    margin: 0;
+  }
+
+  .user-dropdown-trigger {
+    justify-content: center;
   }
 
   .user-tag {
     font-size: 0.75rem;
+    align-items: flex-start;
   }
 
   .user-role {
     font-size: 0.65rem;
-    max-width: 120px;
+    max-width: 140px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  /* Navigation links: Horizontal touch carousel */
+  /* Centered User Dropdown Submenu */
+  .user-dropdown-menu {
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%) translateY(-8px) scale(0.97);
+    width: 280px;
+    max-width: 90vw;
+  }
+
+  .user-dropdown-wrapper.open .user-dropdown-menu {
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+
+  /* Navigation links: Centered touch carousel */
   nav {
     order: 3;
     width: 100%;
     margin-top: 0.25rem;
+    display: flex;
+    justify-content: center;
   }
 
   .nav-links {
     width: 100%;
+    justify-content: center;
+    align-items: center;
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
@@ -135,32 +165,64 @@ img, video, canvas, svg {
     font-size: 0.82rem;
     min-height: 38px;
     white-space: nowrap;
+    justify-content: center;
+    text-align: center;
   }
 
-  /* Cards & Containers */
+  /* Centered Main Layout & Views */
   .main-content {
     padding: 0.75rem 0.65rem;
     gap: 1rem;
+    align-items: center;
+    text-align: center;
+    width: 100%;
   }
 
+  .view-container {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  /* Centered Cards & Containers */
   .card {
-    padding: 1rem 0.85rem;
+    padding: 1.15rem 0.95rem;
     border-radius: var(--radius-md);
+    margin: 0 auto 1rem auto;
+    width: 100%;
+    text-align: center;
   }
 
-  /* Card Header Stacking */
+  /* Centered Card Headers & Titles */
   .card-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.75rem;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    gap: 0.85rem;
     margin-bottom: 1rem;
-    padding-bottom: 0.75rem;
+    padding-bottom: 0.85rem;
+    width: 100%;
+  }
+
+  .card-header > div:first-child {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
   }
 
   .card-header > div:last-child {
     width: 100%;
     display: flex;
     flex-wrap: wrap;
+    justify-content: center !important;
+    align-items: center !important;
+    text-align: center;
     gap: 0.5rem;
   }
 
@@ -168,90 +230,292 @@ img, video, canvas, svg {
   .card-header .btn {
     flex: 1 1 auto;
     min-width: 130px;
+    justify-content: center;
+    text-align: center;
   }
 
   .card-title {
-    font-size: 1.05rem;
+    font-size: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 0.5rem;
+    width: 100%;
   }
 
-  /* Stats / KPI Tiles */
+  .stat-subtext, .card-subtitle {
+    text-align: center;
+    width: 100%;
+  }
+
+  /* Centered Stats / KPI Tiles */
   .stats-grid {
     grid-template-columns: 1fr;
+    justify-items: center;
     gap: 0.75rem;
+    width: 100%;
   }
 
   .stat-tile {
     padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    width: 100%;
   }
 
   .stat-value {
     font-size: 1.5rem;
+    text-align: center;
+    width: 100%;
   }
 
-  /* Forms & Touch targets */
+  .stat-label {
+    text-align: center;
+    width: 100%;
+  }
+
+  /* Centered Forms & Touch targets */
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    width: 100%;
+  }
+
+  .form-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 0.4rem;
+    width: 100%;
+  }
+
   .form-input, .form-select, .form-textarea {
     font-size: 16px !important; /* Critical: Stops iOS automatic zoom on focus */
     min-height: 44px;
     padding: 0.6rem 0.75rem;
+    text-align: center;
+    width: 100%;
+  }
+
+  .form-select option {
+    text-align: center;
   }
 
   .btn {
     min-height: 44px;
     font-size: 0.88rem;
     padding: 0.5rem 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
   }
 
   .btn-sm {
     min-height: 38px;
     padding: 0.35rem 0.65rem;
     font-size: 0.8rem;
+    justify-content: center;
   }
 
-  /* Scanner HUD responsive */
+  /* Centered Tables */
+  .table-responsive {
+    width: 100%;
+    margin: 0 auto;
+    text-align: center;
+  }
+
+  .data-table {
+    margin: 0 auto;
+  }
+
+  .data-table th, .data-table td {
+    text-align: center !important;
+    vertical-align: middle;
+  }
+
+  .data-table td .btn {
+    margin: 0 auto;
+  }
+
+  /* Centered Scanner HUD */
   .scanner-viewport-wrapper {
     height: 220px;
     min-height: 200px;
+    margin: 0 auto;
   }
 
-  /* Modals on mobile */
+  /* Centered Modals on mobile */
   .modal-overlay {
+    display: none !important;
     padding: 0.5rem;
+  }
+
+  .modal-overlay.active {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
   }
 
   .modal-box {
     width: 100%;
     max-width: 100%;
-    margin: 0;
+    margin: 0 auto;
     max-height: 94vh;
     border-radius: var(--radius-md);
+    text-align: center;
   }
 
   .modal-header {
     padding: 0.85rem 1rem;
+    justify-content: center !important;
+    text-align: center;
+    position: relative;
+  }
+
+  .modal-header .modal-title {
+    text-align: center;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .modal-header .btn-close,
+  .modal-header .close-btn {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    min-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
   }
 
   .modal-body {
     padding: 1rem;
+    text-align: center;
   }
 
   .modal-footer {
     padding: 0.85rem 1rem;
     flex-wrap: wrap;
     gap: 0.5rem;
+    justify-content: center !important;
+    text-align: center;
   }
 
   .modal-footer .btn {
     flex: 1 1 auto;
   }
 
-  /* Conteo Operativo View controls */
+  /* Conteo Operativo & Barrido Centering */
   #search-count-items {
     width: 100%;
     min-width: 100%;
+    text-align: center;
   }
 
   #btn-add-multiple-location {
     width: 100%;
+  }
+
+  /* Executive Metric Tiles & Dashboard Centering */
+  .metric-kpi-card {
+    align-items: center !important;
+    text-align: center !important;
+    justify-content: center !important;
+  }
+
+  .metric-kpi-header {
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.35rem;
+    text-align: center !important;
+    width: 100%;
+  }
+
+  .metric-kpi-val {
+    text-align: center !important;
+    width: 100%;
+  }
+
+  .metric-kpi-footer {
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 0.4rem;
+    text-align: center !important;
+    width: 100%;
+  }
+
+  .metric-kpi-footer > div {
+    justify-content: center !important;
+    text-align: center !important;
+  }
+
+  /* Dashboard Dynamic Tabs & Filters Centering */
+  .dash-tabs-nav {
+    justify-content: center !important;
+    width: 100%;
+  }
+
+  .dash-tab-btn {
+    justify-content: center !important;
+    text-align: center !important;
+  }
+
+  #view-dashboard > div:first-child,
+  #view-dashboard > div:first-child > div {
+    justify-content: center !important;
+    text-align: center !important;
+    align-items: center !important;
+    width: 100%;
+  }
+
+  #dash-inventory-context-banner {
+    justify-content: center !important;
+    text-align: center !important;
+    flex-direction: column !important;
+    align-items: center !important;
+  }
+
+  #tab-overview > div,
+  .dash-tab-pane > div {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Toast Notification Centering */
+  #toast-container {
+    left: 50% !important;
+    right: auto !important;
+    transform: translateX(-50%);
+    bottom: 1rem;
+    align-items: center;
+    width: calc(100% - 2rem);
+  }
+
+  .toast {
+    justify-content: center;
+    text-align: center;
+  }
+
+  /* Footer Centering */
+  .app-footer {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
   }
 }
 
@@ -260,16 +524,13 @@ img, video, canvas, svg {
    ========================================================================== */
 @media (max-width: 480px) {
   .navbar {
-    padding: 0.5rem 0.65rem;
+    padding: 0.6rem 0.65rem;
+    gap: 0.5rem;
   }
 
   .brand-logo-img {
-    height: 22px;
-    max-width: 85px;
-  }
-
-  .brand-badge {
-    display: none; /* Hide decorative badge on very small screens to save space */
+    height: 24px;
+    max-width: 95px;
   }
 
   .user-role {
@@ -277,22 +538,26 @@ img, video, canvas, svg {
   }
 
   .card {
-    padding: 0.85rem 0.65rem;
+    padding: 0.95rem 0.75rem;
   }
 
   .card-header > div:last-child {
     flex-direction: column;
+    align-items: center;
+    width: 100%;
   }
 
   .card-header .form-select,
   .card-header .btn {
     width: 100%;
     min-width: 100%;
+    justify-content: center;
   }
 
   .data-table th, .data-table td {
     padding: 0.55rem 0.45rem;
     font-size: 0.78rem;
+    text-align: center !important;
   }
 
   /* Compact button grouping inside tables */
@@ -300,22 +565,26 @@ img, video, canvas, svg {
     padding: 0.3rem 0.5rem;
     font-size: 0.75rem;
     min-height: 34px;
+    margin: 0 auto;
   }
 
   /* Barrido quick form buttons */
   #barrido-ref-photo-card div {
     height: 150px !important;
+    margin: 0 auto;
   }
 
   .scanner-viewport-wrapper {
     height: 190px;
     min-height: 180px;
+    margin: 0 auto;
   }
 
   /* Login card centered on mobile */
   #view-login > div {
     margin: 1.5rem auto 1rem auto !important;
     padding: 0 0.5rem;
+    text-align: center;
   }
 }
 
@@ -341,14 +610,69 @@ img, video, canvas, svg {
    Print Clean Styles
    ========================================================================== */
 @media print {
-  .navbar, .ambient-glow, .ambient-glow-2, .btn, .nav-links, #toast-container,
-  .modal-overlay, #barrido-scanner-box {
+  /* Hide all app chrome, navigation, views, alerts, and non-report elements */
+  .navbar, .view-container, .ambient-glow, .ambient-glow-2, .btn, .nav-links, #toast-container,
+  #barrido-scanner-box, .modal-overlay:not(#modal-metrics-report),
+  #modal-metrics-report .modal-header, #modal-metrics-report .modal-footer,
+  #modal-metrics-report .btn-close, #modal-metrics-report .btn,
+  #dash-inventory-context-banner, #filter-bar, .card-header button {
     display: none !important;
   }
 
+  #app {
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    display: block !important;
+  }
+
   body {
-    background: white !important;
-    color: black !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* When modal-metrics-report is active, format report directly for paper */
+  #modal-metrics-report.active {
+    display: block !important;
+    position: static !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  #modal-metrics-report .modal-container {
+    max-width: 100% !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  #report-preview-viewport {
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    display: block !important;
+  }
+
+  #report-printable-area {
+    max-width: 100% !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
   }
 
   .card {
@@ -362,4 +686,168 @@ img, video, canvas, svg {
     border-color: #ccc !important;
     color: black !important;
   }
+
+  .rep-page-break-inside-avoid {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
 }
+
+/* ==========================================================================
+   MOBILE-FIRST HIGH-CONTRAST INVENTORY COUNTING ARCHITECTURE
+   Optimized for warehouse handheld devices, small phone screens & tablets
+   ========================================================================== */
+
+#view-count .count-table-container,
+#view-count .table-responsive {
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+#table-count-items {
+  display: block !important;
+  width: 100% !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+#table-count-items thead {
+  display: none !important;
+}
+
+#table-count-items tbody {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.85rem !important;
+  width: 100% !important;
+}
+
+#table-count-items tbody tr.mobile-count-card {
+  display: block;
+  width: 100% !important;
+  background: #0d1527 !important;
+  border: 2px solid #2d3b55 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45) !important;
+  transition: all 0.2s ease !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+
+#table-count-items tbody tr.mobile-count-card.is-hidden {
+  display: none !important;
+}
+
+#table-count-items tbody tr.mobile-count-card:focus-within {
+  border-color: #38bdf8 !important;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.4), 0 6px 20px rgba(0, 0, 0, 0.6) !important;
+}
+
+#table-count-items tbody tr.mobile-count-card.counted-row {
+  background: #061f18 !important;
+  border-color: #059669 !important;
+  border-left: 6px solid #10b981 !important;
+}
+
+#table-count-items tbody tr.mobile-count-card.additional-location-row {
+  background: #201708 !important;
+  border-color: #d97706 !important;
+  border-left: 6px solid #f59e0b !important;
+}
+
+#table-count-items tbody tr.mobile-count-card.no-location-alert-row {
+  background: #260a0a !important;
+  border-color: #ef4444 !important;
+  border-left: 6px solid #ef4444 !important;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.35) !important;
+}
+
+#table-count-items tbody tr.mobile-count-card > td.mobile-count-td {
+  display: block !important;
+  width: 100% !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+/* Remove spinner arrows from number inputs for clean manual typing */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
+input[type=number] {
+  -moz-appearance: textfield !important;
+}
+
+/* Stepper button interactions */
+.touch-step-btn {
+  display: none !important;
+}
+
+/* High contrast inputs */
+.input-inline-count {
+  font-family: var(--font-mono) !important;
+  font-size: 1.35rem !important;
+  font-weight: 900 !important;
+  text-align: center !important;
+  color: #ffffff !important;
+  background: #090e1a !important;
+  border: 2px solid #475569 !important;
+  border-radius: 6px !important;
+  height: 46px !important;
+  width: 100% !important;
+  touch-action: manipulation !important;
+}
+
+.input-inline-count:focus {
+  border-color: #38bdf8 !important;
+  background: #0f172a !important;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.35) !important;
+}
+
+.input-inline-damaged {
+  font-family: var(--font-mono) !important;
+  font-size: 1.25rem !important;
+  font-weight: 800 !important;
+  text-align: center !important;
+  color: #f87171 !important;
+  background: #090e1a !important;
+  border: 2px solid #475569 !important;
+  border-radius: 6px !important;
+  height: 46px !important;
+  width: 100% !important;
+  touch-action: manipulation !important;
+}
+
+.input-inline-damaged:focus {
+  border-color: #ef4444 !important;
+  background: #1e1111 !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.35) !important;
+}
+
+.btn-add-loc-plus {
+  transition: all 0.18s ease-in-out !important;
+}
+.btn-add-loc-plus:hover {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  border-color: #38bdf8 !important;
+  transform: scale(1.06) !important;
+}
+.btn-add-loc-plus:active {
+  transform: scale(0.95) !important;
+}
+
+/* Active filter tabs */
+.count-filter-btn.active {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  border-color: #38bdf8 !important;
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.5) !important;
+}
+

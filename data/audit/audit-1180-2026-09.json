@@ -1,0 +1,59 @@
+[
+  {
+    "id": "LOG-1790706633370-3hhaq",
+    "timestamp": "2026-09-29T18:30:33.370Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Cíclico Foton km 10 29/09/2026 creado con 80 ítems",
+    "user": "Jcarlos",
+    "center": "1180",
+    "targetId": "INV-CICLICO-1180-MUN0HTAW"
+  },
+  {
+    "id": "LOG-1790711985114-e8cui",
+    "timestamp": "2026-09-29T19:59:45.114Z",
+    "action": "INVENTORY_DELETED",
+    "inventoryId": "INV-CICLICO-1180-MUN0HTAW",
+    "user": "Jcarlos",
+    "center": "1180",
+    "reason": "error"
+  },
+  {
+    "id": "LOG-1790713016801-6stej",
+    "timestamp": "2026-09-29T20:16:56.801Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Cíclico Foton Km 10 - 29/09/2026 creado con 77 ítems",
+    "user": "Jcarlos",
+    "center": "1180",
+    "targetId": "INV-CICLICO-1180-MUN4AMSE"
+  },
+  {
+    "id": "LOG-1790777913010-nw8i0",
+    "timestamp": "2026-09-30T14:18:33.010Z",
+    "action": "ITEMS_REASSIGNED",
+    "inventoryId": "INV-CICLICO-1180-MUN4AMSE",
+    "fromUser": "Varios",
+    "toUser": "Miguel",
+    "user": "Gustavo",
+    "center": "1180",
+    "affectedCount": 77,
+    "reason": "Asignación directa desde panel de inventarios"
+  },
+  {
+    "id": "LOG-1790781163651-0kf3x",
+    "timestamp": "2026-09-30T15:12:43.651Z",
+    "action": "INVENTORY_DELETED",
+    "inventoryId": "INV-CICLICO-1180-MUN4AMSE",
+    "user": "Alonso",
+    "center": "1180",
+    "reason": "Eliminación por el usuario"
+  },
+  {
+    "id": "LOG-1790781170995-fx4u7",
+    "timestamp": "2026-09-30T15:12:50.995Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Cíclico Foton Km 10 - 29/09/2026 creado con 92 ítems",
+    "user": "Alonso",
+    "center": "1180",
+    "targetId": "INV-CICLICO-1180-MUO8VEWE"
+  }
+]

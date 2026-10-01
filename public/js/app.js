@@ -16,8 +16,8 @@ window.Router = {
       return;
     }
 
-    if (viewName === 'justifications' && !window.Auth.hasRole(['ADMIN'])) {
-      window.Toast.warning('Acceso exclusivo para administradores');
+    if (viewName === 'justifications' && !window.Auth.hasRole(['ADMIN', 'ENCARGADO'])) {
+      window.Toast.warning('Acceso exclusivo para encargados y administradores');
       return;
     }
 
@@ -31,8 +31,8 @@ window.Router = {
       return;
     }
 
-    if (viewName === 'users' && !window.Auth.isAlonso()) {
-      window.Toast.warning('Acceso exclusivo para el superadministrador Alonso');
+    if (viewName === 'users' && !window.Auth.isAlonso() && !window.Auth.canManageUsers()) {
+      window.Toast.warning('Acceso exclusivo para el superadministrador y administradores autorizados');
       return;
     }
 
@@ -65,12 +65,23 @@ window.Router = {
       }
     });
 
+    // Update active indicator on user dropdown trigger when visiting user-menu views
+    const userTrigger = document.getElementById('user-dropdown-trigger');
+    if (userTrigger) {
+      if (['history', 'users'].includes(viewName)) {
+        userTrigger.classList.add('child-active');
+      } else {
+        userTrigger.classList.remove('child-active');
+      }
+    }
+
     // Trigger view-specific loaders
     switch (viewName) {
       case 'inventories':
         window.InventoryView.loadInventories();
         break;
       case 'barrido':
+        window.BarridoView.updateCenterAccess();
         window.BarridoView.resetBarridoForm();
         break;
       case 'assignments':
@@ -96,9 +107,32 @@ window.Router = {
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // Clear obsolete cached test data if present (protecting active session, user, view, and theme)
+  try {
+    localStorage.removeItem('nibol_cached_inventories');
+    localStorage.removeItem('nibol_cached_history');
+    const protectedKeys = new Set([
+      window.AppConfig.storageTokenKey,
+      window.AppConfig.storageUserKey,
+      window.AppConfig.storageThemeKey,
+      'nibol_active_view',
+      'nibol_active_inv_id'
+    ]);
+    Object.keys(localStorage).forEach(k => {
+      if (protectedKeys.has(k)) return;
+      if (k.startsWith('nibol_cached_') || k.startsWith('nibol_test_') || k.startsWith('nibol_temp_')) {
+        localStorage.removeItem(k);
+      }
+    });
+  } catch (e) {}
+
   // Initialize Toast and Modals
   window.Toast.init();
   window.ModalHelper.init();
+  window.ModalHelper.closeAll();
+  if (window.LogoRotator) {
+    window.LogoRotator.init();
+  }
 
   // Initialize Views
   window.LoginView.init();
@@ -107,6 +141,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.AssignmentsView.init();
   window.JustificationsView.init();
   window.HistoryView.init();
+  if (window.MetricsReportModal) {
+    window.MetricsReportModal.init();
+  }
   window.DashboardView.init();
   window.UserManagementView.init();
 
@@ -126,11 +163,52 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // User Submenu Dropdown logic
+  const userDropdownWrapper = document.getElementById('user-dropdown-wrapper');
+  const userDropdownTrigger = document.getElementById('user-dropdown-trigger');
+
+  function closeUserDropdown() {
+    if (userDropdownWrapper && userDropdownWrapper.classList.contains('open')) {
+      userDropdownWrapper.classList.remove('open');
+      userDropdownTrigger?.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  function toggleUserDropdown(e) {
+    if (e) e.stopPropagation();
+    if (!userDropdownWrapper) return;
+    const willOpen = !userDropdownWrapper.classList.contains('open');
+    if (willOpen) {
+      userDropdownWrapper.classList.add('open');
+      userDropdownTrigger?.setAttribute('aria-expanded', 'true');
+    } else {
+      userDropdownWrapper.classList.remove('open');
+      userDropdownTrigger?.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  userDropdownTrigger?.addEventListener('click', toggleUserDropdown);
+
+  // Close dropdown on click outside
+  document.addEventListener('click', (e) => {
+    if (userDropdownWrapper && !userDropdownWrapper.contains(e.target)) {
+      closeUserDropdown();
+    }
+  });
+
+  // Close on Escape key
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeUserDropdown();
+    }
+  });
+
   // Navigation Links click events
   document.querySelectorAll('.nav-item-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const view = btn.getAttribute('data-view');
       if (view) {
+        closeUserDropdown();
         window.Router.navigate(view);
       }
     });
@@ -138,6 +216,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Logout button
   document.getElementById('btn-logout')?.addEventListener('click', () => {
+    closeUserDropdown();
     try {
       localStorage.removeItem('nibol_active_view');
       localStorage.removeItem('nibol_active_inv_id');
@@ -147,6 +226,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // GAS Health Monitor & Diagnostics Console
   let lastDiagnosticReport = null;
+
+  window.closeGasDiagnosticsModal = function() {
+    const modal = document.getElementById('modal-gas-diagnostics');
+    if (modal) {
+      modal.classList.remove('active');
+    }
+  };
 
   window.openGasDiagnosticsModal = async function() {
     const modal = document.getElementById('modal-gas-diagnostics');
@@ -161,12 +247,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         <i class="fa-solid fa-spinner fa-spin" style="font-size: 2.2rem; color: #38bdf8;"></i>
         <p style="color: #cbd5e1; font-weight: 500;">Ejecutando diagnóstico integral contra todos los endpoints (.env)...</p>
         <small style="color: #94a3b8;">Verificando Cíclicos, Barrido, Mensuales, Semanales, hojas de cálculo y Drive...</small>
+        <div style="margin-top: 1rem;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="window.closeGasDiagnosticsModal()" style="min-height: 38px; padding: 0.4rem 1rem;">
+            <i class="fa-solid fa-xmark"></i> Cancelar / Cerrar
+          </button>
+        </div>
       `;
     }
     if (content) content.style.display = 'none';
 
     try {
       const report = await window.API.getGasDiagnostics();
+      if (!modal.classList.contains('active')) return;
       lastDiagnosticReport = report;
 
       // Detailed logging directly to the administrator browser console
@@ -282,11 +374,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const btn = document.getElementById('btn-gas-health');
     const icon = document.getElementById('gas-status-icon');
     const text = document.getElementById('gas-status-text');
-    if (!btn || !icon || !text) return;
+    if (!btn || !icon) return;
 
     if (showToast) {
       icon.className = 'fa-solid fa-spinner fa-spin';
-      text.textContent = 'Verificando...';
+      if (text) text.textContent = 'Verificando...';
+      btn.title = 'Verificando conexión con Google Apps Script...';
     }
 
     try {
@@ -294,15 +387,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       icon.className = 'fa-solid fa-cloud';
       if (health && health.allOnline) {
         icon.style.color = 'var(--success, #16a34a)';
-        text.textContent = 'Apps Script Conectado';
+        if (text) text.textContent = 'Apps Script Conectado';
         const latencyInfo = health.results.map(r => `${r.name}: ${r.latencyMs}ms`).join(' | ');
-        btn.title = `Google Apps Script Activo (${latencyInfo}) - Clic para abrir consola de diagnóstico`;
+        btn.title = `Google Apps Script Conectado (${latencyInfo}) - Clic para abrir diagnóstico`;
         if (showToast) {
           window.Toast.success(`Conexión con Google Apps Script activa (${health.results.map(r => r.name).join(', ')})`);
         }
       } else {
         icon.style.color = '#eab308';
-        text.textContent = 'Apps Script Parcial';
+        if (text) text.textContent = 'Apps Script Parcial';
+        btn.title = 'Google Apps Script con respuesta parcial - Clic para abrir diagnóstico';
         if (showToast) {
           window.Toast.warning('Algunos servicios de Google Apps Script no respondieron al ping');
         }
@@ -310,18 +404,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (err) {
       icon.className = 'fa-solid fa-cloud';
       icon.style.color = 'var(--danger, #ef4444)';
-      text.textContent = 'Sin conexión GAS';
+      if (text) text.textContent = 'Sin conexión GAS';
+      btn.title = 'Sin conexión con Google Apps Script - Clic para abrir diagnóstico';
       if (showToast) {
         window.Toast.warning('Aviso de conexión con Apps Script: ' + err.message);
       }
     }
   };
 
-  // Button triggers for Diagnostic Console
-  document.getElementById('btn-gas-health')?.addEventListener('click', () => {
-    window.openGasDiagnosticsModal();
+  // Button trigger: Quick Google Apps Script Connection Check (Cloud Button)
+  document.getElementById('btn-gas-health')?.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const icon = document.getElementById('gas-status-icon');
+    if (icon) {
+      icon.classList.add('fa-spin');
+    }
+    try {
+      await window.updateGasHealthStatus(true);
+    } finally {
+      if (icon) {
+        icon.classList.remove('fa-spin');
+      }
+    }
   });
 
+  // Diagnostic Console Triggers (Admin explicit triggers)
   document.getElementById('btn-open-gas-diagnostics')?.addEventListener('click', () => {
     window.openGasDiagnosticsModal();
   });

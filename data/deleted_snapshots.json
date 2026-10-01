@@ -1,0 +1,38 @@
+[
+  {
+    "id": "TEST-SNAPSHOT-999",
+    "fileId": "TEST-SNAPSHOT-999",
+    "inventoryId": "TEST-SNAPSHOT-999",
+    "fileName": "TEST-SNAPSHOT-999.xlsx",
+    "sheetId": "",
+    "center": "GLOBAL",
+    "deletedBy": "Alonso",
+    "deletedByEmail": "alonsospro@gmail.com",
+    "deletedAt": "2026-09-29T14:09:09.307Z",
+    "reason": "Prueba de validación"
+  },
+  {
+    "id": "1fhJc2Cl-ClR1LtCMYlERZdeLGzA1_B1_CmzrSFwdnEM",
+    "fileId": "1fhJc2Cl-ClR1LtCMYlERZdeLGzA1_B1_CmzrSFwdnEM",
+    "inventoryId": "1fhJc2Cl-ClR1LtCMYlERZdeLGzA1_B1_CmzrSFwdnEM",
+    "fileName": "Inventario_CICLICO_1120_FINAL_20260928_161119",
+    "sheetId": "1fhjc2cl-clr1ltcmylerzdelgza1_b1_cmzrsfwdnem",
+    "center": "1120",
+    "deletedBy": "Alonso",
+    "deletedByEmail": "alonsospro@gmail.com",
+    "deletedAt": "2026-09-29T14:20:30.606Z",
+    "reason": "Borrado definitivo desde el perfil de Alonso"
+  },
+  {
+    "id": "1aDlQiNXCkYKynXH0uQskvI5dYBEXaimYSry8c011oC4",
+    "fileId": "1aDlQiNXCkYKynXH0uQskvI5dYBEXaimYSry8c011oC4",
+    "inventoryId": "DELETED-SNAPSHOT-3200-2026-10-01",
+    "fileName": "CICLICO-3200-2026-10-01.xlsx",
+    "sheetId": "1adlqinxckykynxh0uqskvi5dybexaimysry8c011oc4",
+    "center": "3200",
+    "deletedBy": "Alonso",
+    "deletedByEmail": "alonsospro@gmail.com",
+    "deletedAt": "2026-10-01T12:12:16.425Z",
+    "reason": "Borrado definitivo desde el perfil de Alonso"
+  }
+]

@@ -3,11 +3,14 @@ const router = express.Router();
 const inventoryService = require('../services/inventoryService');
 const { authenticate, requireRole } = require('../middlewares/authMiddleware');
 
-// GET /api/justifications (Admin only)
-router.get('/', authenticate, requireRole(['ADMIN']), (req, res) => {
+// GET /api/justifications
+router.get('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
   try {
-    const { center } = req.query;
-    const tasks = inventoryService.getPendingJustifications(req.user, center);
+    const { center, includeFinalized, status } = req.query;
+    const tasks = inventoryService.getPendingJustifications(req.user, center, {
+      includeFinalized: includeFinalized === 'true' || status === 'ALL' || status === 'REVISADO',
+      status: status || (includeFinalized === 'true' ? 'ALL' : 'PENDIENTE')
+    });
     res.json({
       success: true,
       tasks
@@ -18,21 +21,30 @@ router.get('/', authenticate, requireRole(['ADMIN']), (req, res) => {
 });
 
 // POST /api/justifications (Submit a single justification)
-router.post('/', authenticate, requireRole(['ADMIN']), (req, res) => {
+router.post('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
   try {
-    const { inventoryId, sku, itemId, justification, photoUrl, reasonType, stage } = req.body;
-    if (!inventoryId || (!sku && !itemId)) {
-      return res.status(400).json({ success: false, message: 'inventoryId y sku/itemId son obligatorios' });
+    const { inventoryId, sku, justification, photoUrl, reasonType, driveUrl, driveFileId, almacen, warehouse, location, itemId, corroboration, corroboracion, status, isCuadra, isJustification2, round } = req.body;
+    if (!inventoryId || !sku) {
+      return res.status(400).json({ success: false, message: 'inventoryId y sku son obligatorios' });
     }
 
     const saved = inventoryService.saveJustification({
       inventoryId,
       sku,
-      itemId,
       justification,
       photoUrl,
       reasonType,
-      stage: stage || 1,
+      driveUrl,
+      driveFileId,
+      almacen: almacen || warehouse,
+      location,
+      itemId,
+      corroboration,
+      corroboracion,
+      status,
+      isCuadra,
+      isJustification2: isJustification2 === true || isJustification2 === 'true' || round === 2 || round === '2',
+      round: round ? parseInt(round, 10) : undefined,
       user: req.user
     });
 
@@ -46,8 +58,45 @@ router.post('/', authenticate, requireRole(['ADMIN']), (req, res) => {
   }
 });
 
+// POST /api/justifications/:id/corroborate (Mark item as CUADRA or NO_CUADRA)
+router.post('/:id/corroborate', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+  try {
+    const { sku, status, almacen, warehouse, location, itemId } = req.body;
+    if (!sku || !status) {
+      return res.status(400).json({ success: false, message: 'sku y status (CUADRA/NO_CUADRA) son obligatorios' });
+    }
+    const result = inventoryService.corroborateItem({
+      inventoryId: req.params.id,
+      sku,
+      status,
+      almacen: almacen || warehouse,
+      location,
+      itemId,
+      user: req.user
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/justifications/:id/enable-recount (Enable re-count for discrepant items to assigned counter)
+router.post('/:id/enable-recount', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+  try {
+    const { skusToRecount } = req.body;
+    const result = inventoryService.enableRecount({
+      inventoryId: req.params.id,
+      user: req.user,
+      skusToRecount
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 // POST /api/justifications/:id/finish-review ("Terminar revisión" -> creates final Drive file)
-router.post('/:id/finish-review', authenticate, requireRole(['ADMIN']), async (req, res) => {
+router.post('/:id/finish-review', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
     const { reviewNotes } = req.body;
     const result = await inventoryService.finishReviewAndClose({

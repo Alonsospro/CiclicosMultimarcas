@@ -24,6 +24,7 @@ app.use('/api/justifications', require('./src/routes/justificationRoutes'));
 app.use('/api/history', require('./src/routes/historyRoutes'));
 app.use('/api/dashboard', require('./src/routes/dashboardRoutes'));
 app.use('/api/photos', require('./src/routes/photoRoutes'));
+app.use('/api/logos', require('./src/routes/logoRoutes'));
 
 // Health check route
 app.get('/api/health', (req, res) => {
@@ -65,13 +66,31 @@ app.use((err, req, res, next) => {
 // Start Server
 if (require.main === module) {
   const PORT = config.port || 3000;
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`====================================================`);
-    console.log(`🚀 SERVIDOR NIBOL INVENTARIOS ACTIVO EN PUERTO ${PORT}`);
-    console.log(`🌐 URL: http://0.0.0.0:${PORT}`);
-    console.log(`🔒 Entorno: ${config.nodeEnv}`);
-    console.log(`====================================================`);
-  });
+  
+  // Hydrate data from Firebase before listening
+  const firebaseSyncService = require('./src/services/firebaseSyncService');
+  const dailyBackupService = require('./src/services/dailyBackupService');
+
+  firebaseSyncService.hydrateMemoryStore(storagePath.memoryStore, storagePath.cacheTimestamps, storagePath.dirListings, storagePath)
+    .then(() => {
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`====================================================`);
+        console.log(`🚀 SERVIDOR NIBOL INVENTARIOS ACTIVO EN PUERTO ${PORT}`);
+        console.log(`🌐 URL: http://0.0.0.0:${PORT}`);
+        console.log(`🔒 Entorno: ${config.nodeEnv}`);
+        console.log(`☁️ Firebase Persistence: ACTIVATED`);
+        console.log(`====================================================`);
+        dailyBackupService.startScheduler();
+      });
+    })
+    .catch(err => {
+      console.error('Failed to initialize Firebase persistence:', err);
+      // Fallback to starting anyway if Firestore is unreachable
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`🚀 SERVIDOR NIBOL INVENTARIOS INICIADO SIN PERSISTENCIA CLOUD.`);
+        dailyBackupService.startScheduler();
+      });
+    });
 }
 
 module.exports = app;

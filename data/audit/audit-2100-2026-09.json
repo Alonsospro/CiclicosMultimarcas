@@ -1,0 +1,29 @@
+[
+  {
+    "id": "LOG-1790713345151-cbufb",
+    "timestamp": "2026-09-29T20:22:25.151Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Cíclico Sucursal el Alto LPZ - 29/09/2026 creado con 142 ítems",
+    "user": "Jcarlos",
+    "center": "2100",
+    "targetId": "INV-CICLICO-2100-MUN4HO56"
+  },
+  {
+    "id": "LOG-1790781014394-udma8",
+    "timestamp": "2026-09-30T15:10:14.394Z",
+    "action": "INVENTORY_DELETED",
+    "inventoryId": "INV-CICLICO-2100-MUN4HO56",
+    "user": "Alonso",
+    "center": "2100",
+    "reason": "Eliminación por el usuario"
+  },
+  {
+    "id": "LOG-1790781026050-2l1dz",
+    "timestamp": "2026-09-30T15:10:26.050Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Cíclico Sucursal el Alto LPZ - 29/09/2026 creado con 92 ítems",
+    "user": "Alonso",
+    "center": "2100",
+    "targetId": "INV-CICLICO-2100-MUO8SB25"
+  }
+]

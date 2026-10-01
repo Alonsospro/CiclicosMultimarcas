@@ -14,8 +14,11 @@ router.get('/search', authenticate, restrictCenter, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Debe ingresar un código de barras o SKU' });
     }
 
-    const requestedCenter = center || (req.user.center !== 'GLOBAL' ? req.user.center : '1120');
-    const targetCenter = config.getCenterCode ? config.getCenterCode(requestedCenter) : requestedCenter;
+    const isAdmin = req.user.isSuperadmin || req.user.role === 'ADMIN';
+    const effectiveCenter = (!isAdmin && req.user.center && req.user.center !== 'GLOBAL')
+      ? req.user.center
+      : (center || (req.user.center !== 'GLOBAL' ? req.user.center : '1120'));
+    const targetCenter = config.getCenterCode ? config.getCenterCode(effectiveCenter) : effectiveCenter;
 
     const result = await inventoryService.searchProductForBarrido({
       barcodeOrSku: q,
@@ -35,6 +38,10 @@ router.post('/count', authenticate, restrictCenter, async (req, res) => {
       inventoryId,
       sku,
       itemId,
+      barcode,
+      codigoBarras,
+      descripcion,
+      description,
       stockFisico,
       malEstado,
       location,
@@ -42,17 +49,35 @@ router.post('/count', authenticate, restrictCenter, async (req, res) => {
       reason,
       center,
       photoUrl,
-      comentario
+      photoBase64,
+      justificationPhotoUrl,
+      justificationPhoto,
+      comentario,
+      categoria,
+      clasificacionAbc,
+      unidad,
+      costoUnitario,
+      stockSistema
     } = req.body;
 
-    const requestedCenter = center || (req.user.center !== 'GLOBAL' ? req.user.center : '1120');
-    const targetCenter = config.getCenterCode ? config.getCenterCode(requestedCenter) : requestedCenter;
+    const isAdmin = req.user.isSuperadmin || req.user.role === 'ADMIN';
+    const effectiveCenter = (!isAdmin && req.user.center && req.user.center !== 'GLOBAL')
+      ? req.user.center
+      : (center || (req.user.center !== 'GLOBAL' ? req.user.center : '1120'));
+    const targetCenter = config.getCenterCode ? config.getCenterCode(effectiveCenter) : effectiveCenter;
     const targetInvId = inventoryId || `INV-BARRIDO-${targetCenter}-001`;
+
+    const cleanCategoria = (categoria && !['BARRIDO', 'CICLICO', 'GENERAL', 'EXPRESS'].includes(String(categoria).toUpperCase().trim()))
+      ? categoria
+      : 'repuesto';
 
     const result = await inventoryService.updateCount({
       inventoryId: targetInvId,
+      type: 'BARRIDO',
       itemId,
       sku,
+      barcode: barcode || codigoBarras || '',
+      descripcion: descripcion || description || '',
       stockFisico,
       malEstado: malEstado || 0,
       location,
@@ -60,7 +85,15 @@ router.post('/count', authenticate, restrictCenter, async (req, res) => {
       user: req.user,
       reason: reason || 'Registro desde Escáner Barrido',
       photoUrl,
-      comentario: comentario || ''
+      photoBase64,
+      justificationPhotoUrl,
+      justificationPhoto,
+      comentario: comentario || '',
+      categoria: cleanCategoria,
+      clasificacionAbc,
+      unidad,
+      costoUnitario,
+      stockSistema
     });
 
     res.json(result);
@@ -73,8 +106,11 @@ router.post('/count', authenticate, restrictCenter, async (req, res) => {
 router.post('/finish', authenticate, restrictCenter, async (req, res) => {
   try {
     const { inventoryId, signature, center } = req.body;
-    const requestedCenter = center || (req.user.center !== 'GLOBAL' ? req.user.center : '1120');
-    const cleanCenter = config.getCenterCode ? config.getCenterCode(requestedCenter) : requestedCenter;
+    const isAdmin = req.user.isSuperadmin || req.user.role === 'ADMIN';
+    const effectiveCenter = (!isAdmin && req.user.center && req.user.center !== 'GLOBAL')
+      ? req.user.center
+      : (center || (req.user.center !== 'GLOBAL' ? req.user.center : '1120'));
+    const cleanCenter = config.getCenterCode ? config.getCenterCode(effectiveCenter) : effectiveCenter;
     const targetInvId = inventoryId || `INV-BARRIDO-${cleanCenter}-001`;
 
     const inv = inventoryService.getInventoryRaw(targetInvId);

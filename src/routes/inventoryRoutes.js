@@ -38,6 +38,26 @@ router.get('/gas-diagnostics', authenticate, async (req, res) => {
   }
 });
 
+// GET /api/inventories/trash (List deleted inventories in safety trash)
+router.get('/trash', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+  try {
+    const list = inventoryService.getTrashInventories(req.user);
+    res.json({ success: true, count: list.length, inventories: list });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/inventories/:id/restore (Restore deleted inventory from safety trash)
+router.post('/:id/restore', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+  try {
+    const restored = inventoryService.restoreInventoryFromTrash(req.params.id, req.user);
+    res.json({ success: true, message: `Inventario ${restored.name} restaurado con éxito`, inventory: restored });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 // GET /api/inventories/:id (Detail + Blind count filter for Auxiliar)
 router.get('/:id', authenticate, async (req, res) => {
   try {
@@ -92,7 +112,7 @@ router.post('/fetch-from-gas', authenticate, requireInventoryCreator, async (req
 // POST /api/inventories/:id/count (Register physical count)
 router.post('/:id/count', authenticate, async (req, res) => {
   try {
-    const { itemId, sku, stockFisico, malEstado, location, isNewLocation, reason, photoUrl, locked } = req.body;
+    const { itemId, sku, stockFisico, malEstado, location, almacen, warehouse, isNewLocation, reason, photoUrl, locked } = req.body;
 
     const result = await inventoryService.updateCount({
       inventoryId: req.params.id,
@@ -101,6 +121,8 @@ router.post('/:id/count', authenticate, async (req, res) => {
       stockFisico,
       malEstado,
       location,
+      almacen,
+      warehouse,
       isNewLocation,
       user: req.user,
       reason,
@@ -134,7 +156,7 @@ router.post('/:id/reconteo', authenticate, (req, res) => {
 });
 
 // POST /api/inventories/:id/items/:itemId/request-unlock (Unlock item for modification)
-router.post('/:id/items/:itemId/request-unlock', authenticate, restrictCenter, (req, res) => {
+router.post('/:id/items/:itemId/request-unlock', authenticate, (req, res) => {
   try {
     const { reason } = req.body;
     const result = inventoryService.requestUnlockItem({
@@ -150,11 +172,15 @@ router.post('/:id/items/:itemId/request-unlock', authenticate, restrictCenter, (
 });
 
 // DELETE /api/inventories/:id/items/:itemId (Delete additional location or item)
-router.delete('/:id/items/:itemId', authenticate, (req, res) => {
+router.delete('/:id/items/:itemId', authenticate, async (req, res) => {
   try {
-    const result = inventoryService.deleteItem({
+    const sku = req.query.sku || (req.body && req.body.sku);
+    const location = req.query.location || (req.body && req.body.location);
+    const result = await inventoryService.deleteItem({
       inventoryId: req.params.id,
       itemId: req.params.itemId,
+      sku,
+      location,
       user: req.user
     });
     res.json(result);
@@ -196,16 +222,98 @@ router.post('/:id/submit', authenticate, (req, res) => {
   }
 });
 
-// POST /api/inventories/:id/reopen (Reopen inventory - Admin only)
-router.post('/:id/reopen', authenticate, requireRole(['ADMIN']), (req, res) => {
+// POST /api/inventories/:id/reopen (Reopen inventory - Admin & Encargado)
+router.post('/:id/reopen', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
-    const { reason } = req.body;
-    const result = inventoryService.reopenInventory({
+    const { reason, targetPhase, syncFromGAS } = req.body;
+    const result = await inventoryService.reopenInventory({
       inventoryId: req.params.id,
       user: req.user,
+      reason,
+      targetPhase,
+      syncFromGAS
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/inventories/sync-all-sheets (Resync all active inventories from Google Sheets)
+router.post('/sync-all-sheets', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
+  try {
+    const results = await inventoryService.syncAllActiveInventoriesFromSheets(req.user);
+    res.json({ success: true, results });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/inventories/backup-daily (Trigger on-demand daily backup to local & Google Sheets)
+router.post('/backup-daily', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
+  try {
+    const dailyBackupService = require('../services/dailyBackupService');
+    const result = await dailyBackupService.runDailyBackup({
+      triggeredBy: `MANUAL_BY_${req.user.username}`,
+      user: req.user
+    });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/inventories/:id/sync-sheet (Resync items and amounts directly from Google Sheets)
+router.post('/:id/sync-sheet', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
+  try {
+    const result = await inventoryService.syncInventoryFromSheet({
+      inventoryId: req.params.id,
+      user: req.user
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/inventories/:id/update-count-item (Update physical count directly for 1st count, recount 1 or recount 2)
+router.post('/:id/update-count-item', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
+  try {
+    const { sku, itemId, location, almacen, warehouse, countPhase, stockFisico, malEstado, reason } = req.body;
+    const result = await inventoryService.updateItemQuantityInInventory({
+      inventoryId: req.params.id,
+      user: req.user,
+      sku,
+      itemId,
+      location,
+      almacen: almacen || warehouse,
+      countPhase,
+      stockFisico,
+      malEstado,
       reason
     });
-    res.json({ success: true, inventory: result });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/inventories/purge-all (Reset completely to 0 - Admin only)
+// POST /api/inventories/purge-all (Bulk purge all inventories and test data - Admin only)
+router.post('/purge-all', authenticate, requireRole(['ADMIN']), async (req, res) => {
+  try {
+    const result = await inventoryService.purgeAllData(req.user);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// DELETE /api/inventories/all (Bulk delete all inventories - Admin only)
+router.delete('/all', authenticate, requireRole(['ADMIN']), async (req, res) => {
+  try {
+    const result = await inventoryService.purgeAllData(req.user);
+    res.json(result);
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
@@ -227,28 +335,11 @@ router.delete('/:id', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, r
   }
 });
 
-// POST /api/inventories/sync (Rehydrate inventories from client cache in serverless environments)
+// POST /api/inventories/sync (Safe sync endpoint - prevents ghost rehydration of deleted inventories)
 router.post('/sync', authenticate, (req, res) => {
-  try {
-    const { inventories } = req.body;
-    if (Array.isArray(inventories) && inventories.length > 0) {
-      let synced = 0;
-      inventories.forEach(inv => {
-        // Only accept syncing full inventories that contain valid items array
-        if (inv && inv.id && Array.isArray(inv.items) && inv.items.length > 0) {
-          const existing = inventoryService.getInventoryRaw(inv.id);
-          if (!existing) {
-            inventoryService.saveInventory(inv);
-            synced++;
-          }
-        }
-      });
-      return res.json({ success: true, synced, total: inventories.length });
-    }
-    res.json({ success: true, synced: 0 });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
+  // Real inventory creation must be deliberate through POST /api/inventories.
+  // We explicitly prevent re-injecting deleted test inventories from client caches.
+  return res.json({ success: true, synced: 0, message: 'Sincronización persistente centralizada en Firestore.' });
 });
 
 module.exports = router;

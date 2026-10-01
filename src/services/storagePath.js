@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
+const firebaseSyncService = require('./firebaseSyncService');
 
 class StoragePath {
   constructor() {
@@ -38,6 +39,7 @@ class StoragePath {
 
   clearMemory() {
     this.memoryStore.clear();
+    this.cacheTimestamps.clear();
     this.dirListings.clear();
   }
 
@@ -50,7 +52,8 @@ class StoragePath {
       this.getInventoriesDirectory(),
       this.getJustificationsDirectory(),
       this.getHistoryDirectory(),
-      this.getAuditDirectory()
+      this.getAuditDirectory(),
+      this.getTrashDirectory()
     ];
 
     dirs.forEach(dir => {
@@ -73,6 +76,8 @@ class StoragePath {
           if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
           const entries = fs.readdirSync(src, { withFileTypes: true });
           for (const entry of entries) {
+            // NEVER copy residual inventories or justifications from initialDataDir
+            if (entry.name === 'inventories' || entry.name === 'justifications') continue;
             const srcPath = path.join(src, entry.name);
             const destPath = path.join(dest, entry.name);
             if (entry.isDirectory()) {
@@ -87,6 +92,24 @@ class StoragePath {
         console.warn('[storagePath] Seed copy notice:', e.message);
       }
     }
+  }
+
+  resolveFilePath(relPath) {
+    if (!relPath) return this.baseDir;
+    return path.resolve(this.baseDir, relPath);
+  }
+
+  getRelativePath(filePath) {
+    if (!filePath) return '';
+    const normalized = path.resolve(filePath);
+    if (normalized.startsWith(this.baseDir)) {
+      return path.relative(this.baseDir, normalized).replace(/\\/g, '/');
+    }
+    const idx = normalized.indexOf('/data/');
+    if (idx !== -1) {
+      return normalized.substring(idx + 6).replace(/\\/g, '/');
+    }
+    return path.basename(filePath);
   }
 
   getDataDirectory() {
@@ -122,6 +145,10 @@ class StoragePath {
 
   getAuditDirectory() {
     return path.join(this.baseDir, 'audit');
+  }
+
+  getTrashDirectory() {
+    return path.join(this.baseDir, 'trash');
   }
 
   getUsersFilePath() {
@@ -214,6 +241,12 @@ class StoragePath {
     } catch (err) {
       // In read-only cloud/serverless environments, file is safely cached in memory
     }
+    
+    // Async Firebase persistence using relative canonical keys
+    const relPath = this.getRelativePath(filePath);
+    const relDir = path.dirname(relPath).replace(/\\/g, '/');
+    firebaseSyncService.syncToFirestore(relPath, relDir, fileName, cloned);
+    
     return true;
   }
 
@@ -231,18 +264,20 @@ class StoragePath {
       }
     } catch (e) {}
 
-    // 1b. Fallback files from initialDataDir if running in Vercel
+    // 1b. Fallback files from initialDataDir if running in Vercel (excluding inventories & justifications)
     if (this.initialDataDir && dirPath.startsWith(this.baseDir)) {
       try {
         const relative = path.relative(this.baseDir, dirPath);
-        const fallbackDir = path.join(this.initialDataDir, relative);
-        if (fs.existsSync(fallbackDir)) {
-          const fallbackFiles = fs.readdirSync(fallbackDir);
-          fallbackFiles.forEach(f => {
-            if (!fileMap.has(f.toLowerCase())) {
-              fileMap.set(f.toLowerCase(), f);
-            }
-          });
+        if (!relative.startsWith('inventories') && !relative.startsWith('justifications')) {
+          const fallbackDir = path.join(this.initialDataDir, relative);
+          if (fs.existsSync(fallbackDir)) {
+            const fallbackFiles = fs.readdirSync(fallbackDir);
+            fallbackFiles.forEach(f => {
+              if (!fileMap.has(f.toLowerCase())) {
+                fileMap.set(f.toLowerCase(), f);
+              }
+            });
+          }
         }
       } catch (e) {}
     }
@@ -280,6 +315,59 @@ class StoragePath {
         fs.unlinkSync(filePath);
       }
     } catch (e) {}
+    
+    // Async Firebase deletion using relative and fallback paths
+    const relPath = this.getRelativePath(filePath);
+    firebaseSyncService.deleteFromFirestore(relPath, filePath);
+    
+    return true;
+  }
+
+  async clearAllData(keepUsers = true) {
+    this.memoryStore.clear();
+    this.cacheTimestamps.clear();
+    this.dirListings.clear();
+
+    let usersData = null;
+    const usersPath = this.getUsersFilePath();
+    try {
+      if (fs.existsSync(usersPath)) {
+        usersData = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+      }
+    } catch (_) {}
+
+    await firebaseSyncService.clearAllInFirestore(keepUsers);
+
+    const targetDirs = [
+      this.getInventoriesDirectory(),
+      this.getHistoryDirectory(),
+      this.getAuditDirectory(),
+      this.getJustificationsDirectory(),
+      this.getPhotosDirectory(),
+      this.getTrashDirectory()
+    ];
+
+    targetDirs.forEach(dir => {
+      try {
+        if (fs.existsSync(dir)) {
+          const files = fs.readdirSync(dir);
+          files.forEach(f => {
+            try {
+              const full = path.join(dir, f);
+              if (fs.statSync(full).isFile()) {
+                fs.unlinkSync(full);
+              }
+            } catch (_) {}
+          });
+        }
+      } catch (_) {}
+    });
+
+    this.ensureDirs();
+
+    if (keepUsers && usersData) {
+      this.writeJson(usersPath, usersData);
+    }
     return true;
   }
 }

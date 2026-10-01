@@ -16,15 +16,14 @@ window.HistoryView = {
 
       const cacheKey = 'nibol_cached_history';
       if (list.length > 0) {
+        list = list.filter(item => {
+          const name = String(item.name || '').toUpperCase();
+          const id = String(item.id || '').toUpperCase();
+          return !name.includes('WARNES') && !id.includes('WARNES') && !id.includes('MTOG');
+        });
         try { localStorage.setItem(cacheKey, JSON.stringify(list)); } catch (e) {}
       } else {
-        try {
-          const cached = localStorage.getItem(cacheKey);
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (Array.isArray(parsed) && parsed.length > 0) list = parsed;
-          }
-        } catch (e) {}
+        try { localStorage.removeItem(cacheKey); } catch (e) {}
       }
 
       if (list.length === 0) {
@@ -74,6 +73,11 @@ window.HistoryView = {
                     <i class="fa-solid fa-arrow-rotate-left"></i> Reabrir
                   </button>
                 ` : ''}
+                ${(window.Auth.isAlonso() || window.Auth.canDeleteSnapshots()) ? `
+                  <button class="btn btn-danger btn-sm" onclick="window.HistoryView.deleteSnapshot('${item.fileId}', '${(item.fileName || '').replace(/'/g, "\\'")}', '${item.inventoryId || ''}')" title="Borrar snapshot y depurar cálculos consolidados" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171;">
+                    <i class="fa-solid fa-trash-can"></i> Borrar
+                  </button>
+                ` : ''}
               </div>
             </td>
           </tr>
@@ -84,9 +88,62 @@ window.HistoryView = {
     }
   },
 
+  async deleteSnapshot(fileId, fileName, inventoryId) {
+    if (!window.Auth.isAlonso() && !window.Auth.canDeleteSnapshots()) {
+      window.Toast.danger('Acceso denegado: Requiere permisos autorizados para borrar snapshots.');
+      return;
+    }
+
+    const confirmed = confirm(
+      `¿Desea borrar definitivamente el snapshot "${fileName || fileId}"?\n\n` +
+      `Esta acción:\n` +
+      `• Eliminará el snapshot para que no aparezca en métricas ni historial.\n` +
+      `• Purgará los datos de cálculo para que no genere inconsistencias en los consolidados.\n` +
+      `• Excluirá permanentemente el archivo de sincronizaciones futuras.`
+    );
+    if (!confirmed) return;
+
+    try {
+      window.Toast.info('Borrando snapshot y depurando cálculos consolidados...');
+      const res = await window.API.deleteSnapshot(fileId, {
+        fileName,
+        inventoryId,
+        reason: 'Borrado definitivo desde el perfil de Alonso'
+      });
+
+      // Clear local caches
+      try {
+        localStorage.removeItem('nibol_cached_history');
+      } catch (_) {}
+
+      window.Toast.success(res.message || 'Snapshot eliminado y cálculos consolidados depurados con éxito.');
+
+      // Refresh history list
+      await this.loadHistory();
+
+      // Refresh Dashboard metrics if available
+      if (window.DashboardView && typeof window.DashboardView.loadDashboard === 'function') {
+        window.DashboardView.loadDashboard(true);
+      }
+
+      // Also refresh modal if open
+      if (window.SnapshotManagerModal && typeof window.SnapshotManagerModal.loadSnapshots === 'function') {
+        window.SnapshotManagerModal.loadSnapshots();
+      }
+    } catch (err) {
+      window.Toast.danger(err.message || 'Error al borrar snapshot');
+    }
+  },
+
   async reopen(inventoryId) {
-    const reason = prompt('Ingrese el motivo de la reapertura controlada del inventario:');
-    if (!reason) return;
+    let reason = 'Reapertura controlada de inventario';
+    try {
+      const p = prompt('Ingrese el motivo de la reapertura controlada del inventario:', reason);
+      if (p === null) return;
+      if (p.trim()) reason = p.trim();
+    } catch (e) {
+      // In sandbox/iframe prompt might be blocked
+    }
 
     try {
       await window.API.reopenInventory(inventoryId, { reason });

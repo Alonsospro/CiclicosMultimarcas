@@ -21,7 +21,7 @@ router.post('/upload', authenticate, upload.single('photo'), async (req, res) =>
       return res.status(400).json({ success: false, message: 'No se envió ningún archivo de imagen' });
     }
 
-    const { category, photoType, sku, center, date, inventoryId, itemId } = req.body;
+    const { category, photoType, sku, center, date, inventoryId, itemId, type, prefix, isJustification2, round } = req.body;
 
     const saved = await driveService.savePhotoFile(
       req.file.buffer,
@@ -33,7 +33,11 @@ router.post('/upload', authenticate, upload.single('photo'), async (req, res) =>
         center: center || req.user?.center,
         date,
         inventoryId,
-        itemId
+        itemId,
+        type: type || (inventoryId && String(inventoryId).includes('BARRIDO') ? 'BARRIDO' : 'CICLICO'),
+        prefix,
+        isJustification2: isJustification2 === true || isJustification2 === 'true' || prefix === 'JS2' || String(prefix || '').toUpperCase() === 'JS2',
+        round: round ? parseInt(round, 10) : undefined
       }
     );
 
@@ -133,11 +137,18 @@ router.get('/reference/:sku', async (req, res) => {
   res.send(referencePhotoService.getFallbackSvg(rawSku));
 });
 
-// GET /api/photos/:filename (Serve real binary image)
+// GET /api/photos/:filename (Serve real binary image or redirect to Drive)
 router.get('/:filename', (req, res) => {
   const photo = driveService.getPhoto(req.params.filename);
   if (!photo) {
     return res.status(404).json({ success: false, message: 'Imagen no encontrada' });
+  }
+
+  // If stored in Drive and local file buffer/path is not present
+  if (photo.driveUrl || photo.directUrl) {
+    if (!photo.buffer && (!photo.filePath || !fs.existsSync(photo.filePath))) {
+      return res.redirect(photo.directUrl || photo.driveUrl);
+    }
   }
 
   const contentType = photo.mimeType || 'image/jpeg';
@@ -150,6 +161,9 @@ router.get('/:filename', (req, res) => {
   if (photo.filePath && fs.existsSync(photo.filePath)) {
     const stream = fs.createReadStream(photo.filePath);
     return stream.pipe(res);
+  }
+  if (photo.driveUrl || photo.directUrl) {
+    return res.redirect(photo.directUrl || photo.driveUrl);
   }
   res.status(404).json({ success: false, message: 'Imagen no disponible' });
 });

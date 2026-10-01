@@ -30,6 +30,17 @@ window.Auth = {
         return true;
       }
     } catch (e) {
+      // Only logout if explicitly unauthorized (token expired/invalid)
+      const msg = String(e.message || '').toLowerCase();
+      if (msg.includes('401') || msg.includes('expirad') || msg.includes('no autorizad') || msg.includes('token')) {
+        this.logout(false);
+        return false;
+      }
+      // If temporary network error but we have the stored session, preserve it
+      if (this.currentUser && this.token) {
+        this.updateUI();
+        return true;
+      }
       this.logout(false);
       return false;
     }
@@ -71,8 +82,28 @@ window.Auth = {
       : this.currentUser.center;
     const roleLabel = this.currentUser.cargo || this.currentUser.role;
 
-    document.getElementById('nav-user-name').textContent = this.currentUser.displayName || this.currentUser.username;
-    document.getElementById('nav-user-role').textContent = `${roleLabel} • ${centerLabel}`;
+    const displayName = this.currentUser.displayName || this.currentUser.username;
+    const fullRoleStr = `${roleLabel} • ${centerLabel}`;
+
+    const navNameEl = document.getElementById('nav-user-name');
+    if (navNameEl) navNameEl.textContent = displayName;
+    const navRoleEl = document.getElementById('nav-user-role');
+    if (navRoleEl) navRoleEl.textContent = fullRoleStr;
+
+    const dropNameEl = document.getElementById('dropdown-user-name');
+    if (dropNameEl) dropNameEl.textContent = displayName;
+    const dropRoleEl = document.getElementById('dropdown-user-role');
+    if (dropRoleEl) dropRoleEl.textContent = fullRoleStr;
+
+    const initials = displayName
+      .split(' ')
+      .filter(Boolean)
+      .slice(0, 2)
+      .map(part => part[0])
+      .join('')
+      .toUpperCase() || 'U';
+    const avatarEl = document.getElementById('user-avatar-initials');
+    if (avatarEl) avatarEl.textContent = initials;
 
     const role = this.currentUser.role;
     const isSuperadmin = !!this.currentUser.isSuperadmin;
@@ -90,7 +121,7 @@ window.Auth = {
     });
 
     document.querySelectorAll('.role-superadmin-alonso-only').forEach(el => {
-      el.style.display = isAlonso ? '' : 'none';
+      el.style.display = (isAlonso || this.canManageUsers()) ? '' : 'none';
     });
 
     document.querySelectorAll('.role-inventory-creator-only').forEach(el => {
@@ -109,7 +140,7 @@ window.Auth = {
     // For Auxiliares and Encargados, lock / constrain center dropdowns to their own center
     if (!isAdmin) {
       const userCenter = this.currentUser.center;
-      const centerDropdowns = ['filter-inv-center', 'filter-dash-center', 'dash-filter-center', 'filter-just-center', 'filter-assign-center', 'barrido-center-select'];
+      const centerDropdowns = ['filter-inv-center', 'filter-dash-center', 'dash-filter-center', 'filter-just-center', 'filter-assign-center', 'barrido-select-center'];
       centerDropdowns.forEach(id => {
         const select = document.getElementById(id);
         if (select) {
@@ -118,6 +149,10 @@ window.Auth = {
           select.title = `Bloqueado a su centro asignado (${userCenter})`;
         }
       });
+    }
+
+    if (window.BarridoView && typeof window.BarridoView.updateCenterAccess === 'function') {
+      window.BarridoView.updateCenterAccess();
     }
   },
 
@@ -129,18 +164,55 @@ window.Auth = {
 
   isAlonso() {
     if (!this.currentUser) return false;
-    if (this.currentUser.isSuperadmin) return true;
     const u = String(this.currentUser.username || '').toLowerCase().trim();
     const d = String(this.currentUser.displayName || '').toLowerCase().trim();
-    return u === 'alonso' || d.includes('alonso rios') || this.currentUser.clave === 'ADM';
+    const email = String(this.currentUser.email || '').toLowerCase().trim();
+    return u === 'alonso' || d.includes('alonso') || email === 'alonsospro@gmail.com' || (this.currentUser.isSuperadmin && (u === 'alonso' || d.includes('alonso'))) || this.currentUser.clave === 'ADM';
   },
 
   canCreateInventory() {
     if (!this.currentUser) return false;
     if (this.isAlonso()) return true;
+    if (this.currentUser.permissions && typeof this.currentUser.permissions.createInventory === 'boolean') {
+      return this.currentUser.permissions.createInventory;
+    }
+    if (this.currentUser.role === 'ADMIN' || this.currentUser.role === 'ENCARGADO') return true;
     const u = String(this.currentUser.username || '').toLowerCase().trim();
     const d = String(this.currentUser.displayName || '').toLowerCase().trim();
-    return u === 'jcarlos' || u === 'juancarlos' || u === 'juan carlos' || u === 'juan_carlos' || u === 'juan.carlos' || d.includes('juan carlos') || this.currentUser.clave === 'JCS';
+    return u === 'jcarlos' || u === 'absael' || d.includes('juan carlos') || d.includes('absael') || this.currentUser.clave === 'JCS' || this.currentUser.clave === 'ABS';
+  },
+
+  canManageUsers() {
+    if (!this.currentUser) return false;
+    if (this.isAlonso()) return true;
+    const u = String(this.currentUser.username || '').toLowerCase().trim();
+    const d = String(this.currentUser.displayName || '').toLowerCase().trim();
+    if (u === 'jcarlos' || u === 'juancarlos' || u === 'juan carlos' || u === 'absael' ||
+        d.includes('juan carlos') || d.includes('absael') || this.currentUser.clave === 'JCS' || this.currentUser.clave === 'ABS') {
+      return true;
+    }
+    return this.currentUser.permissions && this.currentUser.permissions.manageUsers === true;
+  },
+
+  canDeleteSnapshots() {
+    if (!this.currentUser) return false;
+    if (this.isAlonso()) return true;
+    const u = String(this.currentUser.username || '').toLowerCase().trim();
+    const d = String(this.currentUser.displayName || '').toLowerCase().trim();
+    if (u === 'jcarlos' || u === 'juancarlos' || u === 'juan carlos' || u === 'absael' ||
+        d.includes('juan carlos') || d.includes('absael') || this.currentUser.clave === 'JCS' || this.currentUser.clave === 'ABS') {
+      return true;
+    }
+    return this.currentUser.permissions && this.currentUser.permissions.deleteSnapshots === true;
+  },
+
+  hasPermission(permKey) {
+    if (!this.currentUser) return false;
+    if (this.isAlonso()) return true;
+    if (this.currentUser.permissions && this.currentUser.permissions[permKey] !== undefined) {
+      return !!this.currentUser.permissions[permKey];
+    }
+    return this.currentUser.role === 'ADMIN';
   },
 
   isSameCenter(centerA, centerB) {

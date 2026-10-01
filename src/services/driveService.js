@@ -64,11 +64,12 @@ class DriveService {
     return `${cleanType}-${cleanCenter}-${dateStr}`;
   }
 
-  formatJustificationName(type, sku, center) {
+  formatJustificationName(type, sku, center, warehouse) {
     const cleanType = (type || 'CICLICO').toUpperCase();
     const cleanSku = (sku || 'SKU').toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
     const cleanCenter = (center || 'WARNES').toUpperCase();
-    return `JUST-${cleanType}-${cleanSku}-${cleanCenter}`;
+    const cleanWarehouse = warehouse ? `-${String(warehouse).toUpperCase().replace(/[^A-Z0-9_-]/g, '_')}` : '';
+    return `JUST-${cleanType}-${cleanSku}-${cleanCenter}${cleanWarehouse}`;
   }
 
   getDriveFolderPath(type, center) {
@@ -107,28 +108,50 @@ class DriveService {
 
   /**
    * Generates exact Google Drive path and filename:
-   * Mal Estado: nibol/ciclicos/fotos/malestado/{fecha}/{centro}/{sku}.jpg
-   * Justificaciones: nibol/ciclicos/fotos/justificaciones/{fecha}/{centro}/{sku}.jpg
+   * Mal Estado: nibol/ciclicos/fotos/malestado/{fecha}/{centro y tipo de inventario}/{sku}.jpg
+   * Justificaciones: nibol/ciclicos/fotos/justificaciones/{fecha}/{centro y tipo de inventario}/{sku}.jpg
    */
-  getPhotoDriveDetails({ category = 'malestado', sku = 'SKU', center = '1120', date = new Date(), ext = '.jpg' }) {
+  getPhotoDriveDetails({ category = 'malestado', sku = 'SKU', center = '1120', date = new Date(), ext = '.jpg', type = 'CICLICO', isJustification2 = false, prefix = '' }) {
     const cleanCategory = String(category).toLowerCase().includes('just') ? 'justificaciones' : 'malestado';
     const dateStr = this.formatDate(date);
     const centerName = this.getCenterName(center);
     const cleanSku = this.sanitizeFilename(sku);
     const fileExt = ext.startsWith('.') ? ext : `.${ext}`;
-    const fileName = `${cleanSku}${fileExt}`;
 
-    const folderPath = `nibol/ciclicos/fotos/${cleanCategory}/${dateStr}/${centerName}`;
+    const isSecondJust = isJustification2 === true || isJustification2 === 'true' || prefix === 'JS2' || String(prefix || '').toUpperCase() === 'JS2';
+    let filePrefix = '';
+    if (isSecondJust) {
+      filePrefix = 'JS2_';
+    } else if (prefix && String(prefix).trim()) {
+      const p = String(prefix).trim().replace(/[_\-]+$/, '');
+      filePrefix = `${p}_`;
+    }
+
+    // Evitar duplicar el prefijo si cleanSku ya lo contiene
+    let finalSku = cleanSku;
+    if (filePrefix && finalSku.toUpperCase().startsWith(filePrefix.toUpperCase())) {
+      filePrefix = '';
+    }
+
+    const fileName = `${filePrefix}${finalSku}${fileExt}`;
+    const cleanType = String(type || 'CICLICO').toUpperCase().trim();
+    const centerTypeFolder = `${centerName} ${cleanType}`;
+
+    const folderPath = `nibol/ciclicos/fotos/${cleanCategory}/${dateStr}/${centerTypeFolder}`;
     const logicalPath = `${folderPath}/${fileName}`;
 
     return {
       category: cleanCategory,
       date: dateStr,
       centerName,
+      type: cleanType,
+      centerTypeFolder,
       cleanSku,
       fileName,
       folderPath,
-      logicalPath
+      logicalPath,
+      filePrefix,
+      isJustification2: isSecondJust
     };
   }
 
@@ -136,6 +159,8 @@ class DriveService {
     if (!identifier) return null;
     const str = String(identifier).trim();
     if (str.startsWith('data:image')) return str;
+    // CRITICAL: Never return HTTP/HTTPS URLs as Data URI. Passing URLs causes GAS to fetch HTML preview and overwrite images as .doc
+    if (str.startsWith('http://') || str.startsWith('https://')) return null;
     const safeName = path.basename(str);
 
     // 1. Check memory cache
@@ -169,6 +194,8 @@ class DriveService {
     const folderPath = this.getDriveFolderPath(type, center);
 
     const fileId = `DRIVE-FILE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const isReconteo = !!(inventory.isReconteo || inventory.phase === 'RECONTEO' || String(inventory.id || '').startsWith('REC-') || inventory.hasRecount);
+
     const driveRecord = {
       fileId,
       fileName: `${fileName}.xlsx`,
@@ -176,6 +203,7 @@ class DriveService {
       inventoryId: id,
       type,
       center,
+      isReconteo,
       closedBy: user.username,
       closedAt: new Date().toISOString(),
       reviewNotes: reviewNotes || 'Revisión finalizada y aprobada por administrador',
@@ -186,53 +214,52 @@ class DriveService {
         const razon = item.Razon || item.Razon_Justificacion || (matchingJust ? (matchingJust.reasonType || matchingJust.razon) : '');
         const comentarioJust = item.Comentario_Justificacion || (matchingJust ? (matchingJust.justification || matchingJust.comentario) : '');
 
+        // In reconteo, or if not a valid data:image, NEVER send photoBase64 to prevent overwriting images with .doc
+        const rawPhoto = isReconteo ? null : this.getPhotoAsDataUri(item.foto_mal_estado);
+        const photoData = (rawPhoto && String(rawPhoto).startsWith('data:image/')) ? rawPhoto : '';
+
         return {
           SKU: item.SKU,
           Codigo_Barras: item.Codigo_Barras,
           Descripcion: item.Descripcion,
           Ubicacion: item.Ubicacion,
-          Ubicacion_1: item.Ubicacion_1 || '',
-          Ubicacion_2: item.Ubicacion_2 || '',
-          Almacen: item.Almacen || center,
+          Categoria: item.Categoria,
           Clasificacion_ABC: item.Clasificacion_ABC,
           Unidad: item.Unidad,
           Costo_Unitario: item.Costo_Unitario,
           Stock_Sistema: item.Stock_Sistema,
           Stock_Fisico: item.Stock_Fisico,
-          Diferencia: item.Diferencia,
-          Costo_Diferencia: item.Costo_Diferencia,
+          Diferencia: (item.Stock_Fisico !== null ? item.Stock_Fisico : 0) - item.Stock_Sistema,
+          Costo_Diferencia: ((item.Stock_Fisico !== null ? item.Stock_Fisico : 0) - item.Stock_Sistema) * (item.Costo_Unitario || 0),
           Fecha_Ultimo_Conteo: item.Fecha_Ultimo_Conteo,
           Responsable: item.Responsable,
+          Estado: item.Estado || 'Revisado',
           Mal_estado: item.Mal_estado || 0,
-          Fecha_Primera_Justificacion: item.Fecha_Primera_Justificacion || '',
-          Estado: item.Estado || 'CUADRA',
+          Comentario: item.Comentario || '',
           Razon: razon || '',
+          Razon_Justificacion: razon || '',
           Comentario_Justificacion: comentarioJust || '',
-          Responsable_Justificacion: item.Responsable_Justificacion || '',
-          Fecha_Reconteo: item.Fecha_Reconteo || '',
-          Reconteo: item.Reconteo !== null && item.Reconteo !== undefined ? item.Reconteo : '',
-          Malestado_Reconteo: item.Malestado_Reconteo !== null && item.Malestado_Reconteo !== undefined ? item.Malestado_Reconteo : '',
-          Diferencia_Final: item.Diferencia_Final !== null && item.Diferencia_Final !== undefined ? item.Diferencia_Final : '',
-          Costo_Diferencia_Final: item.Costo_Diferencia_Final !== null && item.Costo_Diferencia_Final !== undefined ? item.Costo_Diferencia_Final : '',
-          Fecha_Justificacion_2: item.Fecha_Justificacion_2 || '',
-          Estado_Justificacion_2: item.Estado_Justificacion_2 || '',
-          Razon_Justificacion_2: item.Razon_Justificacion_2 || '',
-          Comentario_Justificacion_2: item.Comentario_Justificacion_2 || '',
-          Responsable_Justificacion_2: item.Responsable_Justificacion_2 || '',
-          Fecha_Reconteo_2: item.Fecha_Reconteo_2 || '',
-          Reconteo_2: item.Reconteo_2 !== null && item.Reconteo_2 !== undefined ? item.Reconteo_2 : '',
-          Malestado_Reconteo_2: item.Malestado_Reconteo_2 !== null && item.Malestado_Reconteo_2 !== undefined ? item.Malestado_Reconteo_2 : '',
-          Diferencia_Final_2: item.Diferencia_Final_2 !== null && item.Diferencia_Final_2 !== undefined ? item.Diferencia_Final_2 : '',
-          Costo_Diferencia_Final_2: item.Costo_Diferencia_Final_2 !== null && item.Costo_Diferencia_Final_2 !== undefined ? item.Costo_Diferencia_Final_2 : '',
-          photoBase64: this.getPhotoAsDataUri(item.foto_mal_estado) || ''
+          Reconteo_Fisico: item.Reconteo_Fisico !== undefined ? item.Reconteo_Fisico : null,
+          Reconteo_Mal_Estado: item.Reconteo_Mal_Estado !== undefined ? item.Reconteo_Mal_Estado : 0,
+          Diferencia_Final: (item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined && item.Reconteo_Fisico !== '')
+            ? (Number(item.Reconteo_Fisico) - Number(item.Stock_Sistema || 0))
+            : ((item.Stock_Fisico !== null ? Number(item.Stock_Fisico) : 0) - Number(item.Stock_Sistema || 0)),
+          Costo_Diferencia_Final: (item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined && item.Reconteo_Fisico !== '')
+            ? ((Number(item.Reconteo_Fisico) - Number(item.Stock_Sistema || 0)) * (Number(item.Costo_Unitario) || 0))
+            : (((item.Stock_Fisico !== null ? Number(item.Stock_Fisico) : 0) - Number(item.Stock_Sistema || 0)) * (Number(item.Costo_Unitario) || 0)),
+          photoBase64: photoData
         };
       }),
-      justifications: (justifications || []).map(j => ({
-        sku: j.sku || j.SKU || '',
-        justification: j.justification || '',
-        reasonType: j.reasonType || '',
-        photoBase64: this.getPhotoAsDataUri(j.photoUrl) || ''
-      }))
+      justifications: isReconteo ? [] : (justifications || []).map(j => {
+        const rawPhoto = this.getPhotoAsDataUri(j.photoUrl);
+        const photoData = (rawPhoto && String(rawPhoto).startsWith('data:image/')) ? rawPhoto : '';
+        return {
+          sku: j.sku || j.SKU || '',
+          justification: j.justification || '',
+          reasonType: j.reasonType || '',
+          photoBase64: photoData
+        };
+      })
     };
 
     // Call GAS Webhook and capture real Drive URL if returned
@@ -245,6 +272,7 @@ class DriveService {
         fileName: `${fileName}.xlsx`,
         folderPath,
         center: cleanCenter,
+        isReconteo,
         items,
         driveRecord,
         reviewNotes: reviewNotes || 'Revisión finalizada'
@@ -274,6 +302,15 @@ class DriveService {
     // Save final file record to history directory
     const historyFilePath = path.join(this.historyDir, `${fileId}.json`);
     storagePath.writeJson(historyFilePath, driveRecord);
+
+    try {
+      const metricsService = require('./metricsService');
+      if (metricsService && typeof metricsService.invalidateCache === 'function') {
+        metricsService.invalidateCache();
+      }
+    } catch (cacheErr) {
+      // ignore circular reference or cache err
+    }
 
     return {
       success: true,
@@ -321,13 +358,26 @@ class DriveService {
 
     if (!sku) sku = 'SKU_' + Date.now().toString(36);
     if (!center) center = '1120';
+    const invType = metadata.type || (metadata.inventoryId && String(metadata.inventoryId).includes('BARRIDO') ? 'BARRIDO' : 'CICLICO');
+
+    const isJustification2 = metadata.isJustification2 === true ||
+      metadata.isJustification2 === 'true' ||
+      metadata.round === 2 ||
+      metadata.round === '2' ||
+      metadata.prefix === 'JS2' ||
+      String(metadata.prefix || '').toUpperCase() === 'JS2';
+
+    const prefix = metadata.prefix || (isJustification2 ? 'JS2' : '');
 
     const details = this.getPhotoDriveDetails({
       category,
       sku,
       center,
       date,
-      ext
+      ext,
+      type: invType,
+      isJustification2,
+      prefix
     });
 
     // 1. Generate unique photo ID for URL mapping & backward compatibility
@@ -344,27 +394,45 @@ class DriveService {
     this.pruneCache();
 
     // 2. Primary cloud storage: Sync immediately to Google Drive via Google Apps Script
-    let drivePhotoUrl = null;
-    let driveFileId = null;
+    let gasResult = null;
     try {
-      const gasRes = await gasService.syncPhotoToGAS({
+      gasResult = await gasService.syncPhotoToGAS({
         category: details.category,
         date: details.date,
         center: details.centerName,
+        type: invType,
         sku: details.cleanSku,
         fileName: details.fileName,
         folderPath: details.folderPath,
         fileBuffer,
         mimeType,
-        inventoryId: metadata.inventoryId || null
+        inventoryId: metadata.inventoryId || null,
+        isJustification2,
+        prefix
       });
-      if (gasRes && gasRes.photo) {
-        drivePhotoUrl = gasRes.photo.url || gasRes.photo.viewUrl || null;
-        driveFileId = gasRes.photo.id || null;
-      }
     } catch (err) {
       console.warn('[driveService] Notice during GAS photo sync:', err.message);
     }
+
+    const drivePhoto = (gasResult && gasResult.photo) || {};
+    const defaultFolderUrl = details.category === 'justificaciones' ? config.driveJustifFolderUrl : config.driveDamagedFolderUrl;
+    const driveUrl = gasResult?.driveUrl || drivePhoto.url || defaultFolderUrl;
+    const driveFileId = gasResult?.driveFileId || drivePhoto.id || null;
+    const thumbnailUrl = gasResult?.thumbnailUrl || drivePhoto.thumbnailUrl || (driveFileId ? `https://lh3.googleusercontent.com/d/${driveFileId}=s1600` : null);
+    const directUrl = gasResult?.directUrl || drivePhoto.directUrl || (driveFileId ? `https://drive.google.com/uc?export=view&id=${driveFileId}` : driveUrl);
+
+    // Cache photo in memory with Drive URLs for instant online retrieval
+    this.photoMemoryCache.set(photoId, {
+      buffer: fileBuffer,
+      mimeType: mimeType || 'image/jpeg',
+      details,
+      driveUrl,
+      driveFileId,
+      thumbnailUrl,
+      directUrl,
+      savedAt: Date.now()
+    });
+    this.pruneCache();
 
     // 3. Save single local copy only if NOT running on Vercel to preserve disk space and avoid /tmp limits
     if (!process.env.VERCEL) {
@@ -381,9 +449,13 @@ class DriveService {
     return {
       photoId,
       filename: photoId,
-      url: `/api/photos/${photoId}`,
-      driveUrl: drivePhotoUrl,
-      driveFileId: driveFileId,
+      url: driveUrl || `/api/photos/${photoId}`,
+      localUrl: `/api/photos/${photoId}`,
+      driveUrl,
+      driveFileId,
+      thumbnailUrl,
+      directUrl,
+      driveSaved: !!driveUrl,
       driveFolderPath: details.folderPath,
       driveLogicalPath: details.logicalPath,
       driveFileName: details.fileName,
@@ -415,6 +487,27 @@ class DriveService {
         };
       }
     } catch (e) {}
+
+    // Fallback: Check if this photo was registered in any justification record with a Google Drive URL
+    try {
+      const justDir = storagePath.getJustificationsDirectory();
+      const files = storagePath.listFiles(justDir).filter(f => f.endsWith('.json'));
+      for (const f of files) {
+        const j = storagePath.readJson(path.join(justDir, f), null);
+        if (j && (String(j.photoUrl || '').includes(safeName) || j.photoId === safeName)) {
+          const driveUrl = j.driveUrl || (j.photoUrl && j.photoUrl.includes('drive.google.com') ? j.photoUrl : null);
+          if (driveUrl || j.driveFileId) {
+            return {
+              driveUrl: driveUrl,
+              directUrl: j.driveFileId ? `https://drive.google.com/uc?export=view&id=${j.driveFileId}` : driveUrl,
+              thumbnailUrl: j.thumbnailUrl || (j.driveFileId ? `https://lh3.googleusercontent.com/d/${j.driveFileId}=s1600` : null),
+              isDriveRedirect: true
+            };
+          }
+        }
+      }
+    } catch (_) {}
+
     return null;
   }
 

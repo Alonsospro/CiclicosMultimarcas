@@ -1,0 +1,29 @@
+[
+  {
+    "id": "LOG-1790713248700-1qhk8",
+    "timestamp": "2026-09-29T20:20:48.700Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Cíclico Sucursal Grigota - 29/09/2026 creado con 61 ítems",
+    "user": "Jcarlos",
+    "center": "1700",
+    "targetId": "INV-CICLICO-1700-MUN4FLQ3"
+  },
+  {
+    "id": "LOG-1790781064477-l3awf",
+    "timestamp": "2026-09-30T15:11:04.477Z",
+    "action": "INVENTORY_DELETED",
+    "inventoryId": "INV-CICLICO-1700-MUN4FLQ3",
+    "user": "Alonso",
+    "center": "1700",
+    "reason": "Eliminación por el usuario"
+  },
+  {
+    "id": "LOG-1790781073487-s2f5z",
+    "timestamp": "2026-09-30T15:11:13.487Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Cíclico Sucursal Grigota - 29/09/2026 creado con 61 ítems",
+    "user": "Alonso",
+    "center": "1700",
+    "targetId": "INV-CICLICO-1700-MUO8TBNX"
+  }
+]

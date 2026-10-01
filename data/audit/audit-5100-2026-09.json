@@ -1,0 +1,29 @@
+[
+  {
+    "id": "LOG-1790713469954-lkwsl",
+    "timestamp": "2026-09-29T20:24:29.954Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Cíclico Sucursal Tarija - 29/09/2026 creado con 130 ítems",
+    "user": "Jcarlos",
+    "center": "5100",
+    "targetId": "INV-CICLICO-5100-MUN4KCG0"
+  },
+  {
+    "id": "LOG-1790780826553-84bpj",
+    "timestamp": "2026-09-30T15:07:06.553Z",
+    "action": "INVENTORY_DELETED",
+    "inventoryId": "INV-CICLICO-5100-MUN4KCG0",
+    "user": "Alonso",
+    "center": "5100",
+    "reason": "Eliminación por el usuario"
+  },
+  {
+    "id": "LOG-1790780839308-7t121",
+    "timestamp": "2026-09-30T15:07:19.308Z",
+    "action": "INVENTORY_CREATED",
+    "details": "Inventario Cíclico Sucursal Tarija - 29/09/2026 creado con 130 ítems",
+    "user": "Alonso",
+    "center": "5100",
+    "targetId": "INV-CICLICO-5100-MUO8OAYW"
+  }
+]

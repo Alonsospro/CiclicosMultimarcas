@@ -1,0 +1,49 @@
+{
+  "entities": {
+    "AppFile": {
+      "title": "AppFile",
+      "description": "A persistent JSON file stored by the backend.",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "The logical file path.",
+          "maxLength": 500
+        },
+        "dir": {
+          "type": "string",
+          "description": "The directory of the file.",
+          "maxLength": 500
+        },
+        "fileName": {
+          "type": "string",
+          "description": "The name of the file.",
+          "maxLength": 255
+        },
+        "content": {
+          "type": "string",
+          "description": "The JSON stringified content.",
+          "maxLength": 10485760
+        },
+        "secret": {
+          "type": "string",
+          "description": "The backend secret for access.",
+          "maxLength": 100
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp of last update."
+        }
+      },
+      "required": ["path", "dir", "fileName", "content", "secret", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/app_files/{fileId}": {
+      "schema": {
+        "$ref": "#/entities/AppFile"
+      },
+      "description": "Stores the JSON files from the backend to provide persistence."
+    }
+  }
+}

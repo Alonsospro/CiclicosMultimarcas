@@ -54,18 +54,47 @@ function requireRole(allowedRoles = []) {
 
 function isAlonso(user) {
   if (!user) return false;
-  if (user.isSuperadmin) return true;
-  const u = String(user.username || '').toLowerCase().trim();
-  const d = String(user.displayName || '').toLowerCase().trim();
-  return u === 'alonso' || d.includes('alonso rios') || user.clave === 'ADM';
+  const u = String(user.username || user.usuario || '').toLowerCase().trim();
+  const d = String(user.displayName || user.name || '').toLowerCase().trim();
+  const email = String(user.email || '').toLowerCase().trim();
+  return u === 'alonso' || d.includes('alonso') || email === 'alonsospro@gmail.com' || (user.isSuperadmin && u === 'alonso');
 }
 
 function canCreateInventory(user) {
   if (!user) return false;
+  if (user.isSuperadmin) return true;
+  if (user.permissions && typeof user.permissions.createInventory === 'boolean') {
+    return user.permissions.createInventory;
+  }
+  if (user.role === 'ADMIN' || user.role === 'ENCARGADO') return true;
   if (isAlonso(user)) return true;
   const u = String(user.username || '').toLowerCase().trim();
   const d = String(user.displayName || '').toLowerCase().trim();
-  return u === 'jcarlos' || u === 'juancarlos' || u === 'juan carlos' || u === 'juan_carlos' || u === 'juan.carlos' || d.includes('juan carlos') || user.clave === 'JCS';
+  return u === 'jcarlos' || u === 'juancarlos' || u === 'juan carlos' || u === 'absael' || d.includes('juan carlos') || d.includes('absael') || user.clave === 'JCS' || user.clave === 'ABS';
+}
+
+function canManageUsers(user) {
+  if (!user) return false;
+  if (user.isSuperadmin || isAlonso(user)) return true;
+  const u = String(user.username || user.usuario || '').toLowerCase().trim();
+  const d = String(user.displayName || user.name || '').toLowerCase().trim();
+  if (u === 'jcarlos' || u === 'juancarlos' || u === 'juan carlos' || u === 'absael' ||
+      d.includes('juan carlos') || d.includes('absael') || user.clave === 'JCS' || user.clave === 'ABS') {
+    return true;
+  }
+  return user.permissions && user.permissions.manageUsers === true;
+}
+
+function canDeleteSnapshots(user) {
+  if (!user) return false;
+  if (user.isSuperadmin || isAlonso(user)) return true;
+  const u = String(user.username || user.usuario || '').toLowerCase().trim();
+  const d = String(user.displayName || user.name || '').toLowerCase().trim();
+  if (u === 'jcarlos' || u === 'juancarlos' || u === 'juan carlos' || u === 'absael' ||
+      d.includes('juan carlos') || d.includes('absael') || user.clave === 'JCS' || user.clave === 'ABS') {
+    return true;
+  }
+  return user.permissions && user.permissions.deleteSnapshots === true;
 }
 
 function requireAlonso(req, res, next) {
@@ -73,13 +102,13 @@ function requireAlonso(req, res, next) {
     return res.status(401).json({ success: false, message: 'No autenticado.' });
   }
 
-  if (isAlonso(req.user)) {
+  if (isAlonso(req.user) || canManageUsers(req.user)) {
     return next();
   }
 
   return res.status(403).json({
     success: false,
-    message: 'Acceso denegado: Solo el superadministrador Alonso tiene permisos para gestionar y crear usuarios.'
+    message: 'Acceso denegado: Esta acción está reservada exclusivamente para administradores con permisos de gestión.'
   });
 }
 
@@ -94,7 +123,7 @@ function requireInventoryCreator(req, res, next) {
 
   return res.status(403).json({
     success: false,
-    message: 'Acceso denegado: Solo Juan Carlos y Alonso están autorizados para crear nuevos inventarios.'
+    message: 'Acceso denegado: No cuenta con permisos para crear o aperturar inventarios.'
   });
 }
 
@@ -104,5 +133,7 @@ module.exports = {
   requireAlonso,
   requireInventoryCreator,
   isAlonso,
-  canCreateInventory
+  canCreateInventory,
+  canManageUsers,
+  canDeleteSnapshots
 };
