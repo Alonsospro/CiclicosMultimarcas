@@ -1271,6 +1271,9 @@ class GasService {
   }
 
   async syncPhotoToGAS({ category, date, center, sku, fileName, fileBuffer, mimeType, inventoryId, itemId, type, prefix, round, isJustification2, operationId }) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType) || !fileBuffer?.length) {
+      throw new Error('Seleccione una imagen JPEG, PNG o WebP válida.');
+    }
     const cleanCategory = String(category || '').toLowerCase().includes('just') ? 'justificaciones' : 'malestado';
     const cleanCenter = config.getCenterCode ? config.getCenterCode(center) : center;
     const invType = type || 'CICLICO';
@@ -1280,10 +1283,29 @@ class GasService {
       inventoryId, itemId, type: invType, prefix, round, isJustification2, operationId, photoBase64,
       photoJustificacion: cleanCategory === 'justificaciones' ? photoBase64 : undefined
     });
-    const photo = result.photo;
-    if (!photo?.id || !photo?.url || !String(photo.mimeType || '').startsWith('image/')) {
-      throw new Error('Drive no confirmó un archivo de imagen. Vuelva a subir la foto.');
+    const savedPhoto = result.photo;
+    let photoUrl;
+    try { photoUrl = new URL(savedPhoto?.url); } catch (_) {}
+    const linkedId = photoUrl?.pathname.match(/^\/file\/d\/([A-Za-z0-9_-]+)(?:\/(?:view|edit|preview))?\/?$/)?.[1] ||
+      (photoUrl?.pathname === '/open' ? photoUrl.searchParams.get('id') : null);
+    if (typeof savedPhoto?.id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(savedPhoto.id) ||
+      photoUrl?.protocol !== 'https:' || photoUrl?.hostname !== 'drive.google.com' ||
+      photoUrl.username || photoUrl.password || photoUrl.port || linkedId !== savedPhoto.id) {
+      throw new Error('Apps Script no devolvió el ID y enlace del archivo de la foto. Actualice la implementación con gas/Code.gs.');
     }
+    const confirmedMime = String(savedPhoto.mimeType || '').trim().toLowerCase();
+    if (confirmedMime && confirmedMime !== mimeType) {
+      throw new Error('Drive devolvió un tipo de archivo distinto al de la imagen enviada. No se vinculó como respaldo.');
+    }
+    // The supplied legacy Apps Script omits mimeType, but returns metadata from
+    // createFile(newBlob(bytes, uploadMime, name)). This request always sends
+    // base64 bytes validated by savePhotoFile, never a URL that could be HTML.
+    // Legacy code names even PNG/WebP uploads .jpg, so do not infer MIME from it.
+    if (!confirmedMime && !/\.(?:jpe?g|png|webp)$/i.test(String(savedPhoto.name || ''))) {
+      throw new Error('Apps Script devolvió datos incompletos de la foto. Actualice la implementación con gas/Code.gs; repetir la subida no corrige esta respuesta.');
+    }
+    const photo = { ...savedPhoto, mimeType: confirmedMime || mimeType,
+      mimeTypeSource: confirmedMime ? 'drive' : 'validatedUpload' };
     return { success: true, photo, driveFileId: photo.id, driveUrl: photo.url,
       directUrl: `https://drive.google.com/uc?export=view&id=${photo.id}`,
       thumbnailUrl: `https://lh3.googleusercontent.com/d/${photo.id}=s1600` };
