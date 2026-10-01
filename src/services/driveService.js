@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
+const { createHash } = require('crypto');
 const storagePath = require('./storagePath');
 const gasService = require('./gasService');
 
@@ -193,7 +194,8 @@ class DriveService {
     const fileName = this.formatInventoryFileName(type, center, new Date());
     const folderPath = this.getDriveFolderPath(type, center);
 
-    const fileId = `DRIVE-FILE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const snapshotKey = createHash('sha256').update(JSON.stringify({ inventory, justifications })).digest('hex');
+    const fileId = 'DRIVE-FILE-' + snapshotKey.slice(0, 24);
     const isReconteo = !!(inventory.isReconteo || inventory.phase === 'RECONTEO' || String(inventory.id || '').startsWith('REC-') || inventory.hasRecount);
 
     const driveRecord = {
@@ -210,7 +212,7 @@ class DriveService {
       totalItems: items.length,
       justificationsCount: (justifications || []).length,
       items: items.map(item => {
-        const matchingJust = (justifications || []).find(j => (j.sku || j.SKU) === item.SKU);
+        const matchingJust = (justifications || []).find(j => j.itemId ? j.itemId === item.id : (j.sku || j.SKU) === item.SKU && String(j.almacen || '') === String(item.Almacen || '') && String(j.ubicacion || '') === String(item.Ubicacion || ''));
         const razon = item.Razon || item.Razon_Justificacion || (matchingJust ? (matchingJust.reasonType || matchingJust.razon) : '');
         const comentarioJust = item.Comentario_Justificacion || (matchingJust ? (matchingJust.justification || matchingJust.comentario) : '');
 
@@ -219,6 +221,8 @@ class DriveService {
         const photoData = (rawPhoto && String(rawPhoto).startsWith('data:image/')) ? rawPhoto : '';
 
         return {
+          ...item,
+          Almacen: item.Almacen || item.almacen || item.warehouse || '',
           SKU: item.SKU,
           Codigo_Barras: item.Codigo_Barras,
           Descripcion: item.Descripcion,
@@ -254,6 +258,7 @@ class DriveService {
         const rawPhoto = this.getPhotoAsDataUri(j.photoUrl);
         const photoData = (rawPhoto && String(rawPhoto).startsWith('data:image/')) ? rawPhoto : '';
         return {
+          ...j,
           sku: j.sku || j.SKU || '',
           justification: j.justification || '',
           reasonType: j.reasonType || '',
@@ -264,10 +269,12 @@ class DriveService {
 
     // Call GAS Webhook and capture real Drive URL if returned
     let realDriveUrl = null;
+    let realDriveFileId = null;
     let spreadsheetUrl = null;
     try {
       const cleanCenter = config.getCenterCode ? config.getCenterCode(center) : center;
       const gasResult = await gasService.syncFinalInventoryToGAS(type, {
+        operationId: `close:${inventory.id}:${snapshotKey}`,
         fileId,
         fileName: `${fileName}.xlsx`,
         folderPath,
@@ -279,25 +286,26 @@ class DriveService {
       });
       // Extract real Drive URLs from GAS response
       if (gasResult) {
+        realDriveFileId = gasResult.fileId;
         if (gasResult.spreadsheetUrl && typeof gasResult.spreadsheetUrl === 'string') {
           spreadsheetUrl = gasResult.spreadsheetUrl;
         }
-        const candidateUrl = gasResult.driveUrl || gasResult.url || gasResult.folderUrl || gasResult.spreadsheetUrl || null;
+        const candidateUrl = gasResult.driveUrl || gasResult.url || gasResult.spreadsheetUrl || null;
         if (candidateUrl && typeof candidateUrl === 'string' && candidateUrl.includes('google.com')) {
           realDriveUrl = candidateUrl;
         }
       }
     } catch (err) {
-      console.warn('[driveService] GAS remote sync fallback:', err.message);
+      throw err;
     }
 
-    // Fallback: use the configured Drive snapshots folder
-    const fallbackDriveUrl = config.driveSnapshotsFolderUrl || config.driveReferenceFolderUrl || null;
-    const driveUrl = realDriveUrl || fallbackDriveUrl;
+    const driveUrl = realDriveUrl;
+    if (!spreadsheetUrl || !driveUrl) throw new Error('El archivo final no fue confirmado por Drive.');
 
     // Save real Drive URLs in history record
     driveRecord.driveUrl = driveUrl;
     driveRecord.spreadsheetUrl = spreadsheetUrl;
+    driveRecord.driveFileId = realDriveFileId;
 
     // Save final file record to history directory
     const historyFilePath = path.join(this.historyDir, `${fileId}.json`);
@@ -314,7 +322,8 @@ class DriveService {
 
     return {
       success: true,
-      fileId,
+      fileId: realDriveFileId,
+      historyId: fileId,
       fileName: `${fileName}.xlsx`,
       folderPath,
       driveUrl,
@@ -324,6 +333,11 @@ class DriveService {
   }
 
   async savePhotoFile(fileBuffer, originalName = 'photo.jpg', mimeType = 'image/jpeg', metadata = {}) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType) || !fileBuffer?.length) throw new Error('Seleccione una imagen JPEG, PNG o WebP válida.');
+    const validSignature = mimeType === 'image/jpeg' ? fileBuffer.subarray(0, 3).equals(Buffer.from([255, 216, 255])) :
+      mimeType === 'image/png' ? fileBuffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) :
+      fileBuffer.toString('ascii', 0, 4) === 'RIFF' && fileBuffer.toString('ascii', 8, 12) === 'WEBP';
+    if (!validSignature) throw new Error('El archivo no contiene una imagen válida del tipo indicado.');
     const ext = path.extname(originalName) || (mimeType === 'image/png' ? '.png' : '.jpg');
     
     // Determine category: 'malestado' or 'justificaciones'
@@ -380,6 +394,10 @@ class DriveService {
       prefix
     });
 
+    const digest = createHash('sha256').update(fileBuffer).digest('hex').slice(0, 20);
+    const identity = [metadata.inventoryId || 'inventory', metadata.itemId || sku, category, isJustification2 ? 'JS2' : 'JS1', digest].join('_');
+    details.fileName = this.sanitizeFilename(identity) + (mimeType === 'image/png' ? '.png' : mimeType === 'image/webp' ? '.webp' : '.jpg');
+
     // 1. Generate unique photo ID for URL mapping & backward compatibility
     const photoId = `PHOTO-${Date.now()}-${Math.random().toString(36).substring(2, 7)}${ext}`;
     const legacyPath = path.join(this.photosDir, photoId);
@@ -407,16 +425,20 @@ class DriveService {
         fileBuffer,
         mimeType,
         inventoryId: metadata.inventoryId || null,
+        itemId: metadata.itemId || null,
+        round: isJustification2 ? 2 : 1,
+        operationId: identity,
         isJustification2,
         prefix
       });
     } catch (err) {
-      console.warn('[driveService] Notice during GAS photo sync:', err.message);
+      this.photoMemoryCache.delete(photoId);
+      throw err;
     }
 
     const drivePhoto = (gasResult && gasResult.photo) || {};
     const defaultFolderUrl = details.category === 'justificaciones' ? config.driveJustifFolderUrl : config.driveDamagedFolderUrl;
-    const driveUrl = gasResult?.driveUrl || drivePhoto.url || defaultFolderUrl;
+    const driveUrl = gasResult?.driveUrl || drivePhoto.url;
     const driveFileId = gasResult?.driveFileId || drivePhoto.id || null;
     const thumbnailUrl = gasResult?.thumbnailUrl || drivePhoto.thumbnailUrl || (driveFileId ? `https://lh3.googleusercontent.com/d/${driveFileId}=s1600` : null);
     const directUrl = gasResult?.directUrl || drivePhoto.directUrl || (driveFileId ? `https://drive.google.com/uc?export=view&id=${driveFileId}` : driveUrl);
@@ -455,7 +477,7 @@ class DriveService {
       driveFileId,
       thumbnailUrl,
       directUrl,
-      driveSaved: !!driveUrl,
+      driveSaved: !!driveFileId,
       driveFolderPath: details.folderPath,
       driveLogicalPath: details.logicalPath,
       driveFileName: details.fileName,

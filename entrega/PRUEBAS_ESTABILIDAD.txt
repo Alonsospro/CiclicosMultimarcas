@@ -1,0 +1,41 @@
+Evidencia de verificación local — 2026-10-01
+Proyecto: CICLICO
+
+Instalación:
+  npm ci --ignore-scripts --no-audit --no-fund
+  Resultado: código 0; 430 paquetes instalados.
+  npm emitió avisos de dependencias obsoletas; no se cambiaron versiones mayores.
+
+Pruebas:
+  npm test
+  Resultado final observado: 45 pruebas; 45 aprobadas; 0 fallidas; 0 omitidas.
+  Duración informada por Node: 5555.2293 ms.
+  Los mensajes de error de API/cuota son fallos simulados esperados en los casos de prueba.
+
+Comprobación estática:
+  npm run build
+  Resultado: código 0; sintaxis y referencias locales verificadas en 54 archivos.
+
+Cobertura:
+  test/client.test.js: cola local, separación por usuario, doble clic, borradores,
+  navegación durante el guardado, conflicto, success:false, foto con reconteo cero,
+  bloqueo de confirmación durante subida.
+  test/gas.test.js: ceros en dos rondas, centro inválido, fila exacta, lote con 14 fallos,
+  contrato de fotos, nombres únicos, evidencia previa, CUADRA con cero, 40 columnas,
+  rechazo de una URL/HTML como imagen binaria.
+  test/http.test.js: ruta de conteo con error de cuota y recuperación, fallo de foto,
+  formato de lista de justificaciones; autenticación original y token de prueba.
+  test/persistence.test.js: reinicio, cuota, respuesta perdida, cola persistente,
+  operación duplicada, concurrencia y versión obsoleta, identidad, cantidades,
+  compatibilidad Barrido/ubicaciones, bloqueo de cierre pendiente, copia vieja,
+  sincronización atrasada, tamaño máximo, 20 envíos simultáneos, fallo de cierre,
+  eliminación persistente, dos trabajadores de cola, ID real de Drive y
+  separación de justificaciones/fotos de SKU repetidos después de reiniciar.
+
+Alcance: REST de Firestore y endpoints GAS simulados; Apps Script ejecutado en VM;
+DOM simulado para navegador; rutas Express locales y directorios temporales.
+No se ejecutaron escrituras de prueba en producción, carga real en Cloud Run,
+emulador de reglas Firestore, ni validación visual en navegador/teléfono.
+
+La integridad de datos, autenticación, permisos y configuración se verifica por
+comparación binaria con el respaldo previo en MANIFIESTO_ESTABILIDAD.json.

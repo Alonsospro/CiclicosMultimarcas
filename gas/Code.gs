@@ -266,7 +266,7 @@ function getHistory_(type, center) {
 
 function doPost(e) {
   const lock = LockService.getScriptLock();
-  const locked = lock.tryLock(10000);
+  const locked = lock.tryLock(25000);
   if (!locked) {
     return json_({ success: false, error: 'Servidor ocupado. Intenta de nuevo.' });
   }
@@ -275,6 +275,8 @@ function doPost(e) {
     const raw = (e && e.postData && e.postData.contents) || '{}';
     const body = JSON.parse(raw);
     const action = body.action || '';
+    const previous = body.operationId ? readOperation_(body.operationId) : null;
+    if (previous) return json_(previous);
 
     if (action === 'ping') {
       return json_({ success: true, message: 'GAS POST webhook activo', timestamp: new Date().toISOString() });
@@ -287,27 +289,27 @@ function doPost(e) {
 
     if (action === 'upsertCount') {
       const result = upsertCount_(body);
-      return json_({ success: true, action, ...result });
+      return confirmOperation_(body, { success: true, action, ...result });
     }
 
     if (action === 'batchUpsertCounts') {
       const result = batchUpsertCounts_(body);
-      return json_({ success: true, action, ...result });
+      return confirmOperation_(body, { success: true, action, ...result });
     }
 
     if (action === 'saveJustification') {
       const result = saveJustificationToSheet_(body);
-      return json_({ success: true, action, ...result });
+      return confirmOperation_(body, { success: true, action, ...result });
     }
 
     if (action === 'deleteAdditionalLocation' || action === 'deleteItem') {
       const result = deleteAdditionalLocation_(body);
-      return json_({ success: true, action, ...result });
+      return confirmOperation_(body, { success: true, action, ...result });
     }
 
     if (action === 'createFinalFile') {
       const result = createFinalFile_(body);
-      return json_({ success: true, action, ...result });
+      return confirmOperation_(body, { success: true, action, ...result });
     }
 
     if (action === 'getReferencePhoto') {
@@ -325,9 +327,7 @@ function doPost(e) {
   } catch (err) {
     return json_({ success: false, error: err.message, stack: err.stack });
   } finally {
-    try {
-      lock.releaseLock();
-    } catch (_) {}
+    try { SpreadsheetApp.flush(); } finally { lock.releaseLock(); }
   }
 }
 
@@ -337,8 +337,11 @@ function doPost(e) {
  * Si se envía una nueva ubicación para un ítem existente, NO crea una nueva fila.
  * En su lugar guarda en Col E (Ubicación 1) o Col F (Ubicación 2).
  */
-function upsertCount_(payload) {
-  const center = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
+function upsertCount_(payload, batch) {
+  ['stockFisico', 'stockBuenEstado', 'malEstado', 'reconteo', 'reconteoFisico', 'reconteoMalEstado', 'malestadoReconteo', 'reconteo2', 'malestadoReconteo2'].forEach(key => {
+    if (hasValue_(payload[key]) && (!Number.isSafeInteger(Number(payload[key])) || Number(payload[key]) < 0 || typeof payload[key] === 'boolean')) throw new Error('Cantidad inválida: ' + key);
+  });
+  const center = String(payload.center || payload.centro || '').trim();
   const sku = String(payload.sku || payload.SKU || '').trim();
   const barcode = String(payload.barcode || payload.codigoBarras || payload.Codigo_Barras || '').trim();
   const location = String(payload.location || payload.ubicacion || payload.Ubicacion || '').trim();
@@ -348,17 +351,19 @@ function upsertCount_(payload) {
     throw new Error('upsertCount requiere al menos sku o barcode');
   }
 
-  const sh = getCenterSheet_(center);
+  const sh = batch ? batch.sheet : getCenterSheet_(center);
 
   // Búsqueda en una sola lectura de memoria
-  let targetRow = findRowInSheet_(sh, sku, barcode, location, warehouse);
+  let targetRow = findRowInSheet_(sh, sku, barcode, payload.isNewLocation ? '' : location, warehouse, batch && batch.rows);
   let isNewDiscovery = false;
 
   // Si el ítem no existe en absoluto en el Sheet, se agrega una sola fila con 37 columnas
   if (!targetRow) {
+    if (String(payload.type || '').toUpperCase() !== 'BARRIDO' && !payload.allowNewItem) throw new Error('Ítem no encontrado en ese almacén y ubicación.');
     const newRowNumber = appendNewItem_(sh, payload);
     targetRow = { rowNumber: newRowNumber };
     isNewDiscovery = true;
+    if (batch) batch.rows.push(sh.getRange(newRowNumber, 1, 1, 40).getValues()[0]);
   } else {
     // Si ya existe, actualiza reutilizando la fila leída
     updateExistingRow_(sh, targetRow.rowNumber, payload, targetRow.row);
@@ -381,27 +386,20 @@ function upsertCount_(payload) {
 }
 
 function batchUpsertCounts_(payload) {
-  const center = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
+  const center = String(payload.center || payload.centro || '').trim();
   const updates = Array.isArray(payload.updates) ? payload.updates : [];
-  const sh = getCenterSheet_(center);
-  ensureColumns_(sh);
-
-  let updatedCount = 0;
-  let createdCount = 0;
-
-  updates.forEach(item => {
+  const sheet = getCenterSheet_(center);
+  ensureColumns_(sheet);
+  const batch = { sheet, rows: sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 40).getValues() : [] };
+  const failedItems = [];
+  let updatedCount = 0, createdCount = 0;
+  updates.forEach((item, index) => {
     try {
-      const res = upsertCount_({
-        center,
-        type: payload.type,
-        ...item
-      });
-      if (res.isNewItem) createdCount++;
-      else updatedCount++;
-    } catch (e) {}
+      const result = upsertCount_({ ...item, center, type: payload.type }, batch);
+      if (result.isNewItem) createdCount++; else updatedCount++;
+    } catch (error) { failedItems.push({ index, itemId: item.itemId, sku: item.sku || item.SKU, error: error.message }); }
   });
-
-  return { center, total: updates.length, updatedCount, createdCount };
+  return { success: failedItems.length === 0, center, total: updates.length, updatedCount, createdCount, failedItems };
 }
 
 /**
@@ -411,7 +409,7 @@ function batchUpsertCounts_(payload) {
  * y la diferencia queda en 0.
  */
 function saveJustificationToSheet_(payload) {
-  const center = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
+  const center = String(payload.center || payload.centro || '').trim();
   const sku = String(payload.sku || payload.SKU || '').trim();
   const razon = String(payload.razon || payload.reasonType || payload.razonJustificacion || payload.Razon || 'AJUSTE_INVENTARIO').trim();
   const comentarioJust = String(payload.comentarioJustificacion || payload.justification || payload.comentariosJustificacion || payload.Comentario_Justificacion || '').trim();
@@ -443,9 +441,9 @@ function saveJustificationToSheet_(payload) {
   // Si se marca como CUADRA en la Columna T, reescribir Columna K (Stock_Sistema) con el último conteo físico
   if (isCuadra) {
     let stockFisicoCuadra = num_(row[COL.Stock_Total - 1]);
-    if (hasValue_(row[COL.Stock_Total_Reconteo_2 - 1]) && num_(row[COL.Stock_Total_Reconteo_2 - 1]) > 0) {
+    if (hasValue_(row[COL.Stock_Total_Reconteo_2 - 1])) {
       stockFisicoCuadra = num_(row[COL.Stock_Total_Reconteo_2 - 1]);
-    } else if (hasValue_(row[COL.Stock_Total_Reconteo - 1]) && num_(row[COL.Stock_Total_Reconteo - 1]) > 0) {
+    } else if (hasValue_(row[COL.Stock_Total_Reconteo - 1])) {
       stockFisicoCuadra = num_(row[COL.Stock_Total_Reconteo - 1]);
     } else if (hasValue_(payload.stockFisico)) {
       stockFisicoCuadra = num_(payload.stockFisico);
@@ -509,7 +507,7 @@ function saveJustificationToSheet_(payload) {
 }
 
 function createFinalFile_(payload) {
-  const centerCode = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
+  const centerCode = String(payload.center || payload.centro || '').trim();
   const type = String(payload.type || 'CICLICO').toUpperCase();
   const driveRecord = payload.driveRecord || {};
 
@@ -545,7 +543,7 @@ function createFinalFile_(payload) {
   return {
     fileId: copyFile.getId(),
     fileName: copyFile.getName(),
-    spreadsheetUrl: copyFile.getUrl(),
+    spreadsheetUrl: copyFile.getUrl() + '#gid=' + sh.getSheetId(),
     folderId: snapshotFolder.getId(),
     center: centerCode,
     type,
@@ -576,12 +574,8 @@ function applyJustificationsToSheet_(sheet, justifications) {
         corroboracion: String(j.corroboracion || j.corroboration || '').toUpperCase(),
         round: j.round || j.justificationRound || 1
       };
-      if (war) {
-        justMap.set(`${sku}___${war}`, data);
-      }
-      if (!justMap.has(sku)) {
-        justMap.set(sku, data);
-      }
+      const location = norm_(j.ubicacion || j.location || j.Ubicacion || '');
+      justMap.set(`${sku}___${war}___${location}`, data);
     }
   });
 
@@ -589,8 +583,8 @@ function applyJustificationsToSheet_(sheet, justifications) {
   for (let i = 0; i < values.length; i++) {
     const rowSku = norm_(values[i][COL.SKU - 1]);
     const rowWar = COL.Almacen ? norm_(values[i][COL.Almacen - 1]) : '';
-    const keyWithWar = rowWar ? `${rowSku}___${rowWar}` : rowSku;
-    const justData = justMap.get(keyWithWar) || justMap.get(rowSku);
+    const keyWithWar = `${rowSku}___${rowWar}___${norm_(values[i][COL.Ubicacion - 1])}`;
+    const justData = justMap.get(keyWithWar);
     if (justData) {
       const stockFisico = num_(values[i][COL.Stock_Total - 1]);
       const estadoJust = justData.corroboracion === 'CUADRA' ? 'CUADRA' : 'NO CUADRA';
@@ -635,22 +629,11 @@ function getCenterSheet_(center) {
 }
 
 function getCenterSheetFromSs_(ss, center) {
-  const cleanCenter = String(center || '').trim();
-  let sh = ss.getSheetByName(cleanCenter);
-  if (sh) return sh;
-
-  const sheets = ss.getSheets();
-  for (let i = 0; i < sheets.length; i++) {
-    const name = sheets[i].getName().trim();
-    if (name.toUpperCase().indexOf(cleanCenter.toUpperCase()) !== -1) {
-      return sheets[i];
-    }
-  }
-
-  sh = ss.getSheetByName(CFG.defaultSheetName);
-  if (sh) return sh;
-
-  return ss.getSheets()[0];
+  const clean = String(center || '').trim();
+  if (!/^\d{4}$/.test(clean)) throw new Error('Centro inválido: ' + clean);
+  const sheet = ss.getSheetByName(clean);
+  if (!sheet) throw new Error('No existe la pestaña del centro ' + clean);
+  return sheet;
 }
 
 function ensureColumns_(sheet) {
@@ -667,7 +650,7 @@ function asegurarTodasLasColumnas() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheets = ss.getSheets();
   sheets.forEach(sh => {
-    if (sh.getName() !== 'BD_BASE') {
+    if (sh.getName() !== 'BD_BASE' && sh.getName() !== '_NIBOL_SYNC') {
       const maxCols = sh.getMaxColumns();
       if (maxCols < 40) {
         sh.insertColumnsAfter(maxCols, 40 - maxCols);
@@ -693,73 +676,19 @@ function asegurarTodasLasColumnas() {
  * Búsqueda de alta velocidad: lee los datos de la hoja una sola vez en memoria
  * y aplica prioridades de coincidencia sin llamadas redundantes a Google Sheets.
  */
-function findRowInSheet_(sheet, sku, barcode, location, warehouse) {
+function findRowInSheet_(sheet, sku, barcode, location, warehouse, cachedRows) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return null;
-
-  const data = sheet.getRange(2, 1, lastRow - 1, 40).getValues();
-  const sTarget = norm_(sku);
-  const bTarget = norm_(barcode);
-  const lTarget = norm_(location);
-  const wTarget = norm_(warehouse);
-
-  // 1. Coincidencia exacta SKU/Barcode + Ubicación + Almacén
-  if (wTarget && lTarget) {
-    for (let i = 0; i < data.length; i++) {
-      const r = data[i];
-      const matchSku = (sTarget && norm_(r[COL.SKU - 1]) === sTarget) || (bTarget && norm_(r[COL.Codigo_Barras - 1]) === bTarget);
-      if (!matchSku) continue;
-      const locD = norm_(r[COL.Ubicacion - 1]);
-      const locE = norm_(r[COL.Ubicacion_1 - 1]);
-      const locF = norm_(r[COL.Ubicacion_2 - 1]);
-      const matchLoc = locD === lTarget || locE === lTarget || locF === lTarget;
-      const rWarehouse = COL.Almacen ? norm_(r[COL.Almacen - 1]) : '';
-      const matchWar = !rWarehouse || rWarehouse === wTarget;
-
-      if (matchLoc && matchWar) {
-        return { rowNumber: i + 2, row: r };
-      }
-    }
-  }
-
-  // 2. Coincidencia por SKU/Barcode + Ubicación
-  if (lTarget) {
-    for (let i = 0; i < data.length; i++) {
-      const r = data[i];
-      const matchSku = (sTarget && norm_(r[COL.SKU - 1]) === sTarget) || (bTarget && norm_(r[COL.Codigo_Barras - 1]) === bTarget);
-      if (!matchSku) continue;
-      const locD = norm_(r[COL.Ubicacion - 1]);
-      const locE = norm_(r[COL.Ubicacion_1 - 1]);
-      const locF = norm_(r[COL.Ubicacion_2 - 1]);
-      const matchLoc = locD === lTarget || locE === lTarget || locF === lTarget;
-
-      if (matchLoc) {
-        return { rowNumber: i + 2, row: r };
-      }
-    }
-  }
-
-  // 3. Coincidencia por SKU/Barcode + Almacén
-  if (wTarget && COL.Almacen) {
-    for (let i = 0; i < data.length; i++) {
-      const r = data[i];
-      const matchSku = (sTarget && norm_(r[COL.SKU - 1]) === sTarget) || (bTarget && norm_(r[COL.Codigo_Barras - 1]) === bTarget);
-      if (matchSku && norm_(r[COL.Almacen - 1]) === wTarget) {
-        return { rowNumber: i + 2, row: r };
-      }
-    }
-  }
-
-  // 4. Fallback: Primera coincidencia por SKU o Código de Barras
-  for (let i = 0; i < data.length; i++) {
-    const r = data[i];
-    const matchSku = (sTarget && norm_(r[COL.SKU - 1]) === sTarget) || (bTarget && norm_(r[COL.Codigo_Barras - 1]) === bTarget);
-    if (matchSku) {
-      return { rowNumber: i + 2, row: r };
-    }
-  }
-
-  return null;
+  const data = cachedRows || sheet.getRange(2, 1, lastRow - 1, 40).getValues();
+  const candidates = [];
+  data.forEach((row, index) => {
+    if (sku ? norm_(row[COL.SKU - 1]) !== norm_(sku) : (!barcode || norm_(row[COL.Codigo_Barras - 1]) !== norm_(barcode))) return;
+    if (warehouse && norm_(row[COL.Almacen - 1]) !== norm_(warehouse)) return;
+    if (location && ![COL.Ubicacion, COL.Ubicacion_1, COL.Ubicacion_2].some(col => norm_(row[col - 1]) === norm_(location))) return;
+    candidates.push({ rowNumber: index + 2, row });
+  });
+  if (candidates.length > 1) throw new Error('SKU ambiguo: especifique almacén y ubicación exactos.');
+  return candidates[0] || null;
 }
 
 function findExactRow_(sheet, sku, barcode, location, warehouse) {
@@ -833,9 +762,9 @@ function updateExistingRow_(sheet, rowNumber, data, existingRow) {
   if (hasJust1) {
     if (isCuadra) {
       let stockFisicoCuadra = num_(row[COL.Stock_Total - 1]);
-      if (hasValue_(row[COL.Stock_Total_Reconteo_2 - 1]) && num_(row[COL.Stock_Total_Reconteo_2 - 1]) > 0) {
+      if (hasValue_(row[COL.Stock_Total_Reconteo_2 - 1])) {
         stockFisicoCuadra = num_(row[COL.Stock_Total_Reconteo_2 - 1]);
-      } else if (hasValue_(row[COL.Stock_Total_Reconteo - 1]) && num_(row[COL.Stock_Total_Reconteo - 1]) > 0) {
+      } else if (hasValue_(row[COL.Stock_Total_Reconteo - 1])) {
         stockFisicoCuadra = num_(row[COL.Stock_Total_Reconteo - 1]);
       } else if (hasValue_(data.stockTotal)) {
         stockFisicoCuadra = num_(data.stockTotal);
@@ -959,14 +888,14 @@ function updateExistingRow_(sheet, rowNumber, data, existingRow) {
       : (data.FECHA_RECONTEO ? new Date(data.FECHA_RECONTEO) : new Date());
 
     // AA (27): MALESTADO RECONTEO
-    const malRec1 = hasValue_(data.malestadoReconteo || data.reconteoMalEstado || data.MALESTADO_RECONTEO)
-      ? num_(data.malestadoReconteo || data.reconteoMalEstado || data.MALESTADO_RECONTEO)
+    const malRec1 = hasValue_(firstValue_(data.malestadoReconteo, data.reconteoMalEstado, data.MALESTADO_RECONTEO))
+      ? num_(firstValue_(data.malestadoReconteo, data.reconteoMalEstado, data.MALESTADO_RECONTEO))
       : (hasValue_(row[COL.Malestado_Reconteo - 1]) ? num_(row[COL.Malestado_Reconteo - 1]) : 0);
     row[COL.Malestado_Reconteo - 1] = malRec1;
 
     // Z (26): RECONTEO (buen estado)
-    const recBuenEstado = hasValue_(data.reconteo || data.reconteoFisico || data.RECONTEO)
-      ? num_(data.reconteo || data.reconteoFisico || data.RECONTEO)
+    const recBuenEstado = hasValue_(firstValue_(data.reconteo, data.reconteoFisico, data.RECONTEO))
+      ? num_(firstValue_(data.reconteo, data.reconteoFisico, data.RECONTEO))
       : num_(row[COL.Reconteo - 1]);
     row[COL.Reconteo - 1] = recBuenEstado;
 
@@ -1042,14 +971,14 @@ function updateExistingRow_(sheet, rowNumber, data, existingRow) {
       : (data.FECHA_RECONTEO_2 ? new Date(data.FECHA_RECONTEO_2) : new Date());
 
     // AL (38): MALESTADO RECONTEO 2
-    const malRec2 = hasValue_(data.malestadoReconteo2 || data.MALESTADO_RECONTEO_2)
-      ? num_(data.malestadoReconteo2 || data.MALESTADO_RECONTEO_2)
+    const malRec2 = hasValue_(firstValue_(data.malestadoReconteo2, data.MALESTADO_RECONTEO_2))
+      ? num_(firstValue_(data.malestadoReconteo2, data.MALESTADO_RECONTEO_2))
       : (hasValue_(row[COL.Malestado_Reconteo_2 - 1]) ? num_(row[COL.Malestado_Reconteo_2 - 1]) : 0);
     row[COL.Malestado_Reconteo_2 - 1] = malRec2;
 
     // AK (37): RECONTEO 2 (buen estado)
-    const recBuenEstado2 = hasValue_(data.reconteo2 || data.RECONTEO_2)
-      ? num_(data.reconteo2 || data.RECONTEO_2)
+    const recBuenEstado2 = hasValue_(firstValue_(data.reconteo2, data.RECONTEO_2))
+      ? num_(firstValue_(data.reconteo2, data.RECONTEO_2))
       : num_(row[COL.Reconteo_2 - 1]);
     row[COL.Reconteo_2 - 1] = recBuenEstado2;
 
@@ -1138,70 +1067,21 @@ function appendNewItem_(sheet, data) {
 }
 
 function syncFromDriveRecordItems_(sheet, items, center, type) {
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2 || !items || !items.length) return;
-
   ensureColumns_(sheet);
-  const range = sheet.getRange(2, 1, lastRow - 1, 40);
-  const values = range.getValues();
-
-  const skuMap = new Map();
-  for (let i = 0; i < values.length; i++) {
-    const s = norm_(values[i][COL.SKU - 1]);
-    if (s && !skuMap.has(s)) skuMap.set(s, i);
-  }
-
-  let hasUpdates = false;
-  items.forEach(it => {
-    const sku = String(it.SKU || it.sku || '').trim();
-    if (!sku) return;
-    const sNorm = norm_(sku);
-
-    if (skuMap.has(sNorm)) {
-      const rowIndex = skuMap.get(sNorm);
-      const row = values[rowIndex];
-      const stockSistema = num_(row[COL.Stock_Sistema - 1]);
-      const costoUnitario = num_(row[COL.Costo_Unitario - 1]);
-
-      const stockBuenEstado = hasValue_(it.Stock_Buen_Estado)
-        ? num_(it.Stock_Buen_Estado)
-        : (hasValue_(it.stockBuenEstado) ? num_(it.stockBuenEstado) : (hasValue_(it.Stock_Fisico) ? num_(it.Stock_Fisico) : num_(row[COL.Stock_Buen_Estado - 1])));
-      const malEstado = hasValue_(it.Mal_estado) ? num_(it.Mal_estado) : (hasValue_(it.malEstado) ? num_(it.malEstado) : num_(row[COL.Mal_estado - 1]));
-
-      let stockTotal = stockBuenEstado + malEstado;
-      if (hasValue_(it.Stock_Total || it.stockTotal)) {
-        stockTotal = num_(it.Stock_Total || it.stockTotal);
-      }
-
-      if (hasValue_(it.Ubicacion_1 || it.ubicacion1)) row[COL.Ubicacion_1 - 1] = String(it.Ubicacion_1 || it.ubicacion1).trim();
-      if (hasValue_(it.Ubicacion_2 || it.ubicacion2)) row[COL.Ubicacion_2 - 1] = String(it.Ubicacion_2 || it.ubicacion2).trim();
-
-      const dif = stockTotal - stockSistema;
-      const costoDif = dif * costoUnitario;
-
-      row[COL.Stock_Total - 1] = stockTotal;
-      row[COL.Stock_Buen_Estado - 1] = stockBuenEstado;
-      row[COL.Mal_estado - 1] = malEstado;
-      row[COL.Diferencia - 1] = dif;
-      row[COL.Costo_Diferencia - 1] = costoDif;
-      row[COL.Fecha_Ultimo_Conteo - 1] = it.Fecha_Ultimo_Conteo ? new Date(it.Fecha_Ultimo_Conteo) : new Date();
-      row[COL.Responsable - 1] = it.Responsable || it.responsable || row[COL.Responsable - 1] || '';
-      if (hasValue_(it.estadoJustificacion || it.Estado_Justificacion)) {
-        row[COL.Estado - 1] = String(it.estadoJustificacion || it.Estado_Justificacion);
-      }
-
-      hasUpdates = true;
-      saveDamagedPhotoIfAny_(it, center, type, sku);
-    } else {
-      appendNewItem_(sheet, it);
-    }
+  const rows = items.map(item => {
+    const row = Array(40).fill('');
+    Object.keys(COL).forEach(key => {
+      if (key !== 'Stock_Fisico' && hasValue_(item[key])) row[COL[key] - 1] = item[key];
+    });
+    row[COL.Stock_Total - 1] = firstValue_(item.Stock_Total, hasValue_(item.Stock_Fisico) ? num_(item.Stock_Fisico) + num_(item.Mal_estado) : null) ?? '';
+    row[COL.Stock_Buen_Estado - 1] = firstValue_(item.Stock_Buen_Estado, item.Stock_Fisico) ?? '';
+    row[COL.Reconteo - 1] = firstValue_(item.Reconteo, item.Reconteo_Fisico) ?? '';
+    row[COL.Malestado_Reconteo - 1] = firstValue_(item.Malestado_Reconteo, item.Reconteo_Mal_Estado) ?? '';
+    return row;
   });
-
-  if (hasUpdates) {
-    const updateRange = sheet.getRange(2, 4, lastRow - 1, 37);
-    const updateValues = values.map(r => r.slice(3, 40));
-    updateRange.setValues(updateValues);
-  }
+  const oldRows = sheet.getLastRow() - 1;
+  if (oldRows > 0) sheet.getRange(2, 1, oldRows, 40).clearContent();
+  if (rows.length) sheet.getRange(2, 1, rows.length, 40).setValues(rows);
 }
 
 function readRowsAsObjects_(sheet) {
@@ -1283,7 +1163,7 @@ function getReferencePhotoBySku_(sku) {
 }
 
 function savePhotoDirectly_(payload) {
-  const center = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
+  const center = String(payload.center || payload.centro || '').trim();
   const type = String(payload.type || 'BARRIDO').toUpperCase().trim();
   const sku = String(payload.sku || payload.SKU || payload.barcode || 'SKU').trim();
   const category = String(payload.category || payload.photoType || 'malestado').toLowerCase();
@@ -1421,11 +1301,12 @@ function saveDamagedPhotoIfAny_(payload, center, type, skuOrBar) {
   if (!targetFolder) targetFolder = getRootFolderForType_(type);
 
   const cleanSku = String(skuOrBar || 'SKU').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const fileName = `${cleanSku}.jpg`;
+  const fileName = photoFileName_(payload, cleanSku, photo);
 
   const existing = targetFolder.getFilesByName(fileName);
-  while (existing.hasNext()) {
-    try { existing.next().setTrashed(true); } catch (_) {}
+  if (existing.hasNext()) {
+    const file = existing.next();
+    return { id: file.getId(), name: file.getName(), url: file.getUrl(), mimeType: file.getMimeType(), folderId: targetFolder.getId() };
   }
 
   return saveBase64Image_(targetFolder, fileName, photo);
@@ -1438,7 +1319,7 @@ function saveJustificationPhotoIfAny_(payload, center, type, skuOrBar) {
     return null;
   }
 
-  const isJustification = !!(payload.razon || payload.comentarioJustificacion || payload.justification || payload.action === 'saveJustification' || payload.photoJustificacion);
+  const isJustification = !!(payload.razon || payload.comentarioJustificacion || payload.justification || payload.action === 'saveJustification' || String(payload.category || '').includes('just') || payload.photoJustificacion);
   if (!isJustification) return null;
 
   let targetFolder = null;
@@ -1453,100 +1334,46 @@ function saveJustificationPhotoIfAny_(payload, center, type, skuOrBar) {
   if (!targetFolder) targetFolder = getRootFolderForType_(type);
 
   const cleanSku = String(skuOrBar || 'SKU').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const fileName = `${cleanSku}.jpg`;
+  const fileName = photoFileName_(payload, cleanSku, photo);
 
   const existing = targetFolder.getFilesByName(fileName);
-  while (existing.hasNext()) {
-    try { existing.next().setTrashed(true); } catch (_) {}
+  if (existing.hasNext()) {
+    const file = existing.next();
+    return { id: file.getId(), name: file.getName(), url: file.getUrl(), mimeType: file.getMimeType(), folderId: targetFolder.getId() };
   }
 
   return saveBase64Image_(targetFolder, fileName, photo);
 }
 
 function saveJustificationPhotosBatch_(justifications, center, type) {
-  if (!justifications || !justifications.length) return 0;
-  let targetFolder = null;
-  try {
-    targetFolder = getJustificationPhotosTargetFolder_(center, type, null);
-  } catch (err) {
-    Logger.log('Error creando carpeta batch justificaciones: ' + err.message);
-  }
-  if (!targetFolder) targetFolder = getRootFolderForType_(type);
-
   let saved = 0;
-  try {
-    justifications.forEach(j => {
-      const photo = j.photoUrl || j.evidenceUrl || j.photoBase64 || j.photo || j.foto_justificacion;
-      const sku = j.sku || j.SKU;
-      if (!photo || !sku) return;
-
-      const cleanSku = String(sku).replace(/[^a-zA-Z0-9_-]/g, '_');
-      const fileName = `${cleanSku}.jpg`;
-
-      const existing = targetFolder.getFilesByName(fileName);
-      while (existing.hasNext()) {
-        try { existing.next().setTrashed(true); } catch (_) {}
-      }
-
-      const f = saveBase64Image_(targetFolder, fileName, photo);
-      if (f) saved++;
-    });
-  } catch (err) {
-    Logger.log('Error batch fotos justificaciones: ' + err.message);
-  }
+  (justifications || []).forEach(j => {
+    const photo = j.photoBase64 || j.photoJustificacion || '';
+    // Existing Drive URLs already refer to durable evidence; do not re-upload.
+    if (!String(photo).startsWith('data:image/')) return;
+    const result = saveJustificationPhotoIfAny_({ ...j, category: 'justificaciones', photoJustificacion: photo }, center, type, j.sku || j.SKU);
+    if (!result) throw new Error('No se pudo guardar una foto del archivo final.');
+    saved++;
+  });
   return saved;
 }
 
+function photoFileName_(payload, sku, photo) {
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(photo));
+  const hash = digest.map(b => ('0' + ((b + 256) % 256).toString(16)).slice(-2)).join('').slice(0, 20);
+  const identity = [payload.inventoryId || '', payload.itemId || sku, payload.almacen || '', payload.location || '', payload.category || '', payload.round || (payload.isJustification2 ? 2 : 1), hash].join('_');
+  const ext = String(photo).startsWith('data:image/png') ? '.png' : String(photo).startsWith('data:image/webp') ? '.webp' : '.jpg';
+  return identity.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 150) + '_' + hash + ext;
+}
+
 function saveBase64Image_(folder, fileName, dataUriOrBase64) {
-  let base64 = String(dataUriOrBase64 || '').trim();
-  if (!base64) return null;
-
-  let mimeType = 'image/jpeg';
-  if (base64.indexOf(';base64,') !== -1) {
-    const parts = base64.split(';base64,');
-    const meta = parts[0].toLowerCase();
-    base64 = parts[1].replace(/\s+/g, '');
-    if (meta.indexOf('image/png') !== -1) mimeType = 'image/png';
-    else if (meta.indexOf('image/webp') !== -1) mimeType = 'image/webp';
-    else if (meta.indexOf('image/gif') !== -1) mimeType = 'image/gif';
-  } else if (base64.startsWith('http://') || base64.startsWith('https://')) {
-    try {
-      const resp = UrlFetchApp.fetch(base64, { muteHttpExceptions: true });
-      if (resp.getResponseCode() === 200) {
-        const blob = resp.getBlob().setName(fileName);
-        const file = folder.createFile(blob);
-        try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (_) {}
-        return { id: file.getId(), name: file.getName(), url: file.getUrl(), folderId: folder.getId() };
-      }
-    } catch (e) {
-      Logger.log('Error fetch imagen URL: ' + e.message);
-    }
-    return null;
-  } else if (base64.startsWith('/')) {
-    return null;
-  } else {
-    base64 = base64.replace(/\s+/g, '');
-  }
-
-  try {
-    const bytes = Utilities.base64Decode(base64);
-    const blob = Utilities.newBlob(bytes, mimeType, fileName);
-    const file = folder.createFile(blob);
-    try {
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    } catch (_) {}
-
-    return {
-      id: file.getId(),
-      name: file.getName(),
-      url: file.getUrl(),
-      folderId: folder.getId(),
-      folderName: folder.getName()
-    };
-  } catch (errDecode) {
-    Logger.log('Error decodificando y creando archivo de imagen en Drive: ' + errDecode.message);
-    return null;
-  }
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/.exec(String(dataUriOrBase64 || ''));
+  if (!match) throw new Error('Formato de imagen inválido; se requiere JPEG, PNG o WebP en base64.');
+  const bytes = Utilities.base64Decode(match[2]);
+  if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error('Tamaño de imagen inválido.');
+  const file = folder.createFile(Utilities.newBlob(bytes, match[1], fileName));
+  try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (_) {}
+  return { id: file.getId(), name: file.getName(), url: file.getUrl(), mimeType: match[1], folderId: folder.getId(), folderName: folder.getName() };
 }
 
 function getRootFolderForType_(type) {
@@ -1600,7 +1427,7 @@ function buildFinalSpreadsheetName_(type, center) {
  * Ya no elimina una fila completa del Sheet, sino que borra el valor en Col E o Col F.
  */
 function deleteAdditionalLocation_(payload) {
-  const center = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
+  const center = String(payload.center || payload.centro || '').trim();
   const sku = norm_(payload.sku || payload.SKU || '');
   const location = norm_(payload.location || payload.ubicacion || payload.Ubicacion || '');
   const warehouse = norm_(payload.warehouse || payload.almacen || payload.Almacen || '');
@@ -1736,4 +1563,31 @@ function norm_(v) {
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
+}
+
+function firstValue_() {
+  for (let i = 0; i < arguments.length; i++) if (hasValue_(arguments[i])) return arguments[i];
+  return null;
+}
+
+function operationSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('_NIBOL_SYNC');
+  if (!sheet) {
+    sheet = ss.insertSheet('_NIBOL_SYNC');
+    sheet.appendRow(['Operacion', 'Resultado', 'Fecha']);
+    sheet.hideSheet();
+  }
+  return sheet;
+}
+function readOperation_(id) {
+  const sheet = operationSheet_();
+  if (sheet.getLastRow() < 2) return null;
+  const cell = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).createTextFinder(String(id)).matchEntireCell(true).useRegularExpression(false).findNext();
+  return cell ? JSON.parse(sheet.getRange(cell.getRow(), 2).getValue()) : null;
+}
+function confirmOperation_(body, result) {
+  if (body.operationId && result.success === true) operationSheet_().appendRow([String(body.operationId), JSON.stringify(result), new Date()]);
+  SpreadsheetApp.flush();
+  return json_(result);
 }

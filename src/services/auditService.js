@@ -21,6 +21,22 @@ class AuditService {
         ...entry
       };
 
+      const operation = storagePath.operationContext.getStore();
+      if (operation) {
+        // Independent inventory/day segments avoid a global log write hotspot
+        // and keep every segment below Firestore's document size limit.
+        const scope = String(entry.inventoryId || entry.targetId || entry.center || 'GLOBAL').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const prefix = `audit-events-${scope}-${logEntry.timestamp.slice(0, 10)}`;
+        let segment = 1, events, file;
+        do {
+          file = path.join(this.auditDir, `${prefix}-${segment++}.json`);
+          events = storagePath.readJson(file, []);
+        } while (Buffer.byteLength(JSON.stringify(events)) > 500000);
+        events.push(logEntry);
+        storagePath.writeJson(file, events);
+        return logEntry;
+      }
+
       const filePath = this.getAuditFilePath(entry.center || 'GLOBAL');
       const existing = storagePath.readJson(filePath, []);
       existing.push(logEntry);
@@ -135,6 +151,10 @@ class AuditService {
     try {
       const globalPath = path.join(this.auditDir, 'audit-consolidated.json');
       let logs = storagePath.readJson(globalPath, []);
+      for (const file of storagePath.listFiles(this.auditDir).filter(name => name.startsWith('audit-events-') && name.endsWith('.json'))) {
+        logs.push(...storagePath.readJson(path.join(this.auditDir, file), []));
+      }
+      logs = [...new Map(logs.map(entry => [entry.id, entry])).values()].sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
 
       if (center && center !== 'GLOBAL' && center !== 'TODOS' && center !== 'undefined' && center !== 'null') {
         logs = logs.filter(l => (l.center || '').toUpperCase() === center.toUpperCase());

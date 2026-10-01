@@ -7,6 +7,9 @@ const driveService = require('./driveService');
 const gasService = require('./gasService');
 const metricsService = require('./metricsService');
 const snapshotService = require('./snapshotService');
+const { selectItem, quantity } = require('./itemIdentity');
+const PersistenceError = require('./persistenceError');
+const { createHash } = require('crypto');
 
 class InventoryService {
   constructor() {
@@ -54,6 +57,7 @@ class InventoryService {
   }
 
   async getInventories(user, filterCenter = null, filterType = null) {
+    await storagePath.refreshOperational();
     let files = this.getAllInventoryFiles();
 
     let list = [];
@@ -443,6 +447,7 @@ class InventoryService {
 
   updateCount({
     inventoryId,
+    expectedItemVersion,
     itemId,
     sku,
     barcode = null,
@@ -502,72 +507,21 @@ class InventoryService {
       : 'repuesto';
 
     const isCountProvided = (stockFisico !== null && stockFisico !== undefined && stockFisico !== '');
-    let qty = isCountProvided ? parseInt(stockFisico, 10) : null;
-    const damagedQty = parseInt(malEstado, 10) || 0;
+    let qty = quantity(stockFisico, 'Cantidad física', true);
+    const damagedQty = quantity(malEstado, 'Mal estado');
 
     // Strict boolean check: NEVER auto-generate new locations unless explicitly requested
     const isExplicitNewLocation = (isNewLocation === true || isNewLocation === 'true');
 
-    let targetItem = null;
-    if (itemId) {
-      targetItem = inv.items.find(it => it.id === itemId || String(it.id).trim() === String(itemId).trim());
-    }
-
+    let targetItem = selectItem(inv.items, { itemId, sku, barcode: barcode || codigoBarras, location, almacen, warehouse, isNewLocation: isExplicitNewLocation, allowNewItem: inv.type === 'BARRIDO' });
     const cleanTargetWarehouse = String(almacen || warehouse || '').trim().toUpperCase();
-
-    // 1. Si no se encontró por ID y se especificó almacén + ubicación: buscar coincidencia estricta en SKU, Almacén y Ubicación
-    if (!targetItem && sku && location && cleanTargetWarehouse) {
-      const cleanSku = String(sku).trim().toUpperCase();
-      const cleanLoc = String(location).trim().toUpperCase();
-      targetItem = inv.items.find(it => {
-        const itemSku = String(it.SKU || '').trim().toUpperCase();
-        if (itemSku !== cleanSku) return false;
-        const itemWar = String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase();
-        if (itemWar && itemWar !== cleanTargetWarehouse) return false;
-        const mainLoc = String(it.Ubicacion || '').trim().toUpperCase();
-        const extra1 = String(it.Ubicacion_1 || '').trim().toUpperCase();
-        const extra2 = String(it.Ubicacion_2 || '').trim().toUpperCase();
-        return mainLoc === cleanLoc || extra1 === cleanLoc || extra2 === cleanLoc;
-      });
+    if (targetItem && expectedItemVersion !== undefined && Number(expectedItemVersion) !== Number(targetItem._version || 0)) {
+      throw new PersistenceError('Este ítem cambió en otra sesión. Revise las cantidades antes de reenviar.', 'ITEM_CONFLICT', 409);
     }
+    if (!targetItem && inv.type !== 'BARRIDO') throw new PersistenceError('Ítem no encontrado en ese almacén y ubicación.', 'ITEM_NOT_FOUND', 409);
+    if (targetItem?.locked && locked === false) throw new PersistenceError('El ítem está confirmado. Solicite editar antes de cambiarlo.', 'ITEM_LOCKED', 409);
+    if (targetItem) targetItem._version = Number(targetItem._version || 0) + 1;
 
-    // 2. Si no se encontró y se especificó ubicación: buscar por SKU y esa ubicación
-    if (!targetItem && sku && location) {
-      const cleanSku = String(sku).trim().toUpperCase();
-      const cleanLoc = String(location).trim().toUpperCase();
-      targetItem = inv.items.find(it => {
-        const itemSku = String(it.SKU || '').trim().toUpperCase();
-        if (itemSku !== cleanSku) return false;
-        const mainLoc = String(it.Ubicacion || '').trim().toUpperCase();
-        const extra1 = String(it.Ubicacion_1 || '').trim().toUpperCase();
-        const extra2 = String(it.Ubicacion_2 || '').trim().toUpperCase();
-        return mainLoc === cleanLoc || extra1 === cleanLoc || extra2 === cleanLoc;
-      });
-    }
-
-    // 3. Si no se encontró y se especificó almacén (sin ubicación coincidente): buscar por SKU y almacén
-    if (!targetItem && sku && cleanTargetWarehouse) {
-      const cleanSku = String(sku).trim().toUpperCase();
-      targetItem = inv.items.find(it => {
-        const itemSku = String(it.SKU || '').trim().toUpperCase();
-        if (itemSku !== cleanSku) return false;
-        const itemWar = String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase();
-        return itemWar === cleanTargetWarehouse && (it.Stock_Fisico === null || it.Stock_Fisico === undefined);
-      }) || inv.items.find(it => {
-        const itemSku = String(it.SKU || '').trim().toUpperCase();
-        if (itemSku !== cleanSku) return false;
-        const itemWar = String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase();
-        return itemWar === cleanTargetWarehouse;
-      });
-    }
-
-    // 4. Solo si no se proporcionó ubicación/almacén o no se encontró, buscar por SKU respetando el estado de conteo
-    if (!targetItem && sku && !location) {
-      const cleanSku = String(sku).trim().toUpperCase();
-      // Si existen filas duplicadas de distintos almacenes/ubicaciones, preferir la no contada
-      targetItem = inv.items.find(it => String(it.SKU || '').trim().toUpperCase() === cleanSku && (it.Stock_Fisico === null || it.Stock_Fisico === undefined)) ||
-                   inv.items.find(it => String(it.SKU || '').trim().toUpperCase() === cleanSku);
-    }
     let previousQty = targetItem ? targetItem.Stock_Fisico : null;
 
     if (isExplicitNewLocation) {
@@ -614,6 +568,7 @@ class InventoryService {
         location: targetItem.Ubicacion,
         ubicacion1: targetItem.Ubicacion_1,
         ubicacion2: targetItem.Ubicacion_2,
+        almacen: targetItem.Almacen || targetItem.almacen || targetItem.warehouse || '',
         stockSistema: targetItem.Stock_Sistema,
         stockFisico: targetItem.Stock_Fisico,
         malEstado: targetItem.Mal_estado || 0,
@@ -647,10 +602,12 @@ class InventoryService {
 
           targetItem = {
             id: newItemId,
+            _version: 1,
             SKU: cleanSku,
             Codigo_Barras: cleanBarcode,
             Descripcion: cleanDesc,
             Ubicacion: location || '',
+            Almacen: cleanTargetWarehouse || inv.center || '',
             Categoria: cleanCategoria,
             Clasificacion_ABC: clasificacionAbc || 'C',
             Unidad: unidad || 'PZA',
@@ -671,38 +628,7 @@ class InventoryService {
           };
           inv.items.push(targetItem);
         } else {
-          // In CICLICO, SEMANAL, MENSUAL: DO NOT create a phantom new row!
-          let fallback = null;
-          if (sku && location && cleanTargetWarehouse) {
-            const cleanLoc = String(location).trim().toUpperCase();
-            fallback = inv.items.find(it => String(it.SKU).trim().toUpperCase() === String(sku).trim().toUpperCase() &&
-              String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanTargetWarehouse &&
-              (String(it.Ubicacion || '').trim().toUpperCase() === cleanLoc ||
-               String(it.Ubicacion_1 || '').trim().toUpperCase() === cleanLoc ||
-               String(it.Ubicacion_2 || '').trim().toUpperCase() === cleanLoc));
-          }
-          if (!fallback && sku && location) {
-            const cleanLoc = String(location).trim().toUpperCase();
-            fallback = inv.items.find(it => String(it.SKU).trim().toUpperCase() === String(sku).trim().toUpperCase() &&
-              (String(it.Ubicacion || '').trim().toUpperCase() === cleanLoc ||
-               String(it.Ubicacion_1 || '').trim().toUpperCase() === cleanLoc ||
-               String(it.Ubicacion_2 || '').trim().toUpperCase() === cleanLoc));
-          }
-          if (!fallback && sku && cleanTargetWarehouse) {
-            fallback = inv.items.find(it => String(it.SKU).trim().toUpperCase() === String(sku).trim().toUpperCase() &&
-              String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanTargetWarehouse &&
-              (it.Stock_Fisico === null || it.Stock_Fisico === undefined)) ||
-              inv.items.find(it => String(it.SKU).trim().toUpperCase() === String(sku).trim().toUpperCase() &&
-              String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanTargetWarehouse);
-          }
-          if (!fallback) {
-            fallback = inv.items.find(it => (sku && it.SKU === sku) || (barcode && it.Codigo_Barras === barcode));
-          }
-          if (fallback) {
-            targetItem = fallback;
-          } else {
-            throw new Error(`Ítem ${sku || itemId || ''} no encontrado en este inventario`);
-          }
+          throw new Error('Ítem no encontrado en ese almacén y ubicación');
         }
       } else {
         // Update description or barcode if they were provided and missing/placeholder
@@ -788,7 +714,7 @@ class InventoryService {
               try {
                 const parentInv = this.getInventoryRaw(inv.parentInventoryId);
                 if (parentInv && Array.isArray(parentInv.items)) {
-                  const pItem = parentInv.items.find(it => it.SKU === targetItem.SKU && (!targetItem.Ubicacion || it.Ubicacion === targetItem.Ubicacion));
+                  const pItem = parentInv.items.find(it => it.SKU === targetItem.SKU && it.Ubicacion === targetItem.Ubicacion && String(it.Almacen || '') === String(targetItem.Almacen || ''));
                   if (pItem) {
                     const pSys = Number(pItem.Stock_Sistema || 0);
                     const isNegParentMatch = (pSys < 0 && qty === 0 && damagedQty === 0);
@@ -881,10 +807,10 @@ class InventoryService {
       const driveService = require('./driveService');
       const resolvedPhotoBase64 = (photoBase64 && String(photoBase64).startsWith('data:image'))
         ? photoBase64
-        : (driveService.getPhotoAsDataUri(photoUrl || targetItem.foto_mal_estado) || (photoBase64 && !photoBase64.startsWith('/') ? photoBase64 : ''));
+        : '';
       const resolvedJustPhotoBase64 = (justificationPhoto && String(justificationPhoto).startsWith('data:image'))
         ? justificationPhoto
-        : (driveService.getPhotoAsDataUri(justificationPhotoUrl || targetItem.foto_justificacion) || (justificationPhoto && !justificationPhoto.startsWith('/') ? justificationPhoto : ''));
+        : '';
 
       const isReconteoMode = !!(inv.isReconteo || inv.phase === 'RECONTEO' || String(inv.id).startsWith('REC-'));
       gasService.upsertCountToGAS(inv.type, {
@@ -1192,19 +1118,9 @@ class InventoryService {
     const matchingItems = inv.items.filter(it => String(it.SKU || '').trim().toUpperCase() === cleanSku);
     if (matchingItems.length === 0) throw new Error(`Ítem ${sku} no encontrado en el inventario`);
 
-    let targetWarehouseItems = matchingItems;
-    if (itemId) {
-      const byId = matchingItems.filter(it => it.id === itemId);
-      if (byId.length > 0) targetWarehouseItems = byId;
-    }
-    if (targetWarehouseItems === matchingItems && cleanAlmacen) {
-      const byWar = matchingItems.filter(it => String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanAlmacen);
-      if (byWar.length > 0) targetWarehouseItems = byWar;
-    }
-    if (cleanLoc && targetWarehouseItems.length > 1) {
-      const byLoc = targetWarehouseItems.filter(it => String(it.Ubicacion || '').trim().toUpperCase() === cleanLoc);
-      if (byLoc.length > 0) targetWarehouseItems = byLoc;
-    }
+    const selected = selectItem(matchingItems, { itemId, sku, almacen, location });
+    if (!selected) throw new PersistenceError('Ítem no encontrado en ese almacén y ubicación.', 'ITEM_NOT_FOUND', 409);
+    let targetWarehouseItems = [selected];
 
     const isTenDigitLoc = (loc) => {
       if (!loc) return false;
@@ -1228,7 +1144,7 @@ class InventoryService {
 
     const isSecondJust = isJustification2 === true || isJustification2 === 'true' || round === 2 || round === '2' || isReconteoInv || (hasPreviousJust && hasRecountData);
 
-    const justId = driveService.formatJustificationName(inv.type, sku, inv.center, targetWar) + (isSecondJust ? '_JS2' : '');
+    const justId = driveService.formatJustificationName(inv.type, sku, inv.center, targetWar) + '_' + createHash('sha256').update(inv.id + ':' + item.id).digest('hex').slice(0, 20) + (isSecondJust ? '_JS2' : '');
     const justFilePath = path.join(this.justDir, `${justId}.json`);
 
     const effectiveDriveUrl = driveUrl || (photoUrl && String(photoUrl).includes('drive.google.com') ? photoUrl : null);
@@ -1383,8 +1299,9 @@ class InventoryService {
           let linkedTargets = linkedInv.items.filter(it => String(it.SKU || '').trim().toUpperCase() === cleanSku);
           if (cleanAlmacen) {
             const byWar = linkedTargets.filter(it => String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanAlmacen);
-            if (byWar.length > 0) linkedTargets = byWar;
+            linkedTargets = byWar;
           }
+          linkedTargets = linkedTargets.filter(it => String(it.Ubicacion || '').trim().toUpperCase() === String(item.Ubicacion || '').trim().toUpperCase());
           linkedTargets.forEach(it => {
             if (it.Stock_Sistema_Original === undefined) {
               it.Stock_Sistema_Original = it.Stock_Sistema !== undefined ? Number(it.Stock_Sistema) : 0;
@@ -1498,19 +1415,9 @@ class InventoryService {
     const matchingItems = inv.items.filter(it => String(it.SKU || '').trim().toUpperCase() === cleanSku);
     if (matchingItems.length === 0) throw new Error(`Ítem ${sku} no encontrado en el inventario`);
 
-    let targetItems = matchingItems;
-    if (itemId) {
-      const byId = matchingItems.filter(it => it.id === itemId);
-      if (byId.length > 0) targetItems = byId;
-    }
-    if (targetItems === matchingItems && cleanAlmacen) {
-      const byWar = matchingItems.filter(it => String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanAlmacen);
-      if (byWar.length > 0) targetItems = byWar;
-    }
-    if (cleanLoc && targetItems.length > 1) {
-      const byLoc = targetItems.filter(it => String(it.Ubicacion || '').trim().toUpperCase() === cleanLoc);
-      if (byLoc.length > 0) targetItems = byLoc;
-    }
+    const selected = selectItem(matchingItems, { itemId, sku, almacen, location });
+    if (!selected) throw new PersistenceError('Ítem no encontrado en ese almacén y ubicación.', 'ITEM_NOT_FOUND', 409);
+    const targetItems = [selected];
 
     targetItems.forEach(item => {
       if (item.Stock_Sistema_Original === undefined) {
@@ -1588,8 +1495,9 @@ class InventoryService {
           let linkedTargets = linkedInv.items.filter(it => String(it.SKU || '').trim().toUpperCase() === cleanSku);
           if (cleanAlmacen) {
             const byWar = linkedTargets.filter(it => String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanAlmacen);
-            if (byWar.length > 0) linkedTargets = byWar;
+            linkedTargets = byWar;
           }
+          linkedTargets = linkedTargets.filter(it => String(it.Ubicacion || '').trim().toUpperCase() === String(selected.Ubicacion || '').trim().toUpperCase());
           linkedTargets.forEach(item => {
             if (item.Stock_Sistema_Original === undefined) {
               item.Stock_Sistema_Original = item.Stock_Sistema !== undefined ? Number(item.Stock_Sistema) : 0;
@@ -1785,12 +1693,11 @@ class InventoryService {
     }
   }
 
-  getPendingJustifications(user, centerFilter = null, options = {}) {
+  getPendingJustifications(user, centerFilter = null) {
     if (user.role !== 'ADMIN' && user.role !== 'ENCARGADO' && !user.isSuperadmin) {
       throw new Error('No tiene permisos para acceder a las justificaciones');
     }
 
-    const includeFinalized = options.includeFinalized === true || options.status === 'ALL' || options.status === 'REVISADO';
     const files = this.getAllInventoryFiles();
     const tasks = [];
 
@@ -1901,6 +1808,9 @@ class InventoryService {
         return false;
       };
 
+      // Obtener todos los ítems con discrepancias reales (Columna P > 0 o < 0, diferencias o daño)
+      let discrepantItems = inv.items.filter(isItemDiscrepant);
+
       // Si este es el inventario hijo de reconteo y tiene un inventario padre, no mostrar como tarjeta separada
       // ya que el inventario principal se actualiza a RECONTEO_COMPLETADO y consolida toda la justificación final
       if (inv.isReconteo && inv.parentInventoryId) {
@@ -1912,9 +1822,8 @@ class InventoryService {
         return;
       }
 
-      // Si el inventario ya fue revisado y finalizado (cerrado en Drive), filtrar solo si no se solicitó includeFinalized
-      const isFinalized = inv.status === 'REVISADO' || inv.isFinalized === true;
-      if (isFinalized && !includeFinalized) {
+      // Si el inventario ya fue revisado y finalizado (cerrado en Drive), ya cumplió su ciclo y debe estar en Historial
+      if (inv.status === 'REVISADO' || inv.isFinalized) {
         return;
       }
 
@@ -1951,24 +1860,16 @@ class InventoryService {
         return null;
       };
 
-      // Incluir tanto discrepancias pendientes como ítems ya justificados para dar visibilidad completa
-      const isItemRelevantForJustifications = (it) => {
-        if (isItemDiscrepant(it)) return true;
-        const j = findJustificationForItem(it);
-        const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-        const hasJustData = !!(j || it.Comentario_Justificacion || it.justification || it.Razon || it.Razon_Justificacion || it.isCuadra === true || corr === 'CUADRA' || corr === 'JUSTIFICADO');
-        return hasJustData;
-      };
-
-      const validItemsToJustify = (inv.items || []).filter(isItemRelevantForJustifications);
+      // Solo ítems con discrepancias reales pendientes de justificar (los que no cuadran)
+      const validItemsToJustify = discrepantItems.filter(isItemDiscrepant);
 
       const pendingDiscrepancies = validItemsToJustify.filter(it => {
         const j = findJustificationForItem(it);
         const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-        return !j && corr !== 'CUADRA' && corr !== 'JUSTIFICADO' && it.isCuadra !== true && !it.Comentario_Justificacion && !it.justification;
+        return !j && corr !== 'CUADRA' && it.isCuadra !== true;
       });
 
-      if (validItemsToJustify.length > 0 || inv.status === 'PENDIENTE_JUSTIFICACION' || inv.status === 'EN_RECONTEO' || inv.status === 'RECONTEO_COMPLETADO' || isFinalized) {
+      if (validItemsToJustify.length > 0 || inv.status === 'PENDIENTE_JUSTIFICACION' || inv.status === 'EN_RECONTEO' || inv.status === 'RECONTEO_COMPLETADO' || inv.status === 'REVISADO') {
         if (inv.status === 'EN_RECONTEO') {
           const recId = inv.recountInventoryId || `REC-${inv.id}`;
           try {
@@ -1982,6 +1883,7 @@ class InventoryService {
             }
           } catch (e) {}
         }
+        const isFinalized = inv.status === 'REVISADO' || inv.isFinalized === true;
         tasks.push({
           inventoryId: inv.id,
           inventoryName: inv.name,
@@ -1989,8 +1891,6 @@ class InventoryService {
           center: inv.center,
           status: inv.status,
           isFinalized,
-          closedAt: inv.closedAt || null,
-          closedBy: inv.closedBy || null,
           phase: inv.phase || (inv.isReconteo ? 'RECONTEO' : 'CONTEO'),
           isReconteo: !!(inv.isReconteo || inv.phase === 'RECONTEO' || String(inv.id).startsWith('REC-')),
           parentInventoryId: inv.parentInventoryId || null,
@@ -2003,19 +1903,17 @@ class InventoryService {
           totalItems: inv.items.length,
           totalDiscrepancies: validItemsToJustify.length,
           pendingJustificationsCount: pendingDiscrepancies.length,
-          justifiedItemsCount: validItemsToJustify.length - pendingDiscrepancies.length,
           items: validItemsToJustify.map(it => {
             const jDetails = findJustificationForItem(it);
             const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-            const hasText = !!(it.Comentario_Justificacion || it.justification || (jDetails && jDetails.justification));
-            const isJustified = !!jDetails || corr === 'CUADRA' || corr === 'JUSTIFICADO' || it.isCuadra === true || hasText;
+            const isJustified = !!jDetails || corr === 'CUADRA' || String(it.Estado || '').toUpperCase() === 'JUSTIFICADO';
             return {
               ...it,
               Razon: it.Razon || it.Razon_Justificacion || (jDetails ? jDetails.reasonType : ''),
-              Comentario_Justificacion: it.Comentario_Justificacion || (jDetails ? jDetails.justification : (it.justification || '')),
+              Comentario_Justificacion: it.Comentario_Justificacion || (jDetails ? jDetails.justification : ''),
               isJustified,
-              corroborationStatus: it.corroborationStatus || it.corroboracion || (isJustified ? 'CUADRA' : null),
-              corroboratedBy: it.corroboratedBy || it.Revisado_Por || (jDetails ? jDetails.reviewedBy : null),
+              corroborationStatus: it.corroborationStatus || it.corroboracion || null,
+              corroboratedBy: it.corroboratedBy || it.Revisado_Por || null,
               justificationDetails: jDetails
             };
           })
@@ -2189,13 +2087,7 @@ class InventoryService {
     let gasSyncDetails = { synced: false, itemsUpdated: 0 };
     if (syncFromGAS !== false) {
       try {
-        let remoteRows = [];
-        if (inv.spreadsheetUrl || inv.driveUrl) {
-          remoteRows = await gasService.fetchSpreadsheetItems(inv.spreadsheetUrl || inv.driveUrl);
-        }
-        if ((!remoteRows || remoteRows.length === 0) && inv.type && inv.center) {
-          remoteRows = await gasService.fetchProductsFromScript(inv.type, inv.center);
-        }
+        const remoteRows = await gasService.fetchProductsFromScript(inv.type, inv.center);
 
         if (Array.isArray(remoteRows) && remoteRows.length > 0) {
           let updatedCount = 0;
@@ -2205,11 +2097,12 @@ class InventoryService {
             const itWar = String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase();
 
             // Buscar coincidencia exacta por SKU + Ubicación + Almacén, o fallback a SKU
-            const match = remoteRows.find(r => 
+            const candidates = remoteRows.filter(r =>
               String(r.SKU || '').trim().toUpperCase() === itSku &&
-              (!itLoc || !r.Ubicacion || String(r.Ubicacion).trim().toUpperCase() === itLoc) &&
-              (!itWar || !r.Almacen || String(r.Almacen).trim().toUpperCase() === itWar)
-            ) || remoteRows.find(r => String(r.SKU || '').trim().toUpperCase() === itSku);
+              String(r.Ubicacion || '').trim().toUpperCase() === itLoc &&
+              String(r.Almacen || '').trim().toUpperCase() === itWar);
+            const match = candidates.length === 1 ? candidates[0] : null;
+            if (it.Stock_Fisico !== null && it.Stock_Fisico !== undefined && it.Stock_Fisico !== '') return;
 
             if (match) {
               // 1er Conteo
@@ -2290,13 +2183,7 @@ class InventoryService {
       throw new Error(`No tiene permisos para modificar inventarios del centro ${inv.center}`);
     }
 
-    let remoteRows = [];
-    if (inv.spreadsheetUrl || inv.driveUrl) {
-      remoteRows = await gasService.fetchSpreadsheetItems(inv.spreadsheetUrl || inv.driveUrl);
-    }
-    if ((!remoteRows || remoteRows.length === 0) && inv.type && inv.center) {
-      remoteRows = await gasService.fetchProductsFromScript(inv.type, inv.center);
-    }
+    const remoteRows = await gasService.fetchProductsFromScript(inv.type, inv.center);
 
     if (!Array.isArray(remoteRows) || remoteRows.length === 0) {
       throw new Error('No se pudieron obtener datos del archivo de Google Sheets o está vacío.');
@@ -2308,11 +2195,14 @@ class InventoryService {
       const itLoc = String(it.Ubicacion || '').trim().toUpperCase();
       const itWar = String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase();
 
-      const match = remoteRows.find(r => 
+      const candidates = remoteRows.filter(r =>
         String(r.SKU || '').trim().toUpperCase() === itSku &&
-        (!itLoc || !r.Ubicacion || String(r.Ubicacion).trim().toUpperCase() === itLoc) &&
-        (!itWar || !r.Almacen || String(r.Almacen).trim().toUpperCase() === itWar)
-      ) || remoteRows.find(r => String(r.SKU || '').trim().toUpperCase() === itSku);
+        String(r.Ubicacion || '').trim().toUpperCase() === itLoc &&
+        String(r.Almacen || '').trim().toUpperCase() === itWar);
+      const match = candidates.length === 1 ? candidates[0] : null;
+      // Reconciliation fills missing counts; an unversioned Sheet snapshot must
+      // never overwrite a locally confirmed count or a completed review.
+      if (it.Stock_Fisico !== null && it.Stock_Fisico !== undefined && it.Stock_Fisico !== '') return;
 
       if (match) {
         // Stock Sistema y Costo
@@ -2395,67 +2285,6 @@ class InventoryService {
           }
         }
 
-        // Justificación y Corroboración desde Google Sheets
-        const hasSheetJust = !!(match.Comentario_Justificacion || match.Razon || match.Razon_Justificacion || match.corroboracion);
-        if (hasSheetJust) {
-          if (match.Comentario_Justificacion) {
-            it.Comentario_Justificacion = match.Comentario_Justificacion;
-            it.justification = match.Comentario_Justificacion;
-          }
-          if (match.Razon || match.Razon_Justificacion) {
-            it.Razon_Justificacion = match.Razon || match.Razon_Justificacion;
-            it.Razon = match.Razon || match.Razon_Justificacion;
-          }
-          if (match.corroboracion) {
-            it.corroboracion = match.corroboracion;
-            it.corroborationStatus = match.corroboracion;
-            it.isCuadra = String(match.corroboracion).toUpperCase().includes('CUADRA') && !String(match.corroboracion).toUpperCase().includes('NO');
-          }
-          if (match.Revisado_Por) {
-            it.Revisado_Por = match.Revisado_Por;
-            it.Responsable_Justificacion = match.Revisado_Por;
-          }
-          if (match.Fecha_Primera_Justificacion) {
-            it.Fecha_Primera_Justificacion = match.Fecha_Primera_Justificacion;
-          } else {
-            it.Fecha_Primera_Justificacion = it.Fecha_Primera_Justificacion || new Date().toISOString();
-          }
-
-          // Crear o sincronizar registro en data/justifications/
-          const skuClean = String(it.SKU || '').replace(/[^a-zA-Z0-9_-]/g, '_');
-          const warClean = String(it.Almacen || it.almacen || 'GEN').replace(/[^a-zA-Z0-9_-]/g, '_');
-          const justId = `JUST-${inv.type || 'CICLICO'}-${skuClean}-${inv.center || 'GEN'}-${warClean}`;
-          const justFilePath = path.join(this.justDir, `${justId}.json`);
-          const isCuadra = it.isCuadra === true || String(it.corroboracion || '').toUpperCase().trim() === 'CUADRA';
-          
-          const justRecord = {
-            id: justId,
-            inventoryId: inv.id,
-            sku: it.SKU,
-            itemId: it.id,
-            descripcion: it.Descripcion || '',
-            ubicacion: it.Ubicacion || '',
-            almacen: it.Almacen || warClean,
-            stockSistema: it.Stock_Sistema || 0,
-            stockSistemaOriginal: it.Stock_Sistema_Original !== undefined ? it.Stock_Sistema_Original : it.Stock_Sistema,
-            stockFisico: it.Stock_Fisico,
-            diferencia: it.Diferencia || 0,
-            costoDiferencia: it.Costo_Diferencia || 0,
-            malEstado: it.Mal_estado || 0,
-            justification: it.Comentario_Justificacion || 'Justificado en Google Sheets',
-            reasonType: it.Razon_Justificacion || it.Razon || 'balanceo',
-            corroboracion: isCuadra ? 'CUADRA' : 'NO CUADRA',
-            estado: isCuadra ? 'CUADRA' : 'NO CUADRA',
-            isCuadra: isCuadra,
-            reviewedBy: it.Revisado_Por || 'Encargado / Sheets',
-            reviewedAt: it.Fecha_Primera_Justificacion || new Date().toISOString(),
-            center: inv.center,
-            type: inv.type || 'CICLICO',
-            status: 'REVISADO'
-          };
-          storagePath.writeJson(justFilePath, justRecord);
-        }
-
         updatedCount++;
       }
     });
@@ -2467,7 +2296,8 @@ class InventoryService {
       if (!rSku) return;
       const exists = inv.items.some(it => 
         String(it.SKU || '').trim().toUpperCase() === rSku &&
-        (!rLoc || String(it.Ubicacion || '').trim().toUpperCase() === rLoc)
+        String(it.Ubicacion || '').trim().toUpperCase() === rLoc &&
+        String(it.Almacen || '').trim().toUpperCase() === String(r.Almacen || '').trim().toUpperCase()
       );
       if (!exists && (r.isAdditionalLocation || (r.Stock_Fisico !== null && r.Stock_Fisico !== undefined && r.Stock_Fisico !== ''))) {
         const hasCount = !!r.Fecha_Ultimo_Conteo || (r.Stock_Fisico !== null && r.Stock_Fisico !== undefined);
@@ -2500,26 +2330,6 @@ class InventoryService {
         updatedCount++;
       }
     });
-
-    // Evaluar si todos los ítems fueron contados y reconciliar estado operativo
-    const allCounted = inv.items.length > 0 && inv.items.every(it => it.Stock_Fisico !== null && it.Stock_Fisico !== undefined);
-    const unadjustedDiffs = inv.items.filter(it => {
-      const isDiff = it.Diferencia !== null && it.Diferencia !== undefined && Number(it.Diferencia) !== 0;
-      if (!isDiff) return false;
-      const isCuadra = it.isCuadra === true || String(it.corroboracion || '').toUpperCase().trim() === 'CUADRA';
-      const hasJust = !!(it.Comentario_Justificacion || it.justification);
-      return !isCuadra && !hasJust;
-    });
-
-    if (allCounted) {
-      if (unadjustedDiffs.length === 0) {
-        inv.status = 'REVISADO';
-        inv.isFinalized = true;
-        inv.closedAt = inv.closedAt || new Date().toISOString();
-      } else if (inv.status === 'EN_PROGRESO') {
-        inv.status = 'PENDIENTE_JUSTIFICACION';
-      }
-    }
 
     inv.lastGasSyncAt = new Date().toISOString();
     this.saveInventory(inv);
@@ -2571,28 +2381,15 @@ class InventoryService {
     const cleanLoc = String(location || '').trim().toUpperCase();
     const cleanWar = String(almacen || '').trim().toUpperCase();
 
-    let targetItem = null;
-    if (itemId) {
-      targetItem = inv.items.find(it => String(it.id) === String(itemId));
-    }
-    if (!targetItem && cleanSku) {
-      targetItem = inv.items.find(it => {
-        const iSku = String(it.SKU || '').trim().toUpperCase();
-        if (iSku !== cleanSku) return false;
-        const iLoc = String(it.Ubicacion || '').trim().toUpperCase();
-        const iWar = String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase();
-        if (cleanLoc && iLoc && cleanLoc !== iLoc) return false;
-        if (cleanWar && iWar && cleanWar !== iWar) return false;
-        return true;
-      }) || inv.items.find(it => String(it.SKU || '').trim().toUpperCase() === cleanSku);
-    }
+    const targetItem = selectItem(inv.items, { itemId, sku, location, almacen });
 
     if (!targetItem) {
       throw new Error(`Ítem con SKU ${sku} no encontrado en el inventario`);
     }
 
-    const qty = parseInt(stockFisico, 10) || 0;
-    const damagedQty = parseInt(malEstado, 10) || 0;
+    const qty = quantity(stockFisico, 'Cantidad física');
+    targetItem._version = Number(targetItem._version || 0) + 1;
+    const damagedQty = quantity(malEstado, 'Mal estado');
     const unitCost = Number(targetItem.Costo_Unitario) || 0;
     const sysStock = Number(targetItem.Stock_Sistema) || 0;
     const phaseClean = String(countPhase || '1ER_CONTEO').toUpperCase().trim();
@@ -3138,4 +2935,27 @@ class InventoryService {
   }
 }
 
-module.exports = new InventoryService();
+const service = new InventoryService();
+const mutations = ['createInventory', 'updateCount', 'requestUnlockItem', 'reassignTasks',
+  'submitInventoryForReview', 'saveJustification', 'corroborateItem', 'enableRecount',
+  'finishReviewAndClose', 'reopenInventory', 'syncInventoryFromSheet', 'updateItemQuantityInInventory',
+  'deleteInventory', 'restoreInventoryFromTrash', 'deleteItem', 'getPendingJustifications'];
+for (const name of mutations) {
+  const original = service[name];
+  service[name] = function (...args) {
+    if (storagePath.operationContext.getStore()) return original.apply(this, args);
+    const input = args[0] || {};
+    const scope = typeof input === 'string' ? input : input.inventoryId || 'global';
+    const fingerprint = input.operationId ? createHash('sha256').update(JSON.stringify({ method: name, ...input, user: input.user?.username })).digest('hex') : '';
+    return storagePath.runDurable(() => original.apply(this, args), { scope, operationId: input.operationId, fingerprint,
+      requireSynced: ['submitInventoryForReview', 'finishReviewAndClose', 'syncInventoryFromSheet', 'reopenInventory'].includes(name) });
+  };
+}
+const detail = service.getInventoryById;
+service.getInventoryById = async function (id, user) {
+  await storagePath.refreshInventory(id);
+  const result = await detail.call(this, id, user);
+  result.syncPending = await storagePath.drainSync(id).catch(() => true);
+  return result;
+};
+module.exports = service;

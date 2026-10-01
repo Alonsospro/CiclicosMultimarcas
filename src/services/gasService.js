@@ -165,8 +165,6 @@ class GasService {
     const idxRecDam2 = getColIndex(['malestado_reconteo_2', 'reconteo_mal_estado_2']);
     const idxDiffFinal2 = getColIndex(['diferencia_final_2']);
     const idxCostDiffFinal2 = getColIndex(['costo_diferencia_final_2']);
-    const idxFecha1Just = getColIndex(['fecha_primera_justificacion', 'fecha_justificacion', 'fecha_just']);
-    const idxCorroboracion = getColIndex(['corroboracion', 'corroboración', 'corroboracionstatus', 'estado_justificacion']);
 
     const parsedItems = [];
     rows.slice(1).forEach((r, idx) => {
@@ -308,16 +306,11 @@ class GasService {
         Fecha_Ultimo_Conteo: getVal(idxDate, r[16] || r[12] || ''),
         Responsable: getVal(idxResp, r[17] || r[13] || 'Administrador'),
         Estado: getVal(idxState, r[19] || r[14] || 'Revisado'),
-        corroboracion: getVal(idxCorroboracion !== -1 ? idxCorroboracion : idxState, r[19] || ''),
-        corroborationStatus: getVal(idxCorroboracion !== -1 ? idxCorroboracion : idxState, r[19] || ''),
-        Fecha_Primera_Justificacion: getVal(idxFecha1Just, r[18] || ''),
         Mal_estado: damagedStock,
         Comentario: getVal(idxComment, r[21] || r[16] || ''),
         Razon: getVal(idxReason, r[20] || r[17] || ''),
-        Razon_Justificacion: getVal(idxReason, r[20] || r[17] || ''),
         Comentario_Justificacion: getVal(idxJust, r[21] || r[18] || ''),
         Revisado_Por: getVal(idxReviewer, r[22] || r[19] || ''),
-        Responsable_Justificacion: getVal(idxReviewer, r[22] || r[19] || ''),
         Stock_Total_Reconteo: effectiveTotalRec1,
         Reconteo: rec1BuenEstado,
         Reconteo_Fisico: effectiveTotalRec1 !== null ? effectiveTotalRec1 : (rec1BuenEstado !== null ? (rec1BuenEstado + rec1MalEstado) : null),
@@ -1028,6 +1021,7 @@ class GasService {
    * Real-time update of columns J to Q in the center sheet with optional damaged photo upload.
    */
   async upsertCountToGAS(type, payload) {
+    if (require('./storagePath').deferSync('upsertCountToGAS', [type, payload])) return { success: true, queued: true };
     const cleanType = (type || payload.type || 'CICLICO').toUpperCase();
     const url = this.getUrlForType(cleanType);
     const cleanCenter = config.getCenterCode ? config.getCenterCode(payload.center || payload.centro || '1120') : '1120';
@@ -1134,23 +1128,8 @@ class GasService {
       justificationPhoto: (isReconteo || isReconteo2) ? '' : ((payload.justificationPhoto && String(payload.justificationPhoto).startsWith('data:image')) ? payload.justificationPhoto : '')
     };
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postBody)
-      });
-
-      const resText = await response.text();
-      try {
-        return JSON.parse(resText);
-      } catch (e) {
-        return { success: true, action: 'upsertCount', raw: resText };
-      }
-    } catch (err) {
-      console.warn('[gasService] Notice in upsertCountToGAS:', err.message);
-      return { success: false, message: err.message };
-    }
+    postBody.operationId = payload.operationId;
+    return this.postConfirmed(url, postBody);
   }
 
   /**
@@ -1158,6 +1137,7 @@ class GasService {
    * Deletes an additional location row from Google Sheets
    */
   async deleteAdditionalLocationFromGAS(type, payload = {}) {
+    if (require('./storagePath').deferSync('deleteAdditionalLocationFromGAS', [type, payload])) return { success: true, queued: true };
     const cleanType = (type || payload.type || 'CICLICO').toUpperCase();
     const url = this.getUrlForType(cleanType);
     const rawCenter = payload.center || payload.centro || '1120';
@@ -1174,23 +1154,8 @@ class GasService {
       slot: payload.slot || payload.locationSlot || 0
     };
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postBody)
-      });
-
-      const resText = await response.text();
-      try {
-        return JSON.parse(resText);
-      } catch (e) {
-        return { success: true, action: 'deleteAdditionalLocation', raw: resText };
-      }
-    } catch (err) {
-      console.warn('[gasService] Notice in deleteAdditionalLocationFromGAS:', err.message);
-      return { success: false, message: err.message };
-    }
+    postBody.operationId = payload.operationId;
+    return this.postConfirmed(url, postBody);
   }
 
   /**
@@ -1198,6 +1163,7 @@ class GasService {
    * Batch update of columns J to Q for multiple items.
    */
   async batchUpsertCountsToGAS(type, payload) {
+    if (require('./storagePath').deferSync('batchUpsertCountsToGAS', [type, payload])) return { success: true, queued: true };
     const cleanType = (type || payload.type || 'CICLICO').toUpperCase();
     const url = this.getUrlForType(cleanType);
     const rawCenter = payload.center || payload.centro || '1120';
@@ -1210,23 +1176,8 @@ class GasService {
       updates: payload.updates || []
     };
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postBody)
-      });
-
-      const resText = await response.text();
-      try {
-        return JSON.parse(resText);
-      } catch (e) {
-        return { success: true, action: 'batchUpsertCounts', raw: resText };
-      }
-    } catch (err) {
-      console.warn('[gasService] Notice in batchUpsertCountsToGAS:', err.message);
-      return { success: false, message: err.message };
-    }
+    postBody.operationId = payload.operationId;
+    return this.postConfirmed(url, postBody);
   }
 
   /**
@@ -1258,6 +1209,8 @@ class GasService {
         const rawPhoto = isReconteo ? '' : (it.photoBase64 || '');
         const validPhoto = (rawPhoto && String(rawPhoto).startsWith('data:image')) ? rawPhoto : '';
         return {
+          ...it,
+          Almacen: it.Almacen || it.almacen || it.warehouse || '',
           SKU: it.SKU || it.sku || '',
           Codigo_Barras: it.Codigo_Barras || it.codigoBarras || it.barcode || '',
           Ubicacion: it.Ubicacion || it.ubicacion || '',
@@ -1294,172 +1247,53 @@ class GasService {
       rows: rows
     };
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postBody)
-      });
-
-      if (!response.ok) {
-        console.warn(`[gasService] GAS webhook responded with status ${response.status}`);
-      }
-
-      const resText = await response.text();
-      try {
-        const parsed = JSON.parse(resText);
-        return {
-          success: true,
-          ...parsed,
-          // Extract primary Drive URLs returned by the Apps Script
-          driveUrl: parsed.driveUrl || parsed.spreadsheetUrl || config.driveSnapshotsFolderUrl || null,
-          spreadsheetUrl: parsed.spreadsheetUrl || null,
-          fileId: parsed.fileId || null,
-          fileName: parsed.fileName || null
-        };
-      } catch (e) {
-        return { success: true, message: 'Enviado a Google Apps Script', raw: resText, driveUrl: config.driveSnapshotsFolderUrl };
-      }
-    } catch (err) {
-      console.warn('[gasService] Warning submitting final file to GAS:', err.message);
-      return { success: true, fallback: true, message: 'Guardado localmente en Drive Store: ' + err.message, driveUrl: config.driveSnapshotsFolderUrl };
-    }
+    postBody.operationId = payload.operationId || `close:${payload.fileId || payload.inventoryId}`;
+    const result = await this.postConfirmed(url, postBody);
+    if (!result.fileId || !result.spreadsheetUrl) throw new Error('Drive no confirmó el archivo final.');
+    return result;
   }
 
-  async syncPhotoToGAS({ category, date, center, sku, fileName, folderPath, fileBuffer, mimeType, inventoryId, type }) {
-    const base64Data = fileBuffer ? `data:${mimeType || 'image/jpeg'};base64,${fileBuffer.toString('base64')}` : '';
-    const cleanCenter = config.getCenterCode ? config.getCenterCode(center || '1120') : (center || '1120');
-    const invType = type || (inventoryId && String(inventoryId).includes('BARRIDO') ? 'BARRIDO' : 'CICLICO');
-    const url = this.getUrlForType(invType);
-
-    const isJustification = String(category || '').toLowerCase().includes('just');
-    const isDamaged = String(category || '').toLowerCase().includes('mal') || String(category || '').toLowerCase().includes('dañ');
-    // Ensure accurate routing:
-    // Mal estado: nibol/ciclicos/fotos/malestado/{fecha}/{centro y tipo de inventario}/{sku}.jpg
-    // Justificacion: nibol/ciclicos/fotos/justificaciones/{fecha}/{centro y tipo de inventario}/{sku}.jpg
-    const cleanCategory = isJustification ? 'justificaciones' : 'malestado';
-    const cleanDate = date || new Date().toISOString().split('T')[0];
-    const centerTypeFolder = `${cleanCenter} ${invType}`;
-    const cleanFileName = fileName || `${sku || 'FOTO'}.jpg`;
-    const resolvedFolderPath = folderPath || `nibol/ciclicos/fotos/${cleanCategory}/${cleanDate}/${centerTypeFolder}`;
-    const targetFolderId = isJustification ? config.driveJustifFolderId : config.driveDamagedFolderId;
-    const targetFolderUrl = isJustification ? config.driveJustifFolderUrl : config.driveDamagedFolderUrl;
-
-    // 1. Invocar guardado directo e inmediato de foto en Google Apps Script (Drive)
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        redirect: 'follow',
-        signal: AbortSignal.timeout(35000),
-        body: JSON.stringify({
-          action: 'savePhoto',
-          category: cleanCategory,
-          center: cleanCenter,
-          type: invType,
-          sku: sku || 'FOTO_SIN_SKU',
-          fileName: cleanFileName,
-          date: cleanDate,
-          folderPath: resolvedFolderPath,
-          targetFolder: cleanCategory,
-          folderId: targetFolderId,
-          driveFolderUrl: targetFolderUrl,
-          photoBase64: base64Data
-        })
-      });
-      const resText = await response.text();
-      let jsonRes = null;
-      try {
-        jsonRes = JSON.parse(resText);
-      } catch (_) {}
-
-      if (jsonRes && jsonRes.success && jsonRes.photo) {
-        const photoObj = jsonRes.photo;
-        const driveFileId = photoObj.id || null;
-        const driveUrl = photoObj.url || (driveFileId ? `https://drive.google.com/file/d/${driveFileId}/view` : null);
-        const directUrl = driveFileId ? `https://drive.google.com/uc?export=view&id=${driveFileId}` : driveUrl;
-        const thumbnailUrl = driveFileId ? `https://lh3.googleusercontent.com/d/${driveFileId}=s1600` : driveUrl;
-
-        console.log(`[gasService] ✅ Foto guardada inmediatamente en Google Drive: ${photoObj.name} (ID: ${driveFileId}) en ${resolvedFolderPath}`);
-
-        return {
-          success: true,
-          action: 'savePhoto',
-          photo: {
-            id: driveFileId,
-            name: photoObj.name || cleanFileName,
-            url: driveUrl,
-            directUrl,
-            thumbnailUrl,
-            folderId: photoObj.folderId || targetFolderId,
-            folderName: photoObj.folderName || centerTypeFolder,
-            folderPath: resolvedFolderPath
-          },
-          driveUrl,
-          driveFileId,
-          thumbnailUrl,
-          directUrl,
-          driveFolderPath: resolvedFolderPath,
-          driveFolderUrl: targetFolderUrl,
-          message: 'Foto subida inmediatamente a Google Drive'
-        };
-      } else {
-        console.warn('[gasService] GAS savePhoto returned non-success response:', resText);
-        // Fallback: Maintain exact structured Drive metadata for the requested folder path
-        return {
-          success: true,
-          action: 'savePhoto',
-          category: cleanCategory,
-          folderPath: resolvedFolderPath,
-          fileName: cleanFileName,
-          photo: {
-            id: null,
-            name: cleanFileName,
-            url: targetFolderUrl,
-            directUrl: targetFolderUrl,
-            thumbnailUrl: null,
-            folderId: targetFolderId,
-            folderName: centerTypeFolder,
-            folderPath: resolvedFolderPath
-          },
-          driveFolderPath: resolvedFolderPath,
-          driveFolderUrl: targetFolderUrl,
-          driveUrl: targetFolderUrl,
-          message: `Foto organizada para Google Drive en ${resolvedFolderPath}`,
-          fallback: true
-        };
-      }
-    } catch (errDirect) {
-      console.warn('[gasService] Notice saving photo directly to GAS Drive:', errDirect.message);
+  async postConfirmed(url, body) {
+    const response = await fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(35000), redirect: 'follow'
+    });
+    let result;
+    try { result = JSON.parse(await response.text()); }
+    catch { throw new Error('Google Apps Script devolvió una respuesta inválida; no se confirmó la operación.'); }
+    if (!response.ok || result.success !== true || result.failedItems?.length) {
+      const error = new Error(result.error || result.message || 'Google Apps Script no confirmó todos los registros.');
+      error.deliveryUnknown = false;
+      error.failedItems = result.failedItems;
+      throw error;
     }
+    return result;
+  }
 
-    return {
-      success: true,
-      action: 'savePhoto',
-      category: cleanCategory,
-      folderPath: resolvedFolderPath,
-      fileName: cleanFileName,
-      photo: {
-        id: null,
-        name: cleanFileName,
-        url: targetFolderUrl,
-        directUrl: targetFolderUrl,
-        thumbnailUrl: null,
-        folderId: targetFolderId,
-        folderName: centerTypeFolder,
-        folderPath: resolvedFolderPath
-      },
-      driveFolderPath: resolvedFolderPath,
-      driveFolderUrl: targetFolderUrl,
-      driveUrl: targetFolderUrl,
-      message: `Foto procesada para Google Drive en ${resolvedFolderPath}`
-    };
+  async syncPhotoToGAS({ category, date, center, sku, fileName, fileBuffer, mimeType, inventoryId, itemId, type, prefix, round, isJustification2, operationId }) {
+    const cleanCategory = String(category || '').toLowerCase().includes('just') ? 'justificaciones' : 'malestado';
+    const cleanCenter = config.getCenterCode ? config.getCenterCode(center) : center;
+    const invType = type || 'CICLICO';
+    const photoBase64 = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
+    const result = await this.postConfirmed(this.getUrlForType(invType), {
+      action: 'savePhoto', category: cleanCategory, date, center: cleanCenter, sku, fileName,
+      inventoryId, itemId, type: invType, prefix, round, isJustification2, operationId, photoBase64,
+      photoJustificacion: cleanCategory === 'justificaciones' ? photoBase64 : undefined
+    });
+    const photo = result.photo;
+    if (!photo?.id || !photo?.url || !String(photo.mimeType || '').startsWith('image/')) {
+      throw new Error('Drive no confirmó un archivo de imagen. Vuelva a subir la foto.');
+    }
+    return { success: true, photo, driveFileId: photo.id, driveUrl: photo.url,
+      directUrl: `https://drive.google.com/uc?export=view&id=${photo.id}`,
+      thumbnailUrl: `https://lh3.googleusercontent.com/d/${photo.id}=s1600` };
   }
 
   /**
    * Directly saves a justification to GAS with fallback to upsertCount
    */
   async saveJustificationToGAS(type, payload) {
+    if (require('./storagePath').deferSync('saveJustificationToGAS', [type, payload])) return { success: true, queued: true };
     const cleanType = (type || payload.type || 'CICLICO').toUpperCase();
     const url = this.getUrlForType(cleanType);
     const rawCenter = payload.center || payload.centro || '1120';
@@ -1494,70 +1328,8 @@ class GasService {
       photoJustificacion: payload.photoJustificacion || payload.photoUrl || payload.photoBase64 || ''
     };
 
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(postBody)
-      });
-
-      const resText = await response.text();
-      let parsed = null;
-      try { parsed = JSON.parse(resText); } catch(e) {}
-
-      // If action not supported on an older deployment, fallback to upsertCount
-      if (parsed && parsed.success === false && String(parsed.error || '').includes('no soportada')) {
-        return this.upsertCountToGAS(cleanType, {
-          center: cleanCenter,
-          sku: postBody.sku,
-          almacen: postBody.almacen,
-          warehouse: postBody.warehouse,
-          location: postBody.location,
-          estado: postBody.estado,
-          estadoJustificacion: postBody.estadoJustificacion,
-          razon: postBody.razon,
-          comentarioJustificacion: postBody.comentarioJustificacion,
-          reviewer: postBody.reviewedBy,
-          responsableJustificacion: postBody.responsableJustificacion,
-          fechaPrimeraJustificacion: postBody.fechaPrimeraJustificacion,
-          corroboracion: postBody.corroboracion,
-          isCuadra: postBody.isCuadra,
-          round: postBody.round,
-          isJustification2: postBody.isJustification2,
-          fechaJustificacion2: postBody.fechaJustificacion2,
-          estadoJustificacion2: postBody.estadoJustificacion2,
-          razonJustificacion2: postBody.razonJustificacion2,
-          comentarioJustificacion2: postBody.comentarioJustificacion2,
-          responsableJustificacion2: postBody.responsableJustificacion2,
-          stockFisico: postBody.stockFisico
-        });
-      }
-
-      return parsed || { success: true, action: 'saveJustification', raw: resText };
-    } catch (err) {
-      console.warn('[gasService] Notice in saveJustificationToGAS, trying upsertCount:', err.message);
-      return this.upsertCountToGAS(cleanType, {
-        center: cleanCenter,
-        sku: postBody.sku,
-        estado: postBody.estado,
-        estadoJustificacion: postBody.estadoJustificacion,
-        razon: postBody.razon,
-        comentarioJustificacion: postBody.comentarioJustificacion,
-        reviewer: postBody.reviewedBy,
-        responsableJustificacion: postBody.responsableJustificacion,
-        fechaPrimeraJustificacion: postBody.fechaPrimeraJustificacion,
-        corroboracion: postBody.corroboracion,
-        isCuadra: postBody.isCuadra,
-        round: postBody.round,
-        isJustification2: postBody.isJustification2,
-        fechaJustificacion2: postBody.fechaJustificacion2,
-        estadoJustificacion2: postBody.estadoJustificacion2,
-        razonJustificacion2: postBody.razonJustificacion2,
-        comentarioJustificacion2: postBody.comentarioJustificacion2,
-        responsableJustificacion2: postBody.responsableJustificacion2,
-        stockFisico: postBody.stockFisico
-      });
-    }
+    postBody.operationId = payload.operationId;
+    return this.postConfirmed(url, postBody);
   }
 
   /**
@@ -1576,7 +1348,7 @@ class GasService {
       { name: 'Semanales', envVar: 'SEMANALES_URL', type: 'SEMANALES', url: config.integrations.SEMANALES_URL }
     ];
 
-    const testCenters = ['1120', '1160', '1300'];
+    const testCenters = ['1120', '1300', 'WARNES'];
 
     // 1. Test each endpoint
     const endpointResults = await Promise.all(endpoints.map(async (ep) => {
@@ -1600,11 +1372,11 @@ class GasService {
         return epReport;
       }
 
-      // 1.1 Ping test (20s timeout to allow Apps Script cold-start)
+      // 1.1 Ping test
       try {
         const pingUrl = new URL(ep.url);
         pingUrl.searchParams.set('action', 'ping');
-        const pingRes = await fetch(pingUrl.toString(), { redirect: 'follow', signal: AbortSignal.timeout(20000) });
+        const pingRes = await fetch(pingUrl.toString(), { redirect: 'follow', signal: AbortSignal.timeout(8000) });
         epReport.ping.status = pingRes.status;
         epReport.ping.latencyMs = Date.now() - epStart;
         epReport.ping.ok = pingRes.status === 200;
@@ -1620,7 +1392,7 @@ class GasService {
         epReport.ping.latencyMs = Date.now() - epStart;
       }
 
-      // 1.2 Products test per test center (20s timeout per center)
+      // 1.2 Products test per test center
       for (const center of testCenters) {
         const centerStart = Date.now();
         try {
@@ -1628,7 +1400,7 @@ class GasService {
           prodUrl.searchParams.set('action', 'getProducts');
           prodUrl.searchParams.set('center', center);
 
-          const res = await fetch(prodUrl.toString(), { redirect: 'follow', signal: AbortSignal.timeout(20000) });
+          const res = await fetch(prodUrl.toString(), { redirect: 'follow', signal: AbortSignal.timeout(8000) });
           const latency = Date.now() - centerStart;
           const text = await res.text();
           let data = null;
@@ -1664,12 +1436,12 @@ class GasService {
         }
       }
 
-      // 1.3 History test (action=getHistory with 20s timeout)
+      // 1.3 History test (action=getHistory)
       const histStart = Date.now();
       try {
         const histUrl = new URL(ep.url);
         histUrl.searchParams.set('action', 'getHistory');
-        const histRes = await fetch(histUrl.toString(), { redirect: 'follow', signal: AbortSignal.timeout(20000) });
+        const histRes = await fetch(histUrl.toString(), { redirect: 'follow', signal: AbortSignal.timeout(8000) });
         epReport.getHistoryTest.latencyMs = Date.now() - histStart;
         epReport.getHistoryTest.status = histRes.status;
         if (histRes.ok) {
@@ -1692,14 +1464,6 @@ class GasService {
         epReport.getHistoryTest.ok = false;
         epReport.getHistoryTest.error = histErr.message;
         epReport.getHistoryTest.latencyMs = Date.now() - histStart;
-      }
-
-      // If ping timed out on cold start but getProducts or getHistory succeeded, the endpoint is genuinely online
-      const anyProductsOk = Object.values(epReport.getProductsTest).some(t => t.ok);
-      if (!epReport.ping.ok && (anyProductsOk || epReport.getHistoryTest.ok)) {
-        epReport.ping.ok = true;
-        epReport.ping.status = 200;
-        epReport.ping.error = null;
       }
 
       return epReport;

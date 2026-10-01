@@ -28,14 +28,16 @@ app.use('/api/logos', require('./src/routes/logoRoutes'));
 
 // Health check route
 app.get('/api/health', (req, res) => {
-  const isVercel = !!process.env.VERCEL;
+  const persistence = require('./src/services/firebaseSyncService');
   res.json({
-    status: 'online',
+    status: persistence.loaded && !persistence.lastError ? 'online' : 'degraded',
     appName: 'NIBOL Inventarios Cíclicos, Barrido, Semanales y Mensuales',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
-    storage: isVercel ? 'ephemeral' : 'persistent',
-    warning: isVercel ? 'Entorno Vercel detectado: los datos almacenados en disco (inventarios, fotos, historial) son efímeros y se perderán entre deploys. Se recomienda usar un servidor persistente (VPS) para producción.' : null
+    storage: 'firestore',
+    persistenceReady: persistence.loaded,
+    persistenceError: persistence.lastError,
+    localStorage: process.env.K_SERVICE || process.env.VERCEL ? 'ephemeral-cache' : 'cache'
   });
 });
 
@@ -69,9 +71,7 @@ if (require.main === module) {
   
   // Hydrate data from Firebase before listening
   const firebaseSyncService = require('./src/services/firebaseSyncService');
-  const dailyBackupService = require('./src/services/dailyBackupService');
-
-  firebaseSyncService.hydrateMemoryStore(storagePath.memoryStore, storagePath.cacheTimestamps, storagePath.dirListings, storagePath)
+  storagePath.ensureReady()
     .then(() => {
       app.listen(PORT, '0.0.0.0', () => {
         console.log(`====================================================`);
@@ -80,17 +80,18 @@ if (require.main === module) {
         console.log(`🔒 Entorno: ${config.nodeEnv}`);
         console.log(`☁️ Firebase Persistence: ACTIVATED`);
         console.log(`====================================================`);
-        dailyBackupService.startScheduler();
       });
+      storagePath.resumeSync().catch(err => console.warn('[sync] Pendiente:', err.message));
     })
     .catch(err => {
       console.error('Failed to initialize Firebase persistence:', err);
-      // Fallback to starting anyway if Firestore is unreachable
+      // Expose health/login, but operational methods retry cloud recovery and
+      // reject changes until persistence is available.
       app.listen(PORT, '0.0.0.0', () => {
-        console.log(`🚀 SERVIDOR NIBOL INVENTARIOS INICIADO SIN PERSISTENCIA CLOUD.`);
-        dailyBackupService.startScheduler();
+        console.log('Servidor en modo degradado: operaciones pendientes de recuperar Firebase.');
       });
     });
+  setInterval(() => storagePath.resumeSync().catch(() => {}), 30000).unref();
 }
 
 module.exports = app;

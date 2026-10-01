@@ -4,13 +4,11 @@ const inventoryService = require('../services/inventoryService');
 const { authenticate, requireRole } = require('../middlewares/authMiddleware');
 
 // GET /api/justifications
-router.get('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+router.get('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
-    const { center, includeFinalized, status } = req.query;
-    const tasks = inventoryService.getPendingJustifications(req.user, center, {
-      includeFinalized: includeFinalized === 'true' || status === 'ALL' || status === 'REVISADO',
-      status: status || (includeFinalized === 'true' ? 'ALL' : 'PENDIENTE')
-    });
+    const { center } = req.query;
+    await require('../services/storagePath').refreshOperational();
+    const tasks = await inventoryService.getPendingJustifications(req.user, center);
     res.json({
       success: true,
       tasks
@@ -21,15 +19,16 @@ router.get('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) =>
 });
 
 // POST /api/justifications (Submit a single justification)
-router.post('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+router.post('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
     const { inventoryId, sku, justification, photoUrl, reasonType, driveUrl, driveFileId, almacen, warehouse, location, itemId, corroboration, corroboracion, status, isCuadra, isJustification2, round } = req.body;
     if (!inventoryId || !sku) {
       return res.status(400).json({ success: false, message: 'inventoryId y sku son obligatorios' });
     }
 
-    const saved = inventoryService.saveJustification({
+    const saved = await inventoryService.saveJustification({
       inventoryId,
+      operationId: req.body.operationId,
       sku,
       justification,
       photoUrl,
@@ -54,19 +53,21 @@ router.post('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) =
       justification: saved
     });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(err.status || 400).json({ success: false, message: err.message, code: err.code });
   }
 });
 
 // POST /api/justifications/:id/corroborate (Mark item as CUADRA or NO_CUADRA)
-router.post('/:id/corroborate', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+router.post('/:id/corroborate', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
     const { sku, status, almacen, warehouse, location, itemId } = req.body;
     if (!sku || !status) {
       return res.status(400).json({ success: false, message: 'sku y status (CUADRA/NO_CUADRA) son obligatorios' });
     }
-    const result = inventoryService.corroborateItem({
+    const result = await inventoryService.corroborateItem({
       inventoryId: req.params.id,
+      operationId: req.body?.operationId,
+      expectedItemVersion: req.body?.expectedItemVersion,
       sku,
       status,
       almacen: almacen || warehouse,
@@ -76,22 +77,24 @@ router.post('/:id/corroborate', authenticate, requireRole(['ADMIN', 'ENCARGADO']
     });
     res.json(result);
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(err.status || 400).json({ success: false, message: err.message, code: err.code });
   }
 });
 
 // POST /api/justifications/:id/enable-recount (Enable re-count for discrepant items to assigned counter)
-router.post('/:id/enable-recount', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+router.post('/:id/enable-recount', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
     const { skusToRecount } = req.body;
-    const result = inventoryService.enableRecount({
+    const result = await inventoryService.enableRecount({
       inventoryId: req.params.id,
+      operationId: req.body?.operationId,
+      expectedItemVersion: req.body?.expectedItemVersion,
       user: req.user,
       skusToRecount
     });
     res.json(result);
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(err.status || 400).json({ success: false, message: err.message, code: err.code });
   }
 });
 
@@ -101,13 +104,15 @@ router.post('/:id/finish-review', authenticate, requireRole(['ADMIN', 'ENCARGADO
     const { reviewNotes } = req.body;
     const result = await inventoryService.finishReviewAndClose({
       inventoryId: req.params.id,
+      operationId: req.body?.operationId,
+      expectedItemVersion: req.body?.expectedItemVersion,
       user: req.user,
       reviewNotes
     });
 
     res.json(result);
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(err.status || 400).json({ success: false, message: err.message, code: err.code });
   }
 });
 

@@ -239,10 +239,6 @@
                 <i class="fa-solid fa-arrows-rotate"></i> Sincronizar Sheets
               </button>
 
-              <button class="btn btn-secondary role-encargado-admin" id="btn-backup-daily" onclick="window.InventoryView.triggerDailyBackup(this)" title="Respaldar estado actual de inventarios a Google Sheets / Drive" style="color: #10b981; border-color: rgba(16, 185, 129, 0.4); font-weight: 700;">
-                <i class="fa-solid fa-cloud-arrow-up"></i> Respaldar a Sheets
-              </button>
-
               <button class="btn btn-primary role-inventory-creator-only" id="btn-open-new-inv-modal">
                 <i class="fa-solid fa-plus"></i> Nuevo Inventario
               </button>
@@ -679,12 +675,6 @@
                 <option value="3100">3100 - Sucursal Cochabamba</option>
                 <option value="3200">3200 - Centro Foton Blanco Galindo</option>
                 <option value="5100">5100 - Sucursal Tarija</option>
-              </select>
-
-              <select id="filter-just-status" class="form-select" style="width: auto; min-width: 190px;" title="Filtrar por estado del inventario">
-                <option value="ALL" selected>Mostrar: Todos (Activos y Finalizados)</option>
-                <option value="PENDIENTE">Solo Pendientes de Justificar</option>
-                <option value="REVISADO">Solo Finalizados / Revisados</option>
               </select>
 
               <button 
@@ -2780,13 +2770,14 @@
   <script src="/js/components/confirmationModal.js?v=2.2"></script>
   <script src="/js/components/scannerModal.js?v=2.2"></script>
   <script src="/js/components/logoRotator.js?v=2.2"></script>
-  <script src="/js/api.js?v=2.2"></script>
+  <script src="/js/api.js?v=20261001"></script>
+  <script src="/js/countQueue.js?v=20261001"></script>
   <script src="/js/auth.js?v=2.2"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
-  <script src="/js/views/inventoryView.js?v=2.2"></script>
+  <script src="/js/views/inventoryView.js?v=20261001"></script>
   <script src="/js/views/barridoView.js?v=2.2"></script>
   <script src="/js/views/assignmentsView.js?v=2.2"></script>
-  <script src="/js/views/justificationsView.js?v=2.2"></script>
+  <script src="/js/views/justificationsView.js?v=20261001"></script>
   <script src="/js/views/historyView.js?v=2.2"></script>
   <script src="/js/components/metricsReportModal.js?v=2.2"></script>
   <script src="/js/components/snapshotManagerModal.js?v=2.2"></script>
