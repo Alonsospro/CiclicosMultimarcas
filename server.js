@@ -28,16 +28,14 @@ app.use('/api/logos', require('./src/routes/logoRoutes'));
 
 // Health check route
 app.get('/api/health', (req, res) => {
-  const persistence = require('./src/services/firebaseSyncService');
+  const isVercel = !!process.env.VERCEL;
   res.json({
-    status: persistence.loaded && !persistence.lastError ? 'online' : 'degraded',
+    status: 'online',
     appName: 'NIBOL Inventarios Cíclicos, Barrido, Semanales y Mensuales',
     timestamp: new Date().toISOString(),
     version: '1.0.0',
-    storage: 'firestore',
-    persistenceReady: persistence.loaded,
-    persistenceError: persistence.lastError,
-    localStorage: process.env.K_SERVICE || process.env.VERCEL ? 'ephemeral-cache' : 'cache'
+    storage: isVercel ? 'ephemeral' : 'persistent',
+    warning: isVercel ? 'Entorno Vercel detectado: los datos almacenados en disco (inventarios, fotos, historial) son efímeros y se perderán entre deploys. Se recomienda usar un servidor persistente (VPS) para producción.' : null
   });
 });
 
@@ -69,29 +67,30 @@ app.use((err, req, res, next) => {
 if (require.main === module) {
   const PORT = config.port || 3000;
   
-  // Hydrate data from Firebase before listening
+  // Initialize local memory store from persistent storage
   const firebaseSyncService = require('./src/services/firebaseSyncService');
-  storagePath.ensureReady()
+  const dailyBackupService = require('./src/services/dailyBackupService');
+
+  firebaseSyncService.hydrateMemoryStore(storagePath.memoryStore, storagePath.cacheTimestamps, storagePath.dirListings, storagePath)
     .then(() => {
       app.listen(PORT, '0.0.0.0', () => {
         console.log(`====================================================`);
         console.log(`🚀 SERVIDOR NIBOL INVENTARIOS ACTIVO EN PUERTO ${PORT}`);
         console.log(`🌐 URL: http://0.0.0.0:${PORT}`);
         console.log(`🔒 Entorno: ${config.nodeEnv}`);
-        console.log(`☁️ Firebase Persistence: ACTIVATED`);
+        console.log(`📊 Modo de Datos: CONEXIÓN DIRECTA GOOGLE APPS SCRIPT / DRIVE`);
+        console.log(`💾 Almacenamiento Local: DISCO PERSISTENTE / CACHÉ ACTIVO`);
         console.log(`====================================================`);
+        dailyBackupService.startScheduler();
       });
-      storagePath.resumeSync().catch(err => console.warn('[sync] Pendiente:', err.message));
     })
     .catch(err => {
-      console.error('Failed to initialize Firebase persistence:', err);
-      // Expose health/login, but operational methods retry cloud recovery and
-      // reject changes until persistence is available.
+      console.error('Error inicializando memoria local:', err);
       app.listen(PORT, '0.0.0.0', () => {
-        console.log('Servidor en modo degradado: operaciones pendientes de recuperar Firebase.');
+        console.log(`🚀 SERVIDOR NIBOL INVENTARIOS INICIADO.`);
+        dailyBackupService.startScheduler();
       });
     });
-  setInterval(() => storagePath.resumeSync().catch(() => {}), 30000).unref();
 }
 
 module.exports = app;

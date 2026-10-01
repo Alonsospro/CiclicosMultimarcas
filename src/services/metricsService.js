@@ -1785,17 +1785,19 @@ class MetricsService {
     // 1. Invalidate in-memory caches
     this.invalidateCache();
 
-    // 2. Re-hydrate persistent data from Firestore database
+    // 2. Re-hydrate persistent data from cloud/disk only if memory store is empty
     try {
-      const firebaseSyncService = require('./firebaseSyncService');
-      await firebaseSyncService.hydrateMemoryStore(
-        storagePath.memoryStore,
-        storagePath.cacheTimestamps,
-        storagePath.dirListings,
-        storagePath
-      );
+      if (!storagePath.memoryStore || storagePath.memoryStore.size === 0) {
+        const firebaseSyncService = require('./firebaseSyncService');
+        await firebaseSyncService.hydrateMemoryStore(
+          storagePath.memoryStore,
+          storagePath.cacheTimestamps,
+          storagePath.dirListings,
+          storagePath
+        );
+      }
     } catch (fsErr) {
-      console.warn('[metricsService] Notice during Firestore re-hydration:', fsErr.message);
+      console.warn('[metricsService] Notice during data hydration:', fsErr.message);
     }
 
     // 3. Re-sync with Google Sheets (Excel) for finalized history snapshots and active inventories
