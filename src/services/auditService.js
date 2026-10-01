@@ -24,7 +24,7 @@ class AuditService {
       const operation = storagePath.operationContext.getStore();
       if (operation) {
         // Independent inventory/day segments avoid a global log write hotspot
-        // and keep every segment below Firestore's document size limit.
+        // and keep every segment below safe document size limits.
         const scope = String(entry.inventoryId || entry.targetId || entry.center || 'GLOBAL').replace(/[^a-zA-Z0-9_-]/g, '_');
         const prefix = `audit-events-${scope}-${logEntry.timestamp.slice(0, 10)}`;
         let segment = 1, events, file;

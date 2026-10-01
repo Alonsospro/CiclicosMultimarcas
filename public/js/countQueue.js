@@ -121,7 +121,7 @@ window.CountQueue = {
     const syncing = [...this.serverPending.values()].filter(entry => entry.account === this.account()).length;
     element.style.display = entries.length || syncing ? 'block' : 'none';
     element.textContent = entries.length ? `${entries.length} conteo(s) pendiente(s) de confirmar. ` : '';
-    if (syncing) element.textContent += `${syncing} inventario(s) guardados en Firebase, pendientes de sincronizar con Sheets. `;
+    if (syncing) element.textContent += `${syncing} inventario(s) guardados localmente, pendientes de sincronizar con Sheets. `;
     const conflict = entries.find(e => e.state === 'review');
     if (conflict) element.appendChild(document.createTextNode(`Revisar ${conflict.payload.sku || conflict.identity}: ${conflict.message}. `));
     const button = document.createElement('button');

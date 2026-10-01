@@ -76,7 +76,7 @@ router.post('/recalculate', authenticate, async (req, res) => {
       user: req.user
     });
 
-    res.json({ success: true, message: 'Métricas recalculadas con éxito desde la base de datos y Google Sheets', ...data });
+    res.json({ success: true, message: data.metricsComplete ? 'Archivos leídos y métricas validadas' : 'Lectura terminada con archivos pendientes de validación', ...data });
   } catch (err) {
     console.error('[dashboardRoutes] Error in /recalculate:', err);
     res.status(500).json({ success: false, message: err.message });

@@ -179,6 +179,10 @@ function doGet(e) {
       return json_({ success: true, status: 'success', center, total: rows.length, items: rows, products: rows, rows: rows });
     }
 
+    if (action === 'readFinalInventory') {
+      return json_({ success: true, ...readFinalInventory_(p) });
+    }
+
     if (action === 'getHistory' || action === 'listFinalFiles') {
       const type = p.type || 'CICLICO';
       const center = p.center || null;
@@ -231,7 +235,15 @@ function getHistory_(type, center) {
   const results = [];
   try {
     const rootFolder = getRootFolderForType_(type || 'CICLICO');
-    const targetCenters = center ? [center] : ['1120', '1300', 'WARNES', '1100', '1200'];
+    const targetCenters = [];
+    if (center) targetCenters.push(center);
+    else {
+      const folders = rootFolder.getFolders();
+      while (folders.hasNext()) {
+        const name = folders.next().getName();
+        if (/^(\d{4}|WARNES)$/i.test(name)) targetCenters.push(name);
+      }
+    }
 
     targetCenters.forEach(c => {
       try {
@@ -244,14 +256,21 @@ function getHistory_(type, center) {
             const files = sFolder.getFiles();
             while (files.hasNext()) {
               const f = files.next();
+              let metadata = {};
+              try { metadata = JSON.parse(f.getDescription() || '{}'); } catch (_) {}
+              const manifest = metadata.inventoryManifest || null;
               results.push({
                 fileId: f.getId(),
                 fileName: f.getName(),
                 driveUrl: f.getUrl(),
-                spreadsheetUrl: f.getUrl(),
+                spreadsheetUrl: f.getUrl() + (manifest && manifest.gid !== undefined ? '#gid=' + manifest.gid : ''),
+                inventoryId: manifest && manifest.inventoryId,
+                manifest,
+                totalItems: manifest && manifest.itemCount,
                 center: c,
                 type: type || 'CICLICO',
                 closedAt: f.getDateCreated().toISOString(),
+                modifiedAt: f.getLastUpdated().toISOString(),
                 closedBy: 'GAS / Drive',
                 source: 'GOOGLE_DRIVE'
               });
@@ -510,6 +529,9 @@ function createFinalFile_(payload) {
   const centerCode = String(payload.center || payload.centro || '').trim();
   const type = String(payload.type || 'CICLICO').toUpperCase();
   const driveRecord = payload.driveRecord || {};
+  const incomingItems = (Array.isArray(driveRecord.items) && driveRecord.items.length)
+    ? driveRecord.items : (Array.isArray(payload.items) ? payload.items : []);
+  if (!incomingItems.length) throw new Error('No se puede crear un cierre sin ítems');
 
   const rootFolder = getRootFolderForType_(type);
   const centerFolder = getOrCreateFolder_(rootFolder, centerCode);
@@ -523,13 +545,10 @@ function createFinalFile_(payload) {
   const sh = getCenterSheetFromSs_(copySs, centerCode);
   ensureColumns_(sh);
 
-  const incomingItems = (Array.isArray(driveRecord.items) && driveRecord.items.length)
-    ? driveRecord.items
-    : (Array.isArray(payload.items) ? payload.items : []);
-
-  if (incomingItems.length) {
-    syncFromDriveRecordItems_(sh, incomingItems, centerCode, type);
-  }
+  sh.getRange(1, 1, 1, 40).setValues([DEFAULT_HEADERS]);
+  if (sh.getMaxColumns && sh.getMaxColumns() > 40) sh.deleteColumns(41, sh.getMaxColumns() - 40);
+  syncFromDriveRecordItems_(sh, incomingItems, centerCode, type);
+  copySs.getSheets().forEach(sheet => { if (sheet.getSheetId() !== sh.getSheetId()) copySs.deleteSheet(sheet); });
 
   const justifications = Array.isArray(driveRecord.justifications)
     ? driveRecord.justifications
@@ -540,6 +559,21 @@ function createFinalFile_(payload) {
     applyJustificationsToSheet_(sh, justifications);
   }
 
+  const manifest = { ...(driveRecord.manifest || payload.manifest || {}), version: 1,
+    inventoryId: driveRecord.inventoryId || payload.inventoryId || driveRecord.manifest?.inventoryId || null,
+    center: centerCode, type, gid: sh.getSheetId(), sheetName: sh.getName(),
+    closedAt: driveRecord.closedAt || new Date().toISOString(), itemCount: incomingItems.length,
+    skuCount: new Set(incomingItems.map(it => norm_(it.SKU || it.sku))).size };
+  const members = incomingItems.map(it => JSON.stringify([norm_(it.SKU || it.sku), norm_(it.Almacen || it.almacen || it.warehouse), norm_(it.Ubicacion || it.ubicacion || it.location)])).sort();
+  const metaSheet = copySs.insertSheet('__INVENTORY_MANIFEST');
+  if (metaSheet.getMaxRows && metaSheet.getMaxRows() < members.length + 1) metaSheet.insertRowsAfter(metaSheet.getMaxRows(), members.length + 1 - metaSheet.getMaxRows());
+  const summary = { ...manifest }; delete summary.members;
+  metaSheet.getRange(1, 1).setValue(JSON.stringify(summary));
+  metaSheet.getRange(2, 1, members.length, 1).setValues(members.map(member => [member]));
+  metaSheet.hideSheet();
+  copyFile.setDescription(JSON.stringify({ inventoryManifest: summary }));
+  SpreadsheetApp.flush();
+
   return {
     fileId: copyFile.getId(),
     fileName: copyFile.getName(),
@@ -548,6 +582,7 @@ function createFinalFile_(payload) {
     center: centerCode,
     type,
     itemsSynced: incomingItems.length,
+    manifest: summary,
     justificationsSaved: justifSaved
   };
 }
@@ -1080,8 +1115,38 @@ function syncFromDriveRecordItems_(sheet, items, center, type) {
     return row;
   });
   const oldRows = sheet.getLastRow() - 1;
+  if (sheet.getMaxRows && sheet.getMaxRows() < rows.length + 1) sheet.insertRowsAfter(sheet.getMaxRows(), rows.length + 1 - sheet.getMaxRows());
   if (oldRows > 0) sheet.getRange(2, 1, oldRows, 40).clearContent();
   if (rows.length) sheet.getRange(2, 1, rows.length, 40).setValues(rows);
+}
+
+function readFinalInventory_(params) {
+  const spreadsheetId = String(params.spreadsheetId || '').trim();
+  if (!/^[a-zA-Z0-9_-]+$/.test(spreadsheetId)) throw new Error('Identificador de Google Sheets inválido');
+  const file = DriveApp.getFileById(spreadsheetId);
+  const parents = file.getParents();
+  let isFinal = false;
+  while (parents.hasNext()) { if (parents.next().getName() === 'Archivos Finales') isFinal = true; }
+  if (!isFinal) throw new Error('El archivo no pertenece a Archivos Finales');
+  const ss = SpreadsheetApp.openById(spreadsheetId);
+  const meta = ss.getSheetByName('__INVENTORY_MANIFEST');
+  let manifest = null;
+  if (meta) {
+    manifest = JSON.parse(meta.getRange(1, 1).getValue());
+    manifest.members = meta.getLastRow() > 1 ? meta.getRange(2, 1, meta.getLastRow() - 1, 1).getValues().map(row => row[0]) : [];
+  }
+  const center = String(params.center || '').trim();
+  if (manifest && String(manifest.center) !== center) throw new Error('El centro solicitado no coincide con el manifiesto');
+  const gid = hasValue_(params.gid) ? String(params.gid) : (manifest && manifest.gid !== undefined ? String(manifest.gid) : null);
+  if (manifest && gid !== String(manifest.gid)) throw new Error('La pestaña solicitada no coincide con el cierre');
+  const sheet = gid !== null ? ss.getSheets().find(s => String(s.getSheetId()) === gid) : ss.getSheetByName(center);
+  if (!sheet || sheet.getName() === '__INVENTORY_MANIFEST') throw new Error('No se encontró la pestaña exacta del inventario; indique su centro o gid');
+  if (!manifest && sheet.getName().trim() !== center) throw new Error('La pestaña no corresponde al centro solicitado');
+  const columns = sheet.getLastColumn();
+  const headers = columns ? sheet.getRange(1, 1, 1, columns).getDisplayValues()[0] : [];
+  const rows = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, columns).getValues() : [];
+  return { headers, rows, manifest, sheetName: sheet.getName(), gid: sheet.getSheetId(),
+    spreadsheetId, modifiedAt: file.getLastUpdated().toISOString() };
 }
 
 function readRowsAsObjects_(sheet) {

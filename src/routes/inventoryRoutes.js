@@ -324,7 +324,7 @@ router.delete('/:id', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (
 router.post('/sync', authenticate, async (req, res) => {
   // Real inventory creation must be deliberate through POST /api/inventories.
   // We explicitly prevent re-injecting deleted test inventories from client caches.
-  return res.json({ success: true, synced: 0, message: 'Sincronización persistente centralizada en Firestore.' });
+  return res.json({ success: true, synced: 0, message: 'Sincronización persistente centralizada en el servidor.' });
 });
 
 module.exports = router;

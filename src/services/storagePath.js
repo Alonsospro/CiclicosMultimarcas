@@ -1,7 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
-const firebaseSyncService = require('./firebaseSyncService');
 const { AsyncLocalStorage } = require('async_hooks');
 const { createHash, randomUUID } = require('crypto');
 const PersistenceError = require('./persistenceError');
@@ -34,6 +33,7 @@ class StoragePath {
     this.operationContext = new AsyncLocalStorage();
     this.operationTails = new Map();
     this.knownMissing = new Set();
+    this.loaded = false;
     this.ensureDirs();
   }
 
@@ -47,6 +47,7 @@ class StoragePath {
     this.memoryStore.clear();
     this.cacheTimestamps.clear();
     this.dirListings.clear();
+    this.loaded = false;
   }
 
   ensureDirs() {
@@ -59,7 +60,8 @@ class StoragePath {
       this.getJustificationsDirectory(),
       this.getHistoryDirectory(),
       this.getAuditDirectory(),
-      this.getTrashDirectory()
+      this.getTrashDirectory(),
+      path.join(this.baseDir, 'sync')
     ];
 
     dirs.forEach(dir => {
@@ -107,13 +109,19 @@ class StoragePath {
 
   getRelativePath(filePath) {
     if (!filePath) return '';
-    const normalized = path.resolve(filePath);
-    if (normalized.startsWith(this.baseDir)) {
-      return path.relative(this.baseDir, normalized).replace(/\\/g, '/');
+    const resolvedPath = path.resolve(filePath);
+    const resolvedBase = path.resolve(this.baseDir);
+    const lowerPath = resolvedPath.toLowerCase();
+    const lowerBase = resolvedBase.toLowerCase();
+    if (lowerPath.startsWith(lowerBase)) {
+      const rel = path.relative(resolvedBase, resolvedPath);
+      return rel.replace(/\\/g, '/');
     }
-    const idx = normalized.indexOf('/data/');
-    if (idx !== -1) {
-      return normalized.substring(idx + 6).replace(/\\/g, '/');
+    const idx = lowerPath.indexOf('/data/');
+    const idxBack = lowerPath.indexOf('\\data\\');
+    const dataIdx = idx !== -1 ? idx : idxBack;
+    if (dataIdx !== -1) {
+      return resolvedPath.substring(dataIdx + 6).replace(/\\/g, '/');
     }
     return path.basename(filePath);
   }
@@ -167,23 +175,77 @@ class StoragePath {
     return tmpPath;
   }
 
+  hydrateFromDisk() {
+    try {
+      if (!fs.existsSync(this.baseDir)) return;
+      const subdirs = ['inventories', 'justifications', 'history', 'trash', 'audit', 'sync'];
+      let localFilesCount = 0;
+      for (const sub of subdirs) {
+        const fullDir = path.join(this.baseDir, sub);
+        if (fs.existsSync(fullDir)) {
+          const files = fs.readdirSync(fullDir).filter(f => f.endsWith('.json'));
+          const dirKey = this.normalizeKey(fullDir);
+          if (!this.dirListings.has(dirKey)) {
+            this.dirListings.set(dirKey, new Set());
+          }
+          for (const f of files) {
+            const filePath = path.join(fullDir, f);
+            const key = this.normalizeKey(filePath);
+            if (!this.memoryStore.has(key)) {
+              try {
+                const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                this.memoryStore.set(key, parsed);
+                this.cacheTimestamps.set(key, Date.now());
+                localFilesCount++;
+              } catch (_) {}
+            }
+            this.dirListings.get(dirKey).add(f);
+          }
+        }
+      }
+
+      // Also ensure users.json is loaded
+      const usersPath = this.getUsersFilePath();
+      if (usersPath && fs.existsSync(usersPath)) {
+        const key = this.normalizeKey(usersPath);
+        if (!this.memoryStore.has(key)) {
+          try {
+            const parsed = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
+            this.memoryStore.set(key, parsed);
+            this.cacheTimestamps.set(key, Date.now());
+            localFilesCount++;
+          } catch (_) {}
+        }
+      }
+      this.loaded = true;
+      console.log(`[storagePath] Memoria local inicializada (${localFilesCount} archivos cargados en caché).`);
+    } catch (e) {
+      console.warn('[storagePath] Aviso en hidratación local:', e.message);
+    }
+  }
+
+  async ensureReady() {
+    if (this.loaded) return;
+    if (!this.initializing) {
+      this.initializing = Promise.resolve()
+        .then(() => this.hydrateFromDisk())
+        .finally(() => { this.initializing = null; });
+    }
+    return this.initializing;
+  }
+
   readJson(filePath, defaultValue = null) {
     const key = this.normalizeKey(filePath);
     const ctx = this.operationContext.getStore();
     if (ctx) {
       const rel = this.getRelativePath(filePath);
-      if (!ctx.expected.has(rel)) ctx.expected.set(rel, firebaseSyncService.records.get(rel));
       if (ctx.changes.has(rel)) return this.clone(ctx.changes.get(rel).data ?? defaultValue);
     }
     if (this.knownMissing.has(key)) return this.clone(defaultValue);
-    // Once cloud recovery succeeds, operational files in the deployment package
-    // are never used to resurrect deleted or unconfirmed inventories.
-    if (firebaseSyncService.loaded && this.isOperational(filePath) && !firebaseSyncService.records.has(this.getRelativePath(filePath))) return this.clone(defaultValue);
     if (this.memoryStore.has(key)) {
-      if (this.isOperational(filePath) && firebaseSyncService.loaded) return this.clone(this.memoryStore.get(key));
       const cachedAt = this.cacheTimestamps.get(key) || 0;
       if (Date.now() - cachedAt < this.CACHE_TTL_MS) {
-        return JSON.parse(JSON.stringify(this.memoryStore.get(key)));
+        return this.clone(this.memoryStore.get(key));
       }
       // If TTL expired, try to refresh from disk if a newer file exists
       try {
@@ -192,15 +254,13 @@ class StoragePath {
           const parsed = JSON.parse(raw);
           this.memoryStore.set(key, parsed);
           this.cacheTimestamps.set(key, Date.now());
-          return JSON.parse(JSON.stringify(parsed));
+          return this.clone(parsed);
         }
       } catch (e) {
         // Disk read failed, retain memory copy safely
       }
-      // CRITICAL FIX: NEVER delete from memoryStore if disk file doesn't exist!
-      // In serverless / ephemeral containers, memoryStore is the source of truth if disk is unavailable.
       this.cacheTimestamps.set(key, Date.now());
-      return JSON.parse(JSON.stringify(this.memoryStore.get(key)));
+      return this.clone(this.memoryStore.get(key));
     }
     try {
       if (fs.existsSync(filePath)) {
@@ -208,7 +268,7 @@ class StoragePath {
         const parsed = JSON.parse(raw);
         this.memoryStore.set(key, parsed);
         this.cacheTimestamps.set(key, Date.now());
-        return JSON.parse(JSON.stringify(parsed));
+        return this.clone(parsed);
       }
       // Fallback check in initialDataDir if running in Vercel
       if (this.initialDataDir && filePath.startsWith(this.baseDir)) {
@@ -219,7 +279,7 @@ class StoragePath {
           const parsed = JSON.parse(raw);
           this.memoryStore.set(key, parsed);
           this.cacheTimestamps.set(key, Date.now());
-          return JSON.parse(JSON.stringify(parsed));
+          return this.clone(parsed);
         }
       }
     } catch (err) {
@@ -232,7 +292,6 @@ class StoragePath {
     const ctx = this.operationContext.getStore();
     if (ctx) {
       const rel = this.getRelativePath(filePath);
-      if (!ctx.expected.has(rel)) ctx.expected.set(rel, firebaseSyncService.records.get(rel));
       ctx.changes.set(rel, { filePath, data: this.clone(data) });
       return true;
     }
@@ -240,6 +299,7 @@ class StoragePath {
     const cloned = JSON.parse(JSON.stringify(data));
     this.memoryStore.set(key, cloned);
     this.cacheTimestamps.set(key, Date.now());
+    this.knownMissing.delete(key);
 
     const dir = path.dirname(filePath);
     const fileName = path.basename(filePath);
@@ -265,11 +325,6 @@ class StoragePath {
     } catch (err) {
       // In read-only cloud/serverless environments, file is safely cached in memory
     }
-    
-    // Async Firebase persistence using relative canonical keys
-    const relPath = this.getRelativePath(filePath);
-    const relDir = path.dirname(relPath).replace(/\\/g, '/');
-    firebaseSyncService.syncToFirestore(relPath, relDir, fileName, cloned).catch(err => console.error('[storagePath] Persistencia pendiente:', err.code || err.message));
     
     return true;
   }
@@ -313,12 +368,6 @@ class StoragePath {
       });
     }
 
-    if (firebaseSyncService.loaded && this.isOperational(path.join(dirPath, '_'))) {
-      fileMap.clear();
-      for (const rel of firebaseSyncService.records.keys()) {
-        if (this.normalizeKey(path.dirname(this.resolveFilePath(rel))) === dirKey) fileMap.set(path.basename(rel).toLowerCase(), path.basename(rel));
-      }
-    }
     const ctx = this.operationContext.getStore();
     if (ctx) for (const { filePath, data } of ctx.changes.values()) {
       if (this.normalizeKey(path.dirname(filePath)) === dirKey) {
@@ -333,13 +382,13 @@ class StoragePath {
     const ctx = this.operationContext.getStore();
     if (ctx) {
       const rel = this.getRelativePath(filePath);
-      if (!ctx.expected.has(rel)) ctx.expected.set(rel, firebaseSyncService.records.get(rel));
       ctx.changes.set(rel, { filePath, data: null });
       return true;
     }
     const key = this.normalizeKey(filePath);
     this.memoryStore.delete(key);
     this.cacheTimestamps.delete(key);
+    this.knownMissing.add(key);
 
     const dir = path.dirname(filePath);
     const fileName = path.basename(filePath);
@@ -360,10 +409,6 @@ class StoragePath {
       }
     } catch (e) {}
     
-    // Async Firebase deletion using relative and fallback paths
-    const relPath = this.getRelativePath(filePath);
-    firebaseSyncService.deleteFromFirestore(relPath, filePath).catch(err => console.error('[storagePath] Eliminación pendiente:', err.code || err.message));
-    
     return true;
   }
 
@@ -378,6 +423,14 @@ class StoragePath {
     if (data === null) {
       this.memoryStore.delete(key);
       this.knownMissing.add(key);
+      const dir = path.dirname(filePath);
+      const dirKey = this.normalizeKey(dir);
+      if (this.dirListings.has(dirKey)) {
+        this.dirListings.get(dirKey).delete(path.basename(filePath));
+      }
+      try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      } catch (_) {}
       return;
     }
     this.knownMissing.delete(key);
@@ -387,22 +440,17 @@ class StoragePath {
     const dirKey = this.normalizeKey(dir);
     if (!this.dirListings.has(dirKey)) this.dirListings.set(dirKey, new Set());
     this.dirListings.get(dirKey).add(path.basename(filePath));
-    // Disk is only a cache. Atomic replacement avoids half-written JSON files.
+
+    // Disk persistence: atomic replacement avoids half-written JSON files.
     const temp = filePath + '.' + randomUUID() + '.tmp';
     try {
       fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(temp, JSON.stringify(data), 'utf8');
+      fs.writeFileSync(temp, JSON.stringify(data, null, 2), 'utf8');
       fs.renameSync(temp, filePath);
     } catch (_) {
       try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch (_) {}
+      try { fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8'); } catch (_) {}
     }
-  }
-
-  async ensureReady() {
-    if (firebaseSyncService.loaded) return;
-    if (!this.initializing) this.initializing = firebaseSyncService.hydrateMemoryStore(this.memoryStore, this.cacheTimestamps, this.dirListings, this)
-      .finally(() => { this.initializing = null; });
-    return this.initializing;
   }
 
   queuePath(scope) { return `sync/${createHash('sha256').update(String(scope)).digest('hex')}.json`; }
@@ -419,19 +467,15 @@ class StoragePath {
     const execute = async () => {
       await this.ensureReady();
       const queueRel = this.queuePath(scope);
-      const paths = [queueRel];
-      if (scope !== 'global') paths.push(`inventories/${scope}.json`);
-      await firebaseSyncService.refresh(paths, this);
       if (requireSynced) {
         const pending = this.readJson(this.resolveFilePath(queueRel), null);
-        if (pending?.jobs.length && await this.drainSync(scope)) {
+        if (pending?.jobs?.length && await this.drainSync(scope)) {
           throw new PersistenceError('Hay cambios guardados pendientes de sincronizar con Sheets. Reintente al terminar la sincronización.', 'SHEETS_PENDING');
         }
       }
       for (let attempt = 0; attempt < 3; attempt++) {
         const queueFile = this.resolveFilePath(queueRel);
         const queue = this.readJson(queueFile, { scope, jobs: [], receipts: [] });
-        const queueExpected = firebaseSyncService.records.get(queueRel);
         const receipt = queue.receipts.find(r => r.id === operationId);
         if (receipt) {
           if (receipt.fingerprint !== fingerprint) throw new PersistenceError('El identificador de operación ya se usó con otros datos.', 'OPERATION_MISMATCH', 409);
@@ -452,19 +496,10 @@ class StoragePath {
         while (queue.receipts.length > 1 && Buffer.byteLength(JSON.stringify(queue.receipts)) > 200000) queue.receipts.shift();
         if (ctx.effects.length || fingerprint) {
           ctx.changes.set(queueRel, { filePath: queueFile, data: queue });
-          ctx.expected.set(queueRel, queueExpected);
         }
-        const changes = [...ctx.changes].map(([rel, change]) => ({ rel, data: change.data, expected: ctx.expected.get(rel) }));
-        try {
-          await firebaseSyncService.commit(changes);
-        } catch (err) {
-          if (err.status === 409 && attempt < 2) {
-            await firebaseSyncService.refresh([...new Set([...ctx.expected.keys(), ...paths])], this);
-            continue;
-          }
-          throw err;
+        for (const change of ctx.changes.values()) {
+          this.cacheConfirmed(change.filePath, change.data);
         }
-        for (const change of ctx.changes.values()) this.cacheConfirmed(change.filePath, change.data);
         let pending = queue.jobs.length > 0;
         if (pending) pending = await this.drainSync(scope).catch(() => true);
         return result && typeof result === 'object' && !Array.isArray(result) ? { ...result, syncPending: pending } : result;
@@ -481,16 +516,14 @@ class StoragePath {
   async drainSync(scope) {
     const rel = this.queuePath(scope);
     const file = this.resolveFilePath(rel);
-    await firebaseSyncService.refresh([rel], this);
     let queue = this.readJson(file, null);
-    if (!queue?.jobs.length) return false;
+    if (!queue?.jobs?.length) return false;
     if (queue.leaseUntil > Date.now()) return true;
     const owner = randomUUID();
     queue.leaseOwner = owner;
     // Longer than the Apps Script execution limit, so a lost response cannot
     // let a second worker overtake a script still running in Google.
     queue.leaseUntil = Date.now() + 7 * 60 * 1000;
-    await firebaseSyncService.commit([{ rel, data: queue, expected: firebaseSyncService.records.get(rel) }]);
     this.cacheConfirmed(file, queue);
     const job = queue.jobs[0];
     let succeeded = false;
@@ -504,51 +537,46 @@ class StoragePath {
       if (!result || result.success !== true) throw new Error(result?.error || result?.message || 'Sheets no confirmó la operación');
       succeeded = true;
     } catch (err) { failure = err.message; deliveryUnknown = err.deliveryUnknown !== false; }
-    // A new count may have appended to this queue in another process.
-    for (let attempt = 0; attempt < 3; attempt++) {
-      await firebaseSyncService.refresh([rel], this);
-      queue = this.readJson(file, null);
-      if (!queue || queue.leaseOwner !== owner) return true;
-      if (succeeded) queue.jobs = queue.jobs.filter(entry => entry.id !== job.id);
-      queue.lastError = failure;
-      // Keep the lease on ambiguous network failures; the script may still run.
-      if (succeeded || !deliveryUnknown) queue.leaseUntil = 0;
-      try {
-        await firebaseSyncService.commit([{ rel, data: queue, expected: firebaseSyncService.records.get(rel) }]);
-        this.cacheConfirmed(file, queue);
-        return queue.jobs.length > 0;
-      } catch (err) { if (err.status !== 409 || attempt === 2) throw err; }
-    }
-    return true;
+    
+    queue = this.readJson(file, null);
+    if (!queue || queue.leaseOwner !== owner) return true;
+    if (succeeded) queue.jobs = queue.jobs.filter(entry => entry.id !== job.id);
+    queue.lastError = failure;
+    // Keep the lease on ambiguous network failures; the script may still run.
+    if (succeeded || !deliveryUnknown) queue.leaseUntil = 0;
+    this.cacheConfirmed(file, queue);
+    return queue.jobs.length > 0;
   }
 
   async refreshInventory(id) {
     if (this.operationContext.getStore()) return;
     await this.ensureReady();
-    await firebaseSyncService.refresh([`inventories/${id}.json`], this);
+    const filePath = path.join(this.getInventoriesDirectory(), `${id}.json`);
+    const key = this.normalizeKey(filePath);
+    if (fs.existsSync(filePath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        this.memoryStore.set(key, parsed);
+        this.cacheTimestamps.set(key, Date.now());
+      } catch (_) {}
+    }
   }
 
   async refreshOperational() {
     if (this.operationContext.getStore()) return;
     await this.ensureReady();
-    if (Date.now() - (this.lastOperationalRefresh || 0) < 10000) return;
-    const records = await firebaseSyncService.queryPaths();
-    for (const [rel, record] of records) if (this.isOperational(this.resolveFilePath(rel))) {
-      this.cacheConfirmed(this.resolveFilePath(rel), firebaseSyncService.decode(record));
-    }
-    this.lastOperationalRefresh = Date.now();
   }
 
   async resumeSync() {
     await this.ensureReady();
+    const syncDir = path.join(this.baseDir, 'sync');
+    if (!fs.existsSync(syncDir)) return;
+    const files = this.listFiles(syncDir);
     const scopes = [];
-    for (const [rel, record] of firebaseSyncService.records) {
-      if (!rel.startsWith('sync/')) continue;
-      const queue = firebaseSyncService.decode(record);
+    for (const f of files) {
+      const queue = this.readJson(path.join(syncDir, f), null);
       if (queue?.jobs?.length) scopes.push(queue.scope);
     }
-    // A few centres per pass; each has a durable lease, so multiple instances
-    // cannot drain the same queue concurrently.
     const offset = (this.syncOffset || 0) % Math.max(1, scopes.length);
     const rotated = scopes.slice(offset).concat(scopes.slice(0, offset));
     this.syncOffset = offset + 4;
@@ -568,15 +596,14 @@ class StoragePath {
       }
     } catch (_) {}
 
-    await firebaseSyncService.clearAllInFirestore(keepUsers);
-
     const targetDirs = [
       this.getInventoriesDirectory(),
       this.getHistoryDirectory(),
       this.getAuditDirectory(),
       this.getJustificationsDirectory(),
       this.getPhotosDirectory(),
-      this.getTrashDirectory()
+      this.getTrashDirectory(),
+      path.join(this.baseDir, 'sync')
     ];
 
     targetDirs.forEach(dir => {

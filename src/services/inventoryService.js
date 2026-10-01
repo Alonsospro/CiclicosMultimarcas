@@ -2009,6 +2009,7 @@ class InventoryService {
     primaryInv.driveFileId = driveResult.fileId;
     primaryInv.driveFileName = driveResult.fileName;
     primaryInv.driveUrl = driveResult.driveUrl || null;
+    primaryInv.manifest = driveResult.manifest;
     this.saveInventory(primaryInv);
 
     // If child recount inventory exists, close it as well

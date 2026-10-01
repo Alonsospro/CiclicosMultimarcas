@@ -24,10 +24,14 @@ window.DashboardView = {
     document.getElementById('dash-filter-end-date')?.addEventListener('change', () => this.loadDashboard());
 
     document.getElementById('dash-filter-type')?.addEventListener('change', () => {
+      const inventory = document.getElementById('dash-filter-inventory');
+      if (inventory) inventory.value = 'TODOS';
       this.loadDashboard();
     });
 
     document.getElementById('dash-filter-center')?.addEventListener('change', () => {
+      const inventory = document.getElementById('dash-filter-inventory');
+      if (inventory) inventory.value = 'TODOS';
       this.loadDashboard();
     });
 
@@ -122,6 +126,7 @@ window.DashboardView = {
   },
 
   printReport() {
+    if (this.currentData?.metricsComplete === false) return window.Toast?.warning('Valide los archivos antes de generar el informe.');
     if (window.MetricsReportModal) {
       window.MetricsReportModal.handlePrintReportClick();
     } else {
@@ -130,6 +135,7 @@ window.DashboardView = {
   },
 
   async recalculateMetrics() {
+    const requestSerial = this.requestSerial = (this.requestSerial || 0) + 1;
     const btnRecalc = document.getElementById('btn-dash-recalculate');
     const btnBanner = document.getElementById('btn-dash-banner-recalculate');
     const iconRecalc = btnRecalc?.querySelector('i');
@@ -141,7 +147,7 @@ window.DashboardView = {
     if (btnBanner) btnBanner.disabled = true;
 
     if (window.Toast) {
-      window.Toast.info('Recalculando métricas: sincronizando con base de datos y Google Sheets...', 4000);
+      window.Toast.info('Leyendo archivos de Google Sheets y validando sus datos...', 4000);
     }
 
     const user = window.Auth?.currentUser;
@@ -180,6 +186,7 @@ window.DashboardView = {
         window.API.getAuditLogs(auditParams)
       ]);
 
+      if (requestSerial !== this.requestSerial) return;
       this.currentData = recalcRes;
       this.currentData.auditLogs = auditRes.logs || [];
 
@@ -195,14 +202,16 @@ window.DashboardView = {
       this.renderMultiLocations(recalcRes.multiLocationSkus || []);
       this.renderDiscrepancies(recalcRes.discrepanciesList || [], this.currentDiscFilter);
       this.renderAuditLogs(auditRes.logs || []);
+      this.renderSourceValidation(this.currentData);
 
       const countMsg = recalcRes.resyncedCount > 0
-        ? ` (${recalcRes.resyncedCount} inventario(s) sincronizados con Sheets)`
+        ? ` (${recalcRes.resyncedCount} archivos leídos de Google Sheets)`
         : '';
-      window.Toast?.success(`Métricas recalculadas exitosamente con la información más reciente${countMsg}.`);
+      if (recalcRes.metricsComplete === false) window.Toast?.warning('Lectura terminada: hay archivos pendientes de validación.');
+      else window.Toast?.success(`Métricas recalculadas exitosamente con la información más reciente${countMsg}.`);
     } catch (err) {
       console.error('[dashboardView] Error recalculating metrics:', err);
-      window.Toast?.danger(err.message || 'Error al recalcular métricas desde la base de datos');
+      if (requestSerial === this.requestSerial) window.Toast?.danger(err.message || 'Error al leer las fuentes de métricas');
     } finally {
       if (iconRecalc) iconRecalc.className = 'fa-solid fa-calculator';
       if (iconBanner) iconBanner.className = 'fa-solid fa-calculator';
@@ -212,6 +221,7 @@ window.DashboardView = {
   },
 
   async loadDashboard(forceRefresh = false) {
+    const requestSerial = this.requestSerial = (this.requestSerial || 0) + 1;
     const user = window.Auth?.currentUser;
     const isAdmin = user && (user.role === 'ADMIN' || user.isSuperadmin);
     const period = document.getElementById('dash-filter-period')?.value || 'TODO';
@@ -251,6 +261,7 @@ window.DashboardView = {
         window.API.getAuditLogs(auditParams)
       ]);
 
+      if (requestSerial !== this.requestSerial) return;
       this.currentData = metricsRes;
       this.currentData.auditLogs = auditRes.logs || [];
 
@@ -266,8 +277,9 @@ window.DashboardView = {
       this.renderMultiLocations(metricsRes.multiLocationSkus || []);
       this.renderDiscrepancies(metricsRes.discrepanciesList || [], this.currentDiscFilter);
       this.renderAuditLogs(auditRes.logs || []);
+      this.renderSourceValidation(this.currentData);
     } catch (err) {
-      window.Toast.danger(err.message || 'Error cargando datos del Dashboard');
+      if (requestSerial === this.requestSerial) window.Toast.danger(err.message || 'Error cargando datos del Dashboard');
     }
   },
 
@@ -275,59 +287,21 @@ window.DashboardView = {
     const select = document.getElementById('dash-filter-inventory');
     if (!select) return;
 
-    // Deduplicate: filter out intermediate reconteo files (REC-*) to only show the final consolidated inventory
-    let cleanList = (availableInventories || []).filter(inv => {
-      const idStr = String(inv.id || '');
-      return !idStr.startsWith('REC-');
-    });
-
-    // Safeguard deduplication: If same center + date exists with both a final snapshot and a raw file, keep only FINAL
-    const isFinalSnap = (it) => {
-      const s = `${it.name || ''} ${it.id || ''}`.toUpperCase();
-      return s.includes('FINAL') || s.includes('SNAPSHOT');
-    };
-    const dedupeGroups = new Map();
-    cleanList.forEach(inv => {
-      const d = inv.createdAt ? String(inv.createdAt).substring(0, 10) : '';
-      const k = `${inv.center || ''}_${d}_${inv.type || ''}`;
-      if (!dedupeGroups.has(k)) dedupeGroups.set(k, []);
-      dedupeGroups.get(k).push(inv);
-    });
-    const finalCleanList = [];
-    dedupeGroups.forEach(grp => {
-      if (grp.length === 1) {
-        finalCleanList.push(grp[0]);
-      } else {
-        const finalItem = grp.find(it => isFinalSnap(it));
-        finalCleanList.push(finalItem || grp[0]);
-      }
-    });
-    cleanList = finalCleanList;
+    const cleanList = availableInventories.filter(inv => !String(inv.id || '').startsWith('REC-'));
 
     const targetVal = String(selectedId !== undefined && selectedId !== null && selectedId !== '' ? selectedId : (select.value || 'TODOS')).trim();
     const targetValLower = targetVal.toLowerCase();
 
-    let html = `<option value="TODOS">📊 Consolidado (${cleanList.length} inventario${cleanList.length === 1 ? '' : 's'})</option>`;
-
+    const options = [new Option('Consolidado (' + cleanList.length + ' inventarios)', 'TODOS')];
     cleanList.forEach(inv => {
-      const dateStr = inv.createdAt ? new Date(inv.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
-      const tag = inv.isHistory ? ' 📁 [Snapshot Histórico]' : (inv.status === 'REVISADO' ? ' ✓ [Revisado]' : '');
-      html += `<option value="${inv.id}">[${inv.center}] ${inv.name || inv.id} - ${dateStr}${tag}</option>`;
+      const state = ['valid', 'not_requested'].includes(inv.sourceValidation?.status) ? '' : ' ⚠ Revisar fuente';
+      options.push(new Option('[' + inv.center + '] ' + (inv.name || inv.id) + state, inv.id));
     });
-
-    select.innerHTML = html;
-
-    const match = cleanList.find(inv => {
-      const invId = String(inv.id || '').trim().toLowerCase();
-      return invId === targetValLower || invId.replace(/\.json$/, '') === targetValLower.replace(/\.json$/, '');
-    });
-
-    if (match) {
-      select.value = match.id;
-    } else {
-      select.value = 'TODOS';
-    }
+    select.replaceChildren(...options);
+    const match = cleanList.find(inv => [inv.id, ...(inv.aliases || [])].some(id => String(id).toLowerCase().replace(/\.json$/, '') === targetValLower.replace(/\.json$/, '')));
+    select.value = match ? match.id : 'TODOS';
   },
+
 
   renderContextBanner(selectedInventory, filters) {
     const banner = document.getElementById('dash-inventory-context-banner');
@@ -347,6 +321,36 @@ window.DashboardView = {
     } else {
       banner.style.display = 'none';
     }
+  },
+
+  renderSourceValidation(data) {
+    const panel = document.getElementById('dash-source-validation');
+    const results = document.getElementById('dash-metrics-results');
+    if (results) results.style.display = data.metricsValid === false ? 'none' : '';
+    for (const id of ['btn-dash-print-report', 'btn-dash-banner-print-report', 'btn-export-overview-xlsx', 'btn-export-discrepancies-csv']) {
+      const button = document.getElementById(id);
+      if (button) button.disabled = data.metricsComplete === false;
+    }
+    if (!panel) return;
+    panel.replaceChildren();
+    const sources = data.sourceDiagnostics || [];
+    const issues = sources.filter(source => source.status !== 'valid');
+    const label = document.createElement('strong');
+    label.textContent = data.metricsValid === false ? 'No hay métricas verificadas para esta selección.'
+      : (issues.length ? 'Consolidado parcial: ' + issues.length + ' archivo(s) excluidos.' : 'Lectura y validación de fuentes: ' + sources.length + ' inventario(s).');
+    panel.appendChild(label);
+    sources.forEach(source => {
+      const line = document.createElement('div');
+      line.textContent = '[' + source.center + '] ' + (source.name || source.id) + ' · ' +
+        (source.status === 'valid' ? ((source.sheetName || 'Inventario activo') + ': ' + source.actualRows + ' filas / ' + source.actualSkus + ' SKU únicos') : source.issues.join('; '));
+      panel.appendChild(line);
+      if (/^https:\/\/(docs|drive)\.google\.com\//.test(source.spreadsheetUrl || '')) {
+        const link = document.createElement('a');
+        link.href = source.spreadsheetUrl; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Abrir archivo fuente';
+        panel.appendChild(link);
+      }
+      (source.warnings || []).forEach(warning => { const row = document.createElement('div'); row.textContent = warning; panel.appendChild(row); });
+    });
   },
 
   renderKPIs(summary, workerStats = []) {
@@ -460,7 +464,7 @@ window.DashboardView = {
     }
     const elEriItemsDetail = document.getElementById('stat-eri-items-detail');
     if (elEriItemsDetail) {
-      elEriItemsDetail.textContent = `${unitsExactFinal} de ${totalAuditedUnits} existencias cuadradas (${exactItemsFinal} SKUs)`;
+      elEriItemsDetail.textContent = `${unitsExactFinal} de ${totalAuditedUnits} existencias cuadradas (${exactItemsFinal} registros)`;
     }
 
     // 2. ERI de SKU
@@ -1303,6 +1307,7 @@ window.DashboardView = {
   },
 
   async exportOverviewXLSX() {
+    if (this.currentData?.metricsComplete === false) return window.Toast?.warning('Valide los archivos antes de exportar.');
     const btn = document.getElementById('btn-export-overview-xlsx');
     const originalText = btn ? btn.innerHTML : '';
     if (btn) {
@@ -1638,6 +1643,14 @@ window.DashboardView = {
         { wch: 20 }
       ];
       XLSX.utils.book_append_sheet(wb, wsDisc, 'Detalle_Discrepancias');
+
+      const sourceRows = [['FUENTES DE LAS MÉTRICAS'], ['Inventario', 'Centro', 'Pestaña', 'Filas', 'SKU únicos', 'Estado', 'Fecha de lectura', 'Advertencias', 'Enlace']];
+      (this.currentData.sourceDiagnostics || []).forEach(source => sourceRows.push([source.name || source.id, source.center,
+        source.sheetName || 'Inventario activo', source.actualRows ?? 0, source.actualSkus ?? 0, source.status,
+        source.readAt || '', (source.warnings || []).join('; '), source.spreadsheetUrl || '']));
+      const sourceSheet = XLSX.utils.aoa_to_sheet(sourceRows);
+      sourceSheet['!cols'] = [{ wch: 42 }, { wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 16 }, { wch: 26 }, { wch: 65 }, { wch: 65 }];
+      XLSX.utils.book_append_sheet(wb, sourceSheet, 'Fuentes_Metricas');
 
       // Nombre del archivo .xlsx
       const datePart = new Date().toISOString().slice(0, 10);

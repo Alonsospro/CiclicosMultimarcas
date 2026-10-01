@@ -1,3 +1,4 @@
+const sheetModel = require('./inventorySheetModel');
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
@@ -204,7 +205,7 @@ class DriveService {
       logicalPath: `${folderPath}/${fileName}.xlsx`,
       inventoryId: id,
       type,
-      center,
+      center: config.getCenterCode(center),
       isReconteo,
       closedBy: user.username,
       closedAt: new Date().toISOString(),
@@ -212,6 +213,7 @@ class DriveService {
       totalItems: items.length,
       justificationsCount: (justifications || []).length,
       items: items.map(item => {
+        const normalized = sheetModel.normalizeItem(item);
         const matchingJust = (justifications || []).find(j => j.itemId ? j.itemId === item.id : (j.sku || j.SKU) === item.SKU && String(j.almacen || '') === String(item.Almacen || '') && String(j.ubicacion || '') === String(item.Ubicacion || ''));
         const razon = item.Razon || item.Razon_Justificacion || (matchingJust ? (matchingJust.reasonType || matchingJust.razon) : '');
         const comentarioJust = item.Comentario_Justificacion || (matchingJust ? (matchingJust.justification || matchingJust.comentario) : '');
@@ -230,27 +232,23 @@ class DriveService {
           Categoria: item.Categoria,
           Clasificacion_ABC: item.Clasificacion_ABC,
           Unidad: item.Unidad,
-          Costo_Unitario: item.Costo_Unitario,
-          Stock_Sistema: item.Stock_Sistema,
-          Stock_Fisico: item.Stock_Fisico,
-          Diferencia: (item.Stock_Fisico !== null ? item.Stock_Fisico : 0) - item.Stock_Sistema,
-          Costo_Diferencia: ((item.Stock_Fisico !== null ? item.Stock_Fisico : 0) - item.Stock_Sistema) * (item.Costo_Unitario || 0),
+          Costo_Unitario: normalized.Costo_Unitario,
+          Stock_Sistema: normalized.Stock_Sistema,
+          Stock_Fisico: normalized.Stock_Fisico,
+          Diferencia: normalized.Diferencia,
+          Costo_Diferencia: normalized.Costo_Diferencia,
           Fecha_Ultimo_Conteo: item.Fecha_Ultimo_Conteo,
           Responsable: item.Responsable,
           Estado: item.Estado || 'Revisado',
-          Mal_estado: item.Mal_estado || 0,
+          Mal_estado: normalized.Mal_estado,
           Comentario: item.Comentario || '',
           Razon: razon || '',
           Razon_Justificacion: razon || '',
           Comentario_Justificacion: comentarioJust || '',
-          Reconteo_Fisico: item.Reconteo_Fisico !== undefined ? item.Reconteo_Fisico : null,
-          Reconteo_Mal_Estado: item.Reconteo_Mal_Estado !== undefined ? item.Reconteo_Mal_Estado : 0,
-          Diferencia_Final: (item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined && item.Reconteo_Fisico !== '')
-            ? (Number(item.Reconteo_Fisico) - Number(item.Stock_Sistema || 0))
-            : ((item.Stock_Fisico !== null ? Number(item.Stock_Fisico) : 0) - Number(item.Stock_Sistema || 0)),
-          Costo_Diferencia_Final: (item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined && item.Reconteo_Fisico !== '')
-            ? ((Number(item.Reconteo_Fisico) - Number(item.Stock_Sistema || 0)) * (Number(item.Costo_Unitario) || 0))
-            : (((item.Stock_Fisico !== null ? Number(item.Stock_Fisico) : 0) - Number(item.Stock_Sistema || 0)) * (Number(item.Costo_Unitario) || 0)),
+          Reconteo_Fisico: normalized.Reconteo_Fisico,
+          Reconteo_Mal_Estado: normalized.Reconteo_Mal_Estado,
+          Diferencia_Final: normalized.Diferencia_Final,
+          Costo_Diferencia_Final: normalized.Costo_Diferencia_Final,
           photoBase64: photoData
         };
       }),
@@ -267,14 +265,17 @@ class DriveService {
       })
     };
 
+    driveRecord.manifest = sheetModel.createManifest(driveRecord);
+
     // Call GAS Webhook and capture real Drive URL if returned
     let realDriveUrl = null;
     let realDriveFileId = null;
     let spreadsheetUrl = null;
+    let confirmedManifest = null;
     try {
       const cleanCenter = config.getCenterCode ? config.getCenterCode(center) : center;
       const gasResult = await gasService.syncFinalInventoryToGAS(type, {
-        operationId: `close:${inventory.id}:${snapshotKey}`,
+        operationId: `close:v2:${inventory.id}:${snapshotKey}`,
         fileId,
         fileName: `${fileName}.xlsx`,
         folderPath,
@@ -286,6 +287,7 @@ class DriveService {
       });
       // Extract real Drive URLs from GAS response
       if (gasResult) {
+        confirmedManifest = gasResult.manifest;
         realDriveFileId = gasResult.fileId;
         if (gasResult.spreadsheetUrl && typeof gasResult.spreadsheetUrl === 'string') {
           spreadsheetUrl = gasResult.spreadsheetUrl;
@@ -306,6 +308,7 @@ class DriveService {
     driveRecord.driveUrl = driveUrl;
     driveRecord.spreadsheetUrl = spreadsheetUrl;
     driveRecord.driveFileId = realDriveFileId;
+    driveRecord.manifest = { ...driveRecord.manifest, ...confirmedManifest };
 
     // Save final file record to history directory
     const historyFilePath = path.join(this.historyDir, `${fileId}.json`);
@@ -328,6 +331,7 @@ class DriveService {
       folderPath,
       driveUrl,
       spreadsheetUrl,
+      manifest: driveRecord.manifest,
       historyFilePath
     };
   }

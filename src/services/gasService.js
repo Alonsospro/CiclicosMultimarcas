@@ -29,13 +29,33 @@ class GasService {
   parseCurrencyOrNumber(val, fallback = 0) {
     if (val === null || val === undefined || val === '') return fallback;
     if (typeof val === 'number') return isNaN(val) ? fallback : val;
+
     let str = String(val).trim();
+    if (!str) return fallback;
+
+    // Detect and handle Excel/Sheets date formats (e.g. 1/3/4114 or 30/9/2026)
+    if (str.includes('/')) {
+      const dateMatch = str.match(/^\d{1,2}\/\d{1,2}\/(\d{2,6})(?:\s.*)?$/);
+      if (dateMatch) {
+        const yearOrVal = parseInt(dateMatch[1], 10);
+        // Calendar dates (e.g. 2020-2035) are date fields, not costs/quantities
+        if (yearOrVal >= 2000 && yearOrVal <= 2035) return fallback;
+        // Years outside calendar range (e.g. 4114, 9495, 2244) are cell values formatted as dates in Excel
+        return yearOrVal;
+      }
+      return fallback;
+    }
+
     let isNegative = false;
-    if (str.startsWith('(') && str.endsWith(')')) {
+    if (str.startsWith('-')) {
+      isNegative = true;
+      str = str.slice(1).trim();
+    } else if (str.startsWith('(') && str.endsWith(')')) {
       isNegative = true;
       str = str.slice(1, -1).trim();
     }
-    // Clean currency symbols, letters, spaces
+
+    // Clean currency symbols, letters, spaces, but keep digits, '.', ',', '+', '-'
     str = str.replace(/[^0-9.,+-]/g, '');
     if (!str) return fallback;
 
@@ -51,14 +71,22 @@ class GasService {
       }
     } else if (str.includes(',')) {
       const parts = str.split(',');
-      if (parts.length === 2 && parts[1].length <= 2) {
-        // 15,50 -> comma is decimal
-        str = str.replace(',', '.');
-      } else {
-        // 1,000 -> comma is thousands
+      if (parts.length > 2) {
+        // 1,000,000 -> multiple commas are thousands
         str = str.replace(/,/g, '');
+      } else {
+        // Single comma: In Spanish/Bolivian locale and Google Sheets CSV,
+        // comma is decimal separator (e.g. 15,50 | 136,397 | -3073,5711072)
+        str = str.replace(',', '.');
+      }
+    } else if (str.includes('.')) {
+      const parts = str.split('.');
+      if (parts.length > 2) {
+        // 1.000.000 -> multiple dots are thousands
+        str = str.replace(/\./g, '');
       }
     }
+
     let n = parseFloat(str);
     if (isNaN(n)) return fallback;
     if (isNegative) n = -Math.abs(n);
@@ -181,10 +209,15 @@ class GasService {
       const location = getVal(idxLoc, r[3] || '');
       const cat = getVal(idxCat, r[4] || '');
       const almacen = getVal(idxAlmacen, r[6] || r[4] || cat);
+      const unit = getVal(idxUnit, 'PZA');
       const rawAbc = (getVal(idxAbc, r[7] || r[5] || '') || '').trim().toUpperCase();
-      const unit = getVal(idxUnit, r[8] || r[6] || 'UND');
-      const unitCost = this.parseCurrencyOrNumber(getVal(idxCost, r[9] !== undefined ? r[9] : r[7]), 0);
+      let unitCost = this.parseCurrencyOrNumber(getVal(idxCost, r[9] !== undefined ? r[9] : r[7]), 0);
       const sysStock = this.parseCurrencyOrNumber(getVal(idxSys, r[10] !== undefined ? r[10] : r[8]), 0);
+
+      // Handle cases where total lot stock value was placed into Costo_Unitario instead of unit cost
+      if (unitCost > 50000 && sysStock > 1 && (unitCost / sysStock < 10000 || /aceite|balde|turril|filtro|reten|lubricante/i.test(desc))) {
+        unitCost = Math.round((unitCost / sysStock) * 100) / 100;
+      }
       
       const rawStockTotal = getVal(idxStockTotal, r[11]);
       const rawPhys = getVal(idxPhys, r[12] !== undefined ? r[12] : r[9]);
@@ -225,6 +258,14 @@ class GasService {
       } else {
         diffCost = diff * unitCost;
       }
+      if (unitCost > 0 && Math.abs(diff) > 0) {
+        const expectedCost = Math.abs(diff * unitCost);
+        if (Math.abs(diffCost) > expectedCost * 2 + 50 || Math.abs(diffCost) > 50000000 || diffCost === 0) {
+          diffCost = diff * unitCost;
+        }
+      } else if (Math.abs(diffCost) > 50000000) {
+        diffCost = 0;
+      }
 
       // Reconteo 1: Col Y = Stock_Total_Reconteo, Col Z = Reconteo, Col AA = Malestado, Col AB = Diferencia_Final
       const rawStockTotalRec1 = getVal(idxStockTotalRec1, r[24]);
@@ -246,9 +287,14 @@ class GasService {
         : null;
 
       const rawCostDiffFinal1 = getVal(idxCostDiffFinal1, r[28]);
-      const costDiffFinal1 = (rawCostDiffFinal1 !== '' && rawCostDiffFinal1 !== undefined && rawCostDiffFinal1 !== null)
+      let costDiffFinal1 = (rawCostDiffFinal1 !== '' && rawCostDiffFinal1 !== undefined && rawCostDiffFinal1 !== null)
         ? this.parseCurrencyOrNumber(rawCostDiffFinal1, null)
         : null;
+      if (diffFinal1 !== null && unitCost > 0) {
+        if (costDiffFinal1 === null || Math.abs(costDiffFinal1) > Math.abs(diffFinal1 * unitCost) * 2 + 50 || Math.abs(costDiffFinal1) > 50000000) {
+          costDiffFinal1 = diffFinal1 * unitCost;
+        }
+      }
 
       // Reconteo 2: Col AJ = Stock_Total_Reconteo_2, Col AK = Reconteo_2, Col AL = Malestado, Col AM = Diferencia_Final_2
       const rawStockTotalRec2 = getVal(idxStockTotalRec2, r[35]);
@@ -272,9 +318,14 @@ class GasService {
         : null;
 
       const rawCostDiffFinal2 = getVal(idxCostDiffFinal2, r[39]);
-      const costDiffFinal2 = (rawCostDiffFinal2 !== '' && rawCostDiffFinal2 !== undefined && rawCostDiffFinal2 !== null)
+      let costDiffFinal2 = (rawCostDiffFinal2 !== '' && rawCostDiffFinal2 !== undefined && rawCostDiffFinal2 !== null)
         ? this.parseCurrencyOrNumber(rawCostDiffFinal2, null)
         : null;
+      if (diffFinal2 !== null && unitCost > 0) {
+        if (costDiffFinal2 === null || Math.abs(costDiffFinal2) > Math.abs(diffFinal2 * unitCost) * 2 + 50 || Math.abs(costDiffFinal2) > 50000000) {
+          costDiffFinal2 = diffFinal2 * unitCost;
+        }
+      }
 
       // Regla de Negativos para stockTotalRec1 y stockTotalRec2
       let effectiveTotalRec1 = stockTotalRec1;
@@ -329,6 +380,29 @@ class GasService {
     return parsedItems;
   }
 
+  async readInventorySpreadsheet(record) {
+    if (!record.center) throw new Error('Falta el centro para seleccionar la pestaña del inventario');
+    const spreadsheetUrl = record.spreadsheetUrl || record.driveUrl;
+    const spreadsheetId = this.extractSpreadsheetId(spreadsheetUrl);
+    if (!spreadsheetId) throw new Error('Enlace de Google Sheets inválido');
+    const url = new URL(this.getUrlForType(record.type || 'CICLICO'));
+    url.searchParams.set('action', 'readFinalInventory');
+    url.searchParams.set('spreadsheetId', spreadsheetId);
+    url.searchParams.set('center', config.getCenterCode(record.center));
+    const gid = String(spreadsheetUrl).match(/[#&?]gid=(\d+)/)?.[1];
+    if (gid) url.searchParams.set('gid', gid);
+    const response = await fetch(url.toString(), { signal: AbortSignal.timeout(15000), headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error('No se pudo leer Google Sheets');
+    const result = await response.json();
+    if (!result.success || !Array.isArray(result.headers) || !Array.isArray(result.rows)) {
+      const message = /no soportada/i.test(result.error || '') ? 'Actualice gas/Code.gs en Apps Script para habilitar el lector de métricas' : result.error;
+      const error = new Error(message || 'Apps Script devolvió una tabla de inventario inválida');
+      error.code = result.code;
+      throw error;
+    }
+    return { ...result, readAt: new Date().toISOString() };
+  }
+
   async fetchSpreadsheetItems(spreadsheetUrl) {
     if (!spreadsheetUrl) return [];
     const sheetId = this.extractSpreadsheetId(spreadsheetUrl);
@@ -357,6 +431,8 @@ class GasService {
         }
       } catch (e) {}
     }
+
+    if (targetGid && !csvText) throw new Error('No se pudo leer la pestaña solicitada; no se elegirá otra automáticamente');
 
     // 2. Descubrir pestañas mediante htmlview para encontrar la hoja exacta de inventario
     if (!csvText) {
@@ -389,8 +465,7 @@ class GasService {
             return null;
           }));
 
-          let bestCsv = '';
-          let bestValidRowCount = -1;
+          const candidates = [];
 
           for (const r of tabResults) {
             if (r.status === 'fulfilled' && r.value && r.value.text) {
@@ -403,19 +478,19 @@ class GasService {
               const hasSkuHeader = headers.some(h => h === 'sku' || h === 'codigo_barras' || h === 'articulo');
               if (!hasSkuHeader) continue;
 
-              const rowCount = t.split('\n').filter(l => l.trim().length > 0).length;
-              if (rowCount > bestValidRowCount) {
-                bestValidRowCount = rowCount;
-                bestCsv = t;
-              }
+              candidates.push(t);
             }
           }
 
-          if (bestCsv && bestValidRowCount > 0) {
-            csvText = bestCsv;
+          if (candidates.length > 1) {
+            const error = new Error('El archivo contiene varias pestañas de inventario; indique el gid de la pestaña exacta');
+            error.code = 'AMBIGUOUS_SHEET';
+            throw error;
           }
+          if (candidates.length === 1) csvText = candidates[0];
         }
       } catch (htmlErr) {
+        if (htmlErr.code === 'AMBIGUOUS_SHEET') throw htmlErr;
         console.warn(`[gasService] Notice discovering tabs for sheet ${sheetId}:`, htmlErr.message);
       }
     }
@@ -960,6 +1035,7 @@ class GasService {
     const url = this.getUrlForType(type);
     const targetUrl = new URL(url);
     targetUrl.searchParams.set('action', 'getHistory');
+    targetUrl.searchParams.set('type', type);
     if (center && center !== 'TODOS' && center !== 'GLOBAL') {
       const cleanCenter = config.getCenterCode ? config.getCenterCode(center) : center;
       targetUrl.searchParams.set('center', cleanCenter);
@@ -1201,6 +1277,7 @@ class GasService {
 
     const driveRecord = {
       ...incomingDriveRecord,
+      inventoryId: incomingDriveRecord.inventoryId || payload.inventoryId,
       type: cleanType,
       center: cleanCenter,
       isReconteo,
@@ -1235,6 +1312,9 @@ class GasService {
       }))
     };
 
+    driveRecord.manifest ||= require('./inventorySheetModel').createManifest({ ...driveRecord,
+      inventoryId: driveRecord.inventoryId || payload.inventoryId, center: cleanCenter, type: cleanType });
+
     const postBody = {
       action: 'createFinalFile',
       type: cleanType,
@@ -1250,6 +1330,13 @@ class GasService {
     postBody.operationId = payload.operationId || `close:${payload.fileId || payload.inventoryId}`;
     const result = await this.postConfirmed(url, postBody);
     if (!result.fileId || !result.spreadsheetUrl) throw new Error('Drive no confirmó el archivo final.');
+    if (!result.manifest || result.manifest.itemCount !== driveRecord.manifest?.itemCount ||
+      result.manifest.skuCount !== driveRecord.manifest?.skuCount ||
+      result.manifest.inventoryId !== driveRecord.manifest?.inventoryId ||
+      result.manifest.center !== driveRecord.manifest?.center ||
+      result.manifest.membershipHash !== driveRecord.manifest?.membershipHash) {
+      throw new Error('Apps Script no confirmó el manifiesto del cierre. Actualice gas/Code.gs antes de finalizar.');
+    }
     return result;
   }
 
