@@ -844,12 +844,10 @@ window.DashboardView = {
       if (existing) existing.destroy();
 
       const trend = data.historicalEriTrend || {};
-      const labels = trend.labels && trend.labels.length > 0
-        ? trend.labels
-        : ['Cíclico Jul • 15/jul', 'Cíclico Jul • 29/jul', 'Cíclico Ago • 14/ago', 'Cíclico Ago • 28/ago', 'Inv. Cíclico • 19/sept'];
-      const values = trend.data && trend.data.length > 0
-        ? trend.data
-        : [91.4, 93.2, 88.75, 96.1, 99.67];
+      const labels = Array.isArray(trend.labels) ? trend.labels : [];
+      const values = Array.isArray(trend.data)
+        ? trend.data.map(Number).filter(Number.isFinite)
+        : [];
 
       // Definición estricta de metas corporativas NIBOL solicitadas:
       // • menos del 90%: Mal (Rojo)
@@ -874,11 +872,17 @@ window.DashboardView = {
       };
 
       const pointColors = values.map(v => evaluateCorporateTier(v).color);
-      const latestEri = trend.latestEri !== undefined ? trend.latestEri : values[values.length - 1];
-      const previousEri = trend.previousEri !== undefined ? trend.previousEri : values[values.length - 2];
-      const delta = trend.delta !== undefined ? trend.delta : parseFloat((latestEri - previousEri).toFixed(2));
-      const isPositive = delta >= 0;
-      const latestEval = evaluateCorporateTier(latestEri);
+      const finiteOrNull = value => value === null || value === undefined || !Number.isFinite(Number(value))
+        ? null
+        : Number(value);
+      const latestEri = finiteOrNull(trend.latestEri) ?? (values.length ? values[values.length - 1] : null);
+      const previousEri = finiteOrNull(trend.previousEri) ?? (values.length > 1 ? values[values.length - 2] : null);
+      const reportedDelta = finiteOrNull(trend.delta);
+      const delta = latestEri !== null && previousEri !== null
+        ? (reportedDelta ?? parseFloat((latestEri - previousEri).toFixed(2)))
+        : null;
+      const isPositive = delta !== null && delta >= 0;
+      const latestEval = latestEri === null ? null : evaluateCorporateTier(latestEri);
 
       const ctxTrend = canvasTrend.getContext('2d');
       const gradient = ctxTrend.createLinearGradient(0, 0, 0, 290);
@@ -1022,19 +1026,29 @@ window.DashboardView = {
       // Actualizar badge y texto resumen de tendencia con la meta corporativa
       const badgeTrend = document.getElementById('badge-eri-trend-status');
       if (badgeTrend) {
-        const trendIcon = isPositive ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down';
-        const deltaSign = isPositive ? '+' : '';
-        badgeTrend.style.background = latestEval.badgeBg;
-        badgeTrend.style.color = latestEval.badgeColor;
-        badgeTrend.style.borderColor = latestEval.badgeBorder;
-        badgeTrend.innerHTML = `<i class="fa-solid ${trendIcon}"></i> ${deltaSign}${delta.toFixed(2)}% • ${latestEval.label}`;
+        if (latestEval) {
+          const trendIcon = delta === null ? 'fa-minus' : (isPositive ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down');
+          const deltaSign = isPositive ? '+' : '';
+          const comparison = delta === null ? 'Primer cierre • sin comparación' : `${deltaSign}${delta.toFixed(2)}%`;
+          badgeTrend.style.background = latestEval.badgeBg;
+          badgeTrend.style.color = latestEval.badgeColor;
+          badgeTrend.style.borderColor = latestEval.badgeBorder;
+          badgeTrend.innerHTML = `<i class="fa-solid ${trendIcon}"></i> ${comparison} • ${latestEval.label}`;
+        } else {
+          badgeTrend.textContent = 'Sin cierres válidos para la tendencia';
+        }
       }
 
       const textSummary = document.getElementById('text-eri-trend-summary');
       if (textSummary) {
-        const statusVerb = isPositive ? 'mejora' : 'retroceso';
-        const deltaSign = isPositive ? '+' : '';
-        textSummary.innerHTML = `Último cierre: <strong>${latestEri.toFixed(2)}%</strong> (${statusVerb} de ${deltaSign}${delta.toFixed(2)}% vs ciclo anterior) • Dictamen Corporativo: <span style="color: ${latestEval.color}; font-weight: 700;">${latestEval.icon} ${latestEval.text}</span>.`;
+        if (latestEval) {
+          const comparison = delta === null
+            ? 'primer cierre válido; todavía no hay un ciclo anterior para comparar'
+            : `${isPositive ? 'mejora' : 'retroceso'} de ${isPositive ? '+' : ''}${delta.toFixed(2)}% vs ciclo anterior`;
+          textSummary.innerHTML = `Último cierre: <strong>${latestEri.toFixed(2)}%</strong> (${comparison}) • Dictamen Corporativo: <span style="color: ${latestEval.color}; font-weight: 700;">${latestEval.icon} ${latestEval.text}</span>.`;
+        } else {
+          textSummary.textContent = 'No hay cierres válidos para la tendencia seleccionada.';
+        }
       }
     }
   },

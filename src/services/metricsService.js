@@ -1171,10 +1171,10 @@ class MetricsService {
     }));
 
     const trendValues = trendSeriesWithEval.map(item => Number(item.eri.toFixed(2)));
-    const latestEri = trendValues[trendValues.length - 1];
-    const previousEri = trendValues[trendValues.length - 2];
-    const delta = parseFloat((latestEri - previousEri).toFixed(2));
-    const trendStatus = delta > 0 ? 'MEJORA' : (delta < 0 ? 'RETROCESO' : 'ESTABLE');
+    const latestEri = trendValues.length ? trendValues[trendValues.length - 1] : null;
+    const previousEri = trendValues.length > 1 ? trendValues[trendValues.length - 2] : null;
+    const delta = previousEri !== null ? parseFloat((latestEri - previousEri).toFixed(2)) : null;
+    const trendStatus = delta === null ? 'SIN_COMPARACION' : (delta > 0 ? 'MEJORA' : (delta < 0 ? 'RETROCESO' : 'ESTABLE'));
 
     const historicalEriTrend = {
       labels: trendLabels,
@@ -1195,10 +1195,10 @@ class MetricsService {
       },
       latestEri,
       previousEri,
-      latestEvaluation: evaluateCorporateTier(latestEri),
+      latestEvaluation: latestEri === null ? null : evaluateCorporateTier(latestEri),
       delta,
       trendStatus,
-      average: parseFloat((trendValues.reduce((a, b) => a + b, 0) / trendValues.length).toFixed(2))
+      average: trendValues.length ? parseFloat((trendValues.reduce((a, b) => a + b, 0) / trendValues.length).toFixed(2)) : null
     };
 
     const activeIsFinal = totalRecountsDone > 0;
