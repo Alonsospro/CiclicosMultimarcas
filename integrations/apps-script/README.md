@@ -14,6 +14,8 @@ Este cambio requiere actualizar la app y Apps Script juntos. El archivo `Invento
    - `ROOT_CICLICO`, `ROOT_BARRIDO`, `ROOT_SEMANAL` y `ROOT_MENSUAL`: IDs de las carpetas de cierres correspondientes a los tipos usados. También se reconocen las raíces GENERAL/EXPRESS. Configurar explícitamente para no depender de los valores heredados.
    - `PHOTOS_ROOT_ID`: carpeta para evidencias. Si se omite, se usa la raíz del tipo.
    - `REFERENCE_PHOTOS_FOLDER_ID`: carpeta opcional con imágenes cuyo nombre, sin extensión, coincide exactamente con el SKU.
+   - Copie solo el ID de la carpeta (el texto después de `/folders/` en el enlace); se aceptan IDs o enlaces de carpeta. No use IDs de documentos ni enlaces de archivos. La cuenta Google que ejecuta la implementación de Apps Script debe tener acceso de edición a las carpetas de fotos y de cierres.
+   - Las raíces de Drive no traen IDs de ejemplo: cada propiedad `ROOT_...` debe contener una carpeta real. Si falta o el ID no tiene acceso, el webhook devuelve un mensaje que señala la propiedad que hay que corregir.
    - `PHOTO_LINK_SHARING`: opcional; `true` permite ver nuevas fotos a cualquiera que tenga el enlace. Por defecto se conservan privadas; los usuarios que visualicen evidencias deben tener permisos de Drive.
 4. Publicar una nueva versión de la aplicación web Apps Script. Conservar el esquema de permisos necesario para que el servidor pueda llamarla.
 5. Configurar en el servidor el mismo `APPS_SCRIPT_TOKEN`, y las URLs de Apps Script utilizadas por `src/config.js`. El token se mantiene en el servidor; no incorporarlo al frontend ni al repositorio.

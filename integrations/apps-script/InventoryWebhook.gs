@@ -56,12 +56,8 @@ const CFG = {
   defaultSheetName: 'Inventario',
   headerRow: 1,
   dataStartRow: 2,
-  driveRoots: {
-    'CICLICO': '11N39_pZhy5iT8p7Y-zD9_C-V9eM7f0c1',
-    'GENERAL': '1A9876543210ZYXWVUTSRQPONMLKJIHGF',
-    'EXPRESS': '1B1234567890ABCDEFGHJKLMNPQRSTUVWX',
-    'BARRIDO': '11N39_pZhy5iT8p7Y-zD9_C-V9eM7f0c1'
-  }
+  // Configurar ROOT_CICLICO, ROOT_BARRIDO, ROOT_MENSUAL, etc. en propiedades.
+  driveRoots: {}
 };
 
 const COL = {
@@ -445,10 +441,26 @@ function deleteAdditionalLocation_(p){
 
 
 function type_(value){const t=String(value||'CICLICO').toUpperCase().trim();const aliases={SEMANAL:'CICLICO',SEMANALES:'CICLICO',MENSUAL:'GENERAL',MENSUALES:'GENERAL'};return aliases[t]||t;}
+function driveFolderId_(value,label){
+  const raw=String(value||'').trim();
+  if(!raw)throw new Error('Configure '+label+' con el ID de una carpeta de Google Drive');
+  const fromUrl=raw.match(/drive\.google\.com\/(?:drive\/)?folders\/([a-zA-Z0-9_-]+)/i)
+    ||raw.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+  const id=fromUrl?fromUrl[1]:raw;
+  if(!/^[a-zA-Z0-9_-]{10,}$/.test(id))throw new Error(label+' debe ser un ID de carpeta o enlace de carpeta válido de Drive');
+  return id;
+}
+function getDriveFolder_(value,label){
+  const id=driveFolderId_(value,label);
+  try{return DriveApp.getFolderById(id);}
+  catch(err){throw new Error(label+' ('+id+') no existe o la cuenta que ejecuta Apps Script no tiene acceso. Verifique el ID y comparta la carpeta con esa cuenta.');}
+}
 function getRootFolderForType_(type){
-  const normalized=type_(type),id=property_('ROOT_'+String(type||'CICLICO').toUpperCase())||property_('ROOT_'+normalized)||CFG.driveRoots[normalized];
-  if(!id||id.startsWith('1A987')||id.startsWith('1B123'))throw new Error('Configure una carpeta válida ROOT_'+normalized+' en las propiedades del script');
-  return DriveApp.getFolderById(id);
+  const rawType=String(type||'CICLICO').toUpperCase().trim(),normalized=type_(rawType);
+  const key='ROOT_'+rawType;
+  const id=property_(key)||property_('ROOT_'+normalized);
+  if(!id)throw new Error('Falta '+key+' en Propiedades del script. Pegue el ID de la carpeta raíz de fotos/cierres.');
+  return getDriveFolder_(id,key);
 }
 function getOrCreateFolder_(parent,name){if(!String(name).trim())throw new Error('Nombre de carpeta vacío');const it=parent.getFoldersByName(String(name));return it.hasNext()?it.next():parent.createFolder(String(name));}
 function manifestFor_(p,sh,items){
@@ -514,8 +526,8 @@ function createFinalFile_(p){
 }
 function allowedRoots_(){
   const props=PropertiesService.getScriptProperties().getProperties();
-  return [...new Set([...Object.entries(props).filter(([k])=>k.startsWith('ROOT_')).map(([,v])=>v),
-    ...Object.values(CFG.driveRoots).filter(v=>!v.startsWith('1A987')&&!v.startsWith('1B123'))])];
+  const configured=Object.entries(props).filter(([k])=>k.startsWith('ROOT_')).map(([k,v])=>driveFolderId_(v,k));
+  return [...new Set([...configured,...Object.values(CFG.driveRoots).filter(Boolean).map(v=>driveFolderId_(v,'CFG.driveRoots'))])];
 }
 function belongsToRoot_(file,rootIds){
   const queue=[],parents=file.getParents(),seen=new Set();while(parents.hasNext())queue.push(parents.next());
@@ -576,7 +588,8 @@ function savePhotoIfAny_(p,center,type,sku,category){
   else if(!isJust)value=p.photoBase64||p.foto_mal_estado||p.photoUrl||p.photo;
   if(!value)return null;
   if(typeof value!=='string')throw new Error('Imagen inválida');
-  const roots=allowedRoots_().concat([property_('PHOTOS_ROOT_ID')].filter(Boolean));
+  const photoRoot=property_('PHOTOS_ROOT_ID');
+  const roots=allowedRoots_().concat(photoRoot?[driveFolderId_(photoRoot,'PHOTOS_ROOT_ID')]:[]);
   if(value.startsWith('https://')){
     const match=value.match(/^https:\/\/(?:drive\.google\.com|lh3\.googleusercontent\.com)\/(?:file\/d\/|d\/|.*[?&]id=)([-\w]+)/);
     if(!match)throw new Error('La foto debe ser base64 o una referencia válida de Drive');
@@ -590,7 +603,8 @@ function savePhotoIfAny_(p,center,type,sku,category){
   if(!/^\d{4}$/.test(String(center||'')))throw new Error('Centro inválido para foto');
   const when=new Date(p.date||p.fecha||new Date());if(!Number.isFinite(when.getTime()))throw new Error('Fecha de foto inválida');
   const tag=Utilities.formatDate(when,Session.getScriptTimeZone()||'America/La_Paz','yyyy-MM-dd');
-  let folder=property_('PHOTOS_ROOT_ID')?DriveApp.getFolderById(property_('PHOTOS_ROOT_ID')):getRootFolderForType_(type);
+  const photosRoot=property_('PHOTOS_ROOT_ID');
+  let folder=photosRoot?getDriveFolder_(photosRoot,'PHOTOS_ROOT_ID'):getRootFolderForType_(type);
   ['fotos',category,tag,String(center)+' '+String(type||'CICLICO')].forEach(seg=>{folder=getOrCreateFolder_(folder,seg);});
   const ext=match[1]==='image/png'?'.png':match[1]==='image/webp'?'.webp':'.jpg';
   const digest=hash_(JSON.stringify([p.inventoryId||'',p.itemId||sku,p.almacen||p.warehouse||'',p.location||p.ubicacion||'',p.round||(p.isJustification2?2:1),value]));
