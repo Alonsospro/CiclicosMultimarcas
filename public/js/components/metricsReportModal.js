@@ -17,23 +17,7 @@ window.MetricsReportModal = {
   },
 
   setupListeners() {
-    // Botón principal del Dashboard
-    const btnDashPrint = document.getElementById('btn-dash-print-report');
-    if (btnDashPrint) {
-      btnDashPrint.onclick = (e) => {
-        e.preventDefault();
-        this.handlePrintReportClick();
-      };
-    }
-
-    // Botón en banner del Dashboard
-    const btnBannerPrint = document.getElementById('btn-dash-banner-print-report');
-    if (btnBannerPrint) {
-      btnBannerPrint.onclick = (e) => {
-        e.preventDefault();
-        this.handlePrintReportClick();
-      };
-    }
+    // Dashboard print buttons are owned by DashboardView.
 
     // Botón de Descargar PDF en modal
     const btnDownloadPdf = document.getElementById('btn-report-download-pdf');
@@ -223,6 +207,14 @@ window.MetricsReportModal = {
     const escape = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
     const money = value => Number(value ?? 0).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const percent = value => Number(value ?? 0).toFixed(2) + '%';
+    const filters = metrics.filters || {};
+    const scope = [
+      ['Centro', filters.center || inv.center || 'TODOS'],
+      ['Tipo', filters.type || inv.type || 'TODOS'],
+      ['Período', filters.period || 'TODO'],
+      ['Desde', filters.startDate || 'Sin límite'],
+      ['Hasta', filters.endDate || 'Sin límite']
+    ];
     const discrepancies = metrics.discrepanciesList || [];
     const shortages = discrepancies.filter(row => (row.diferenciaFinal ?? row.diferencia ?? 0) < 0);
     const eris = [
@@ -242,6 +234,7 @@ window.MetricsReportModal = {
       <div class="rep-exec-banner"><img src="/logos/nibol.svg" alt="NIBOL" style="height:24px" />
         <div><h1 class="rep-exec-banner-title">INFORME DE MÉTRICAS DE INVENTARIO</h1>
           <p class="rep-exec-banner-sub">${escape(inv.name || inv.id)} · Centro ${escape(inv.center || metrics.filters?.center)}</p></div></div>
+      <p class="rep-report-scope">${scope.map(([label, value]) => `<strong>${label}:</strong> ${escape(value)}`).join(' · ')}</p>
       <div class="rep-exec-summary-box">
         ${summary.totalInventories ?? 0} inventario(s), ${summary.totalSkusAudited ?? 0} SKU auditados,
         ${summary.totalItemsAudited ?? 0} registros y ${summary.totalAuditedSystemUnits ?? 0} existencias de sistema.
@@ -249,6 +242,8 @@ window.MetricsReportModal = {
       </div>
       <table class="rep-exec-table"><thead><tr><th>Indicador</th><th>Primer conteo</th><th>Final</th><th>Meta ≥95%</th></tr></thead>
         <tbody>${eris.map(row => `<tr><td>${row[0]}</td><td>${percent(row[1])}</td><td>${percent(row[2])}</td><td>${Number(row[2]) >= 95 ? 'Cumple' : 'Por debajo de la meta'}</td></tr>`).join('')}</tbody></table>
+      <p>Exactitud de ubicación (ERU): ${percent((summary.totalLocationsEvaluated || 0) > 0 ? summary.eruPercent : 0)}
+        · ${summary.exactMatchingLocations ?? 0} de ${summary.totalLocationsEvaluated ?? 0} ubicaciones exactas.</p>
       <p>Valor de sistema: Bs. ${money(summary.totalAuditedSystemValue)} · Diferencia absoluta final: Bs. ${money(summary.impactoFinancieroFinal)}.</p>
       <h3>Fuentes utilizadas</h3>
       <table class="rep-exec-table"><thead><tr><th>Inventario / centro</th><th>Pestaña</th><th>Filas / SKU únicos</th><th>Lectura</th></tr></thead>

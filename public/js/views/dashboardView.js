@@ -61,13 +61,14 @@ window.DashboardView = {
       }
     });
 
-    document.getElementById('btn-dash-print-report')?.addEventListener('click', () => {
-      this.printReport();
-    });
-
-    document.getElementById('btn-dash-banner-print-report')?.addEventListener('click', () => {
-      this.printReport();
-    });
+    // Dashboard owns these handlers; assigning onclick also keeps rebinding idempotent.
+    for (const id of ['btn-dash-print-report', 'btn-dash-banner-print-report']) {
+      const button = document.getElementById(id);
+      if (button) button.onclick = (event) => {
+        event.preventDefault();
+        this.printReport();
+      };
+    }
 
     // Tabs navigation
     document.querySelectorAll('.dash-tab-btn').forEach(btn => {
@@ -126,16 +127,40 @@ window.DashboardView = {
   },
 
   printReport() {
-    if (this.currentData?.metricsComplete === false) return window.Toast?.warning('Valide los archivos antes de generar el informe.');
-    if (window.MetricsReportModal) {
-      window.MetricsReportModal.handlePrintReportClick();
-    } else {
-      window.Toast?.warning('El módulo de reportes se está inicializando.');
+    const data = this.currentData;
+    if (this.isLoadingMetrics) {
+      return window.Toast?.warning('Espere a que termine la actualización de las métricas.');
     }
+    if (this.metricsLoadFailed || !data?.summary) {
+      return window.Toast?.warning('Cargue las métricas del dashboard antes de imprimir.');
+    }
+    if (data.metricsComplete === false || data.metricsValid === false) {
+      return window.Toast?.warning('Valide los archivos antes de generar el informe.');
+    }
+    const report = window.MetricsReportModal;
+    if (typeof report?.openReportWithData !== 'function') {
+      return window.Toast?.warning('El módulo de reportes se está inicializando.');
+    }
+    if (report.isGenerating) return;
+
+    // Freeze the displayed data so refreshes cannot change an already open report.
+    // Printing never fetches or recalculates metrics.
+    const snapshot = JSON.parse(JSON.stringify(data));
+    const filters = snapshot.filters || {};
+    const inventory = snapshot.selectedInventory || {
+      id: 'CONSOLIDADO',
+      name: 'Métricas del dashboard · Consolidado',
+      center: filters.center || 'TODOS',
+      type: filters.type || 'TODOS',
+      totalItems: snapshot.summary.totalItemsAudited || 0
+    };
+    report.openReportWithData(inventory, snapshot);
   },
 
   async recalculateMetrics() {
     const requestSerial = this.requestSerial = (this.requestSerial || 0) + 1;
+    this.isLoadingMetrics = true;
+    this.metricsLoadFailed = false;
     const btnRecalc = document.getElementById('btn-dash-recalculate');
     const btnBanner = document.getElementById('btn-dash-banner-recalculate');
     const iconRecalc = btnRecalc?.querySelector('i');
@@ -211,8 +236,12 @@ window.DashboardView = {
       else window.Toast?.success(`Métricas recalculadas exitosamente con la información más reciente${countMsg}.`);
     } catch (err) {
       console.error('[dashboardView] Error recalculating metrics:', err);
-      if (requestSerial === this.requestSerial) window.Toast?.danger(err.message || 'Error al leer las fuentes de métricas');
+      if (requestSerial === this.requestSerial) {
+        this.metricsLoadFailed = true;
+        window.Toast?.danger(err.message || 'Error al leer las fuentes de métricas');
+      }
     } finally {
+      if (requestSerial === this.requestSerial) this.isLoadingMetrics = false;
       if (iconRecalc) iconRecalc.className = 'fa-solid fa-calculator';
       if (iconBanner) iconBanner.className = 'fa-solid fa-calculator';
       if (btnRecalc) btnRecalc.disabled = false;
@@ -222,6 +251,8 @@ window.DashboardView = {
 
   async loadDashboard(forceRefresh = false) {
     const requestSerial = this.requestSerial = (this.requestSerial || 0) + 1;
+    this.isLoadingMetrics = true;
+    this.metricsLoadFailed = false;
     const user = window.Auth?.currentUser;
     const isAdmin = user && (user.role === 'ADMIN' || user.isSuperadmin);
     const period = document.getElementById('dash-filter-period')?.value || 'TODO';
@@ -279,7 +310,12 @@ window.DashboardView = {
       this.renderAuditLogs(auditRes.logs || []);
       this.renderSourceValidation(this.currentData);
     } catch (err) {
-      if (requestSerial === this.requestSerial) window.Toast.danger(err.message || 'Error cargando datos del Dashboard');
+      if (requestSerial === this.requestSerial) {
+        this.metricsLoadFailed = true;
+        window.Toast?.danger(err.message || 'Error cargando datos del Dashboard');
+      }
+    } finally {
+      if (requestSerial === this.requestSerial) this.isLoadingMetrics = false;
     }
   },
 
