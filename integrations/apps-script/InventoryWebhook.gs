@@ -631,7 +631,8 @@ function distribuirBaseACentros(){
       if(!/^\d{4}$/.test(center))throw new Error('BD_BASE requiere una columna Centro cuando Almacen no es el código de cuatro dígitos');
       const row=Array(40).fill('');indexes.forEach((idx,i)=>{if(idx>=0)row[i]=r[idx]??'';});
       const item=rowToObject_(row);if(!item.SKU)throw new Error('SKU vacío en BD_BASE');
-      (groups[center]||=[]).push(rowValues_(item));
+      if (!groups[center]) groups[center] = [];
+      groups[center].push(rowValues_(item));
     });
     // Validate all existing sheets and all incoming identities before any write.
     Object.entries(groups).forEach(([center,rows])=>{
