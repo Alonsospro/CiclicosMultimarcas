@@ -31,6 +31,7 @@
   <link rel="stylesheet" href="/css/responsive.css?v=2.2">
   <link rel="stylesheet" href="/css/liquid-glass.css?v=2.3">
   <link rel="stylesheet" href="/css/inventory-layout.css?v=2.4">
+  <link rel="stylesheet" href="/css/executive-report.css?v=2.4">
 </head>
 <body data-auth-state="checking">
   <!-- Ambient background glow elements -->
@@ -2711,7 +2712,7 @@
               Informe Administrativo • Control de Inventario Cíclico
             </h3>
             <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;" id="report-modal-subtitle">
-              Auditoría de Stock, Conciliación Operativa, Análisis Gráfico y Dictamen Contable en PDF
+              Resumen ejecutivo de resultados, conciliación y diferencias pendientes
             </p>
           </div>
         </div>
@@ -2729,7 +2730,7 @@
 
       <!-- Report Scrollable Viewport (Stylized Paper) -->
       <div id="report-preview-viewport" style="flex: 1; overflow-y: auto; padding: 1.25rem 0.75rem; background: #cbd5e1; display: flex; justify-content: center;">
-        <div id="report-printable-area" class="report-paper-sheet rep-exec-sheet" style="background: #ffffff; color: #0f172a; width: 100%; max-width: 960px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1); border-radius: 4px; padding: 1.25rem 1.5rem; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+        <div id="report-printable-area" class="report-paper-sheet rep-exec-sheet" style="background: #ffffff; color: #0f172a; width: 100%; max-width: 1120px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1); border-radius: 4px; padding: 1.25rem 1.5rem; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
           <!-- Content dynamically rendered by window.MetricsReportModal -->
         </div>
       </div>
@@ -2737,7 +2738,7 @@
       <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.25rem; border-top: 1px solid var(--border-glass); background: var(--bg-surface);">
         <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem;">
           <i class="fa-solid fa-circle-check" style="color: var(--primary);"></i>
-          <span>Informe consolidado con resumen de gestión, conciliación de discrepancias, ajustes contables y gráficos.</span>
+          <span>Indicadores, exactitud, conciliación y resultado económico agregado; sin detalle por producto.</span>
         </div>
         <button type="button" class="btn btn-secondary btn-sm" data-close-modal="modal-metrics-report">Cerrar</button>
       </div>
@@ -2862,7 +2863,7 @@
   <script src="/js/views/assignmentsView.js?v=2.2"></script>
   <script src="/js/views/justificationsView.js?v=2.2"></script>
   <script src="/js/views/historyView.js?v=2.2"></script>
-  <script src="/js/components/metricsReportModal.js?v=2.2"></script>
+  <script src="/js/components/metricsReportModal.js?v=2.4"></script>
   <script src="/js/components/snapshotManagerModal.js?v=2.2"></script>
   <script src="/js/views/dashboardView.js?v=2.2"></script>
   <script src="/js/views/userManagementView.js?v=2.2"></script>
