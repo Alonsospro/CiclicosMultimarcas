@@ -91,18 +91,13 @@ router.post('/', authenticate, requireInventoryCreator, restrictCenter, async (r
 router.post('/bulk-create', authenticate, requireBulkInventoryCreator, async (req, res) => {
   try {
     const { type, date, centers } = req.body;
-    const created = await inventoryService.bulkCreateInventories({
+    const result = await inventoryService.bulkCreateInventories({
       type,
       date,
       centers,
       user: req.user
     });
-    res.status(201).json({
-      success: true,
-      message: `Se crearon ${created.length} inventarios masivos con éxito.`,
-      count: created.length,
-      inventories: created
-    });
+    res.status(200).json({...result, success:true, complete:result.success});
   } catch (err) {
     console.error('[inventoryRoutes] Error in /bulk-create:', err);
     res.status(500).json({ success: false, message: err.message });

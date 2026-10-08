@@ -4,7 +4,7 @@ const inventoryService = require('../services/inventoryService');
 const { authenticate, requireRole } = require('../middlewares/authMiddleware');
 
 // GET /api/justifications
-router.get('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+router.get('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
     const { center, includeFinalized, status } = req.query;
     const tasks = inventoryService.getPendingJustifications(req.user, center, {
@@ -21,14 +21,14 @@ router.get('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) =>
 });
 
 // POST /api/justifications (Submit a single justification)
-router.post('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+router.post('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
     const { inventoryId, sku, justification, photoUrl, reasonType, driveUrl, driveFileId, almacen, warehouse, location, itemId, corroboration, corroboracion, status, isCuadra, isJustification2, round } = req.body;
     if (!inventoryId || !sku) {
       return res.status(400).json({ success: false, message: 'inventoryId y sku son obligatorios' });
     }
 
-    const saved = inventoryService.saveJustification({
+    const saved = await inventoryService.saveJustification({
       inventoryId,
       sku,
       justification,
@@ -59,13 +59,13 @@ router.post('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) =
 });
 
 // POST /api/justifications/:id/corroborate (Mark item as CUADRA or NO_CUADRA)
-router.post('/:id/corroborate', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+router.post('/:id/corroborate', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
     const { sku, status, almacen, warehouse, location, itemId } = req.body;
     if (!sku || !status) {
       return res.status(400).json({ success: false, message: 'sku y status (CUADRA/NO_CUADRA) son obligatorios' });
     }
-    const result = inventoryService.corroborateItem({
+    const result = await inventoryService.corroborateItem({
       inventoryId: req.params.id,
       sku,
       status,
@@ -81,7 +81,7 @@ router.post('/:id/corroborate', authenticate, requireRole(['ADMIN', 'ENCARGADO']
 });
 
 // POST /api/justifications/:id/enable-recount (Enable re-count for discrepant items to assigned counter)
-router.post('/:id/enable-recount', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+router.post('/:id/enable-recount', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
     const { skusToRecount } = req.body;
     const result = inventoryService.enableRecount({

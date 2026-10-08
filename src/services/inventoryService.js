@@ -1,3 +1,5 @@
+const contract = require('./inventoryContract');
+const {createHash,randomUUID}=require('crypto');
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
@@ -107,7 +109,7 @@ class InventoryService {
           if (inv.type !== filterType) return;
         }
 
-        const isReconteoInv = !!(inv.isReconteo || inv.phase === 'RECONTEO' || String(inv.id).startsWith('REC-'));
+        const isReconteoInv = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
         const isItemCounted = (it) => {
           if (!it) return false;
           if (isReconteoInv) {
@@ -185,7 +187,7 @@ class InventoryService {
       throw new Error(`Inventario con ID '${id}' no encontrado`);
     }
 
-    const isReconteoInv = !!(inv.isReconteo || inv.phase === 'RECONTEO' || String(inv.id).startsWith('REC-'));
+    const isReconteoInv = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
     if (isReconteoInv && Array.isArray(inv.items)) {
       inv.items.forEach(it => {
         if (!it) return;
@@ -331,15 +333,12 @@ class InventoryService {
     if (items && items.length > 0) {
       mappedItems = gasService.mapRawRowsToColumns(items);
     } else {
-      // Auto-fetch products from Google Apps Script for this center and type
-      try {
-        const fetched = await gasService.fetchProductsFromScript(cleanType, targetCenter);
-        if (fetched && fetched.length > 0) {
-          mappedItems = fetched;
-        }
-      } catch (err) {
-        console.warn(`[createInventory] Notice fetching GAS products for center ${targetCenter}:`, err.message);
-      }
+      mappedItems=await gasService.fetchProductsFromScript(cleanType,targetCenter);
+      if(!mappedItems.length)throw new Error('La hoja del centro está vacía; no se creó el inventario.');
+      mappedItems=mappedItems.map((item,index)=>({
+        ...Object.fromEntries(contract.columns.slice(0,11).map(key=>[key,item[key]??''])),
+        id:'ITEM-'+index,Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null,Mal_estado:0,Estado:'Pendiente',locked:false
+      }));
     }
 
     // Resolve assigned Auxiliar if selected during creation
@@ -395,52 +394,49 @@ class InventoryService {
     return newInventory;
   }
 
-  async bulkCreateInventories({ type = 'CICLICO', date = null, centers = null, user }) {
-    const cleanType = String(type || 'CICLICO').toUpperCase().trim();
-    const targetDate = date ? String(date).trim() : new Date().toISOString().slice(0, 10);
-    
-    // Official 14 weekly centers
-    const officialCenterCodes = [
-      '1120', '1160', '1180', '1300', '1310', '1340', '1700', '1800', '1820', '2100', '2150', '3100', '3200', '5100'
-    ];
-    
-    const targetCenters = Array.isArray(centers) && centers.length > 0 ? centers : officialCenterCodes;
-    const createdInventories = [];
-
-    for (const center of targetCenters) {
-      const centerObj = config.findCenter(center);
-      const centerCode = centerObj ? centerObj.code : String(center).trim();
-      const uniqueSuffix = Date.now().toString(36).toUpperCase() + Math.random().toString(36).substring(2, 5).toUpperCase();
-      const invId = `INV-${cleanType}-${centerCode}-${uniqueSuffix}`;
-      
-      // Auto-naming format requested by user: "tipo de inventario-centro-fecha"
-      const autoName = `${cleanType}-${centerCode}-${targetDate}`;
-
-      const newInv = {
-        id: invId,
-        name: autoName,
-        type: cleanType,
-        center: centerCode,
-        status: 'EN_PROGRESO',
-        createdAt: new Date().toISOString(),
-        createdBy: user.username,
-        assignedAuxiliars: [], // Unassigned: to be assigned by the warehouse manager
-        items: [] // Blank items list ready for Excel import or manual assignment
-      };
-
-      this.saveInventory(newInv);
-      createdInventories.push(newInv);
+  async bulkCreateInventories({type='CICLICO',date=null,centers=null,user}) {
+    const {isBulkInventoryCreator}=require('../middlewares/authMiddleware');
+    if(!isBulkInventoryCreator(user))throw new Error('No tiene permiso para creación masiva.');
+    const cleanType=String(type).trim().toUpperCase();
+    if(!['CICLICO','BARRIDO','SEMANAL','MENSUAL'].includes(cleanType))throw new Error('Tipo inválido');
+    const targetDate=date||new Intl.DateTimeFormat('en-CA',{timeZone:'America/La_Paz',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)||!Number.isFinite(Date.parse(targetDate+'T12:00:00Z'))||new Date(targetDate+'T12:00:00Z').toISOString().slice(0,10)!==targetDate)throw new Error('Fecha inválida');
+    if(centers!==null && (!Array.isArray(centers)||!centers.length))throw new Error('Seleccione al menos un centro');
+    const requested=centers===null?config.centersList.map(c=>c.code):centers;
+    const codes=[...new Set(requested.map(center=>{
+      const found=config.findCenter(center);
+      if(!found)throw new Error('Centro inválido: '+center);
+      return found.code;
+    }))];
+    const results=[];
+    for(const center of codes){
+      const id='BULK-'+cleanType+'-'+center+'-'+targetDate;
+      const existing=this.getInventoryRaw(id);
+      if(existing){results.push({center,status:'existing',inventory:existing});continue;}
+      try{
+        const fetched=await gasService.fetchProductsFromScript(cleanType,center);
+        if(!fetched.length)throw new Error('La hoja del centro está vacía; no se creó el inventario.');
+        const items=fetched.map(contract.normalize);
+        const identities=items.map(contract.member);
+        if(new Set(identities).size!==identities.length)throw new Error('La hoja contiene SKU/almacén/ubicación duplicados.');
+        // The sheet is the source list. Keep master fields, start a new count without inherited reviews.
+        const prepared=items.map((item,index)=>{
+          const master=Object.fromEntries(contract.columns.slice(0,11).map(key=>[key,item[key]??'']));
+          if(!master.SKU||!master.Almacen)throw new Error('Fila sin SKU o almacén');
+          return {...master,id:id+'-'+index,Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null,Mal_estado:0,Estado:'Pendiente',locked:false};
+        });
+        // Recheck after the network wait; stable ids make a repeated request reuse the same inventory.
+        const raced=this.getInventoryRaw(id);
+        if(raced){results.push({center,status:'existing',inventory:raced});continue;}
+        const inventory={id,name:cleanType+'-'+center+'-'+targetDate,type:cleanType,center,status:'EN_PROGRESO',
+          inventoryDate:targetDate,createdAt:new Date().toISOString(),createdBy:user.username,assignedAuxiliars:[],items:prepared};
+        this.saveInventory(inventory);
+        results.push({center,status:'created',inventory});
+      }catch(e){results.push({center,status:'failed',error:e.message});}
     }
-
-    auditService.logAction({
-      action: 'BULK_INVENTORIES_CREATED',
-      details: `Creación masiva de ${createdInventories.length} inventarios ${cleanType} para fecha ${targetDate}`,
-      user: user.username,
-      center: 'GLOBAL',
-      targetId: `BULK-${cleanType}-${targetDate}`
-    });
-
-    return createdInventories;
+    auditService.logAction({action:'BULK_INVENTORIES_CREATED',details:JSON.stringify(results.map(({center,status,error})=>({center,status,error}))),user:user.username,center:'GLOBAL'});
+    return {success:results.every(r=>r.status!=='failed'),count:results.filter(r=>r.status==='created').length,
+      existingCount:results.filter(r=>r.status==='existing').length,failedCount:results.filter(r=>r.status==='failed').length,results};
   }
 
   canModifyInventory(inv, user) {
@@ -489,7 +485,7 @@ class InventoryService {
     return false;
   }
 
-  updateCount({
+  async updateCount({
     inventoryId,
     itemId,
     sku,
@@ -550,8 +546,8 @@ class InventoryService {
       : 'repuesto';
 
     const isCountProvided = (stockFisico !== null && stockFisico !== undefined && stockFisico !== '');
-    let qty = isCountProvided ? parseInt(stockFisico, 10) : null;
-    const damagedQty = parseInt(malEstado, 10) || 0;
+    let qty = isCountProvided ? contract.quantity(stockFisico,'stockFisico') : null;
+    const damagedQty = contract.quantity(malEstado,'malEstado');
 
     // Strict boolean check: NEVER auto-generate new locations unless explicitly requested
     const isExplicitNewLocation = (isNewLocation === true || isNewLocation === 'true');
@@ -563,58 +559,14 @@ class InventoryService {
 
     const cleanTargetWarehouse = String(almacen || warehouse || '').trim().toUpperCase();
 
-    // 1. Si no se encontró por ID y se especificó almacén + ubicación: buscar coincidencia estricta en SKU, Almacén y Ubicación
-    if (!targetItem && sku && location && cleanTargetWarehouse) {
-      const cleanSku = String(sku).trim().toUpperCase();
-      const cleanLoc = String(location).trim().toUpperCase();
-      targetItem = inv.items.find(it => {
-        const itemSku = String(it.SKU || '').trim().toUpperCase();
-        if (itemSku !== cleanSku) return false;
-        const itemWar = String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase();
-        if (itemWar && itemWar !== cleanTargetWarehouse) return false;
-        const mainLoc = String(it.Ubicacion || '').trim().toUpperCase();
-        const extra1 = String(it.Ubicacion_1 || '').trim().toUpperCase();
-        const extra2 = String(it.Ubicacion_2 || '').trim().toUpperCase();
-        return mainLoc === cleanLoc || extra1 === cleanLoc || extra2 === cleanLoc;
+    if(!targetItem){
+      const matches=inv.items.filter(it=>{
+        if(sku?contract.identity(it.SKU)!==contract.identity(sku):contract.identity(it.Codigo_Barras)!==contract.identity(barcode||codigoBarras))return false;
+        if(cleanTargetWarehouse&&contract.identity(it.Almacen)!==cleanTargetWarehouse)return false;
+        return isExplicitNewLocation||!location||[it.Ubicacion,it.Ubicacion_1,it.Ubicacion_2].some(loc=>contract.identity(loc)===contract.identity(location));
       });
-    }
-
-    // 2. Si no se encontró y se especificó ubicación: buscar por SKU y esa ubicación
-    if (!targetItem && sku && location) {
-      const cleanSku = String(sku).trim().toUpperCase();
-      const cleanLoc = String(location).trim().toUpperCase();
-      targetItem = inv.items.find(it => {
-        const itemSku = String(it.SKU || '').trim().toUpperCase();
-        if (itemSku !== cleanSku) return false;
-        const mainLoc = String(it.Ubicacion || '').trim().toUpperCase();
-        const extra1 = String(it.Ubicacion_1 || '').trim().toUpperCase();
-        const extra2 = String(it.Ubicacion_2 || '').trim().toUpperCase();
-        return mainLoc === cleanLoc || extra1 === cleanLoc || extra2 === cleanLoc;
-      });
-    }
-
-    // 3. Si no se encontró y se especificó almacén (sin ubicación coincidente): buscar por SKU y almacén
-    if (!targetItem && sku && cleanTargetWarehouse) {
-      const cleanSku = String(sku).trim().toUpperCase();
-      targetItem = inv.items.find(it => {
-        const itemSku = String(it.SKU || '').trim().toUpperCase();
-        if (itemSku !== cleanSku) return false;
-        const itemWar = String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase();
-        return itemWar === cleanTargetWarehouse && (it.Stock_Fisico === null || it.Stock_Fisico === undefined);
-      }) || inv.items.find(it => {
-        const itemSku = String(it.SKU || '').trim().toUpperCase();
-        if (itemSku !== cleanSku) return false;
-        const itemWar = String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase();
-        return itemWar === cleanTargetWarehouse;
-      });
-    }
-
-    // 4. Solo si no se proporcionó ubicación/almacén o no se encontró, buscar por SKU respetando el estado de conteo
-    if (!targetItem && sku && !location) {
-      const cleanSku = String(sku).trim().toUpperCase();
-      // Si existen filas duplicadas de distintos almacenes/ubicaciones, preferir la no contada
-      targetItem = inv.items.find(it => String(it.SKU || '').trim().toUpperCase() === cleanSku && (it.Stock_Fisico === null || it.Stock_Fisico === undefined)) ||
-                   inv.items.find(it => String(it.SKU || '').trim().toUpperCase() === cleanSku);
+      if(matches.length>1)throw new Error('Ítem ambiguo: especifique almacén y ubicación');
+      targetItem=matches[0]||null;
     }
     let previousQty = targetItem ? targetItem.Stock_Fisico : null;
 
@@ -652,21 +604,17 @@ class InventoryService {
 
       targetItem.additionalLocations = [targetItem.Ubicacion_1, targetItem.Ubicacion_2].filter(Boolean);
 
-      this.saveInventory(inv);
-
       // Sync to GAS (Updates Col E and Col F on the existing row in Google Sheets)
-      gasService.upsertCountToGAS(inv.type, {
-        center: inv.center,
-        sku: targetItem.SKU,
-        barcode: targetItem.Codigo_Barras,
-        location: targetItem.Ubicacion,
-        ubicacion1: targetItem.Ubicacion_1,
-        ubicacion2: targetItem.Ubicacion_2,
-        stockSistema: targetItem.Stock_Sistema,
-        stockFisico: targetItem.Stock_Fisico,
-        malEstado: targetItem.Mal_estado || 0,
-        responsable: user.displayName || user.username
-      }).catch(e => console.warn('[inventoryService] Notice updating additional location in GAS:', e.message));
+      const synced=await gasService.upsertCountToGAS(inv.type,{center:inv.center,sku:targetItem.SKU,
+        almacen:targetItem.Almacen,location:targetItem.Ubicacion,ubicacion1:targetItem.Ubicacion_1,
+        ubicacion2:targetItem.Ubicacion_2,inventoryId:inv.id,itemId:targetItem.id});
+      if(!synced.item)throw new Error('Google no devolvió la fila confirmada');
+      Object.assign(targetItem,contract.normalize(synced.item));delete inv.closeOperationId;this.saveInventory(inv);
+      if(inv.parentInventoryId){
+        const parent=this.getInventoryRaw(inv.parentInventoryId);
+        const original=parent?.items.find(it=>contract.member(it)===contract.member(targetItem));
+        if(original){Object.assign(original,contract.normalize(synced.item));delete parent.closeOperationId;this.saveInventory(parent);}
+      }
 
       auditService.logAction({
         action: 'ADDITIONAL_LOCATION_ADDED',
@@ -699,6 +647,9 @@ class InventoryService {
             Codigo_Barras: cleanBarcode,
             Descripcion: cleanDesc,
             Ubicacion: location || '',
+            Almacen: almacen || warehouse || '',
+            Stock_Buen_Estado: qty,
+            Stock_Total: isCountProvided ? qty+damagedQty : null,
             Categoria: cleanCategoria,
             Clasificacion_ABC: clasificacionAbc || 'C',
             Unidad: unidad || 'PZA',
@@ -719,38 +670,7 @@ class InventoryService {
           };
           inv.items.push(targetItem);
         } else {
-          // In CICLICO, SEMANAL, MENSUAL: DO NOT create a phantom new row!
-          let fallback = null;
-          if (sku && location && cleanTargetWarehouse) {
-            const cleanLoc = String(location).trim().toUpperCase();
-            fallback = inv.items.find(it => String(it.SKU).trim().toUpperCase() === String(sku).trim().toUpperCase() &&
-              String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanTargetWarehouse &&
-              (String(it.Ubicacion || '').trim().toUpperCase() === cleanLoc ||
-               String(it.Ubicacion_1 || '').trim().toUpperCase() === cleanLoc ||
-               String(it.Ubicacion_2 || '').trim().toUpperCase() === cleanLoc));
-          }
-          if (!fallback && sku && location) {
-            const cleanLoc = String(location).trim().toUpperCase();
-            fallback = inv.items.find(it => String(it.SKU).trim().toUpperCase() === String(sku).trim().toUpperCase() &&
-              (String(it.Ubicacion || '').trim().toUpperCase() === cleanLoc ||
-               String(it.Ubicacion_1 || '').trim().toUpperCase() === cleanLoc ||
-               String(it.Ubicacion_2 || '').trim().toUpperCase() === cleanLoc));
-          }
-          if (!fallback && sku && cleanTargetWarehouse) {
-            fallback = inv.items.find(it => String(it.SKU).trim().toUpperCase() === String(sku).trim().toUpperCase() &&
-              String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanTargetWarehouse &&
-              (it.Stock_Fisico === null || it.Stock_Fisico === undefined)) ||
-              inv.items.find(it => String(it.SKU).trim().toUpperCase() === String(sku).trim().toUpperCase() &&
-              String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanTargetWarehouse);
-          }
-          if (!fallback) {
-            fallback = inv.items.find(it => (sku && it.SKU === sku) || (barcode && it.Codigo_Barras === barcode));
-          }
-          if (fallback) {
-            targetItem = fallback;
-          } else {
-            throw new Error(`Ítem ${sku || itemId || ''} no encontrado en este inventario`);
-          }
+          throw new Error('Ítem no encontrado en ese almacén y ubicación');
         }
       } else {
         // Update description or barcode if they were provided and missing/placeholder
@@ -799,7 +719,7 @@ class InventoryService {
           targetItem.Ubicacion = location;
         }
 
-        const isReconteoMode = !!(inv.isReconteo || inv.phase === 'RECONTEO' || String(inv.id).startsWith('REC-'));
+        const isReconteoMode = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
 
         if (isCountProvided) {
           if (isReconteoMode) {
@@ -809,7 +729,7 @@ class InventoryService {
             targetItem.Malestado_Reconteo = damagedQty; // Col AA (Mal Estado Reconteo 1)
             const sys = Number(targetItem.Stock_Sistema || 0);
             const isNegativeStockMatch = (sys < 0 && qty === 0 && damagedQty === 0);
-            targetItem.Stock_Total_Reconteo = isNegativeStockMatch ? sys : (qty + damagedQty); // Col Y (Total Reconteo 1)
+            targetItem.Stock_Total_Reconteo = (qty + damagedQty); // Col Y (Total Reconteo 1)
             // Preservar Stock_Fisico original del 1er conteo para nunca sobreescribir la columna M/N
             if (targetItem.Stock_Fisico_1erConteo === undefined || targetItem.Stock_Fisico_1erConteo === null) {
               targetItem.Stock_Fisico_1erConteo = targetItem.Stock_Fisico;
@@ -831,43 +751,14 @@ class InventoryService {
             targetItem.Responsable = user.displayName || user.username;
             targetItem.Estado = locked !== false ? 'Recontado' : 'Pendiente';
 
-            // Sync to parent inventory if exists
-            if (inv.parentInventoryId) {
-              try {
-                const parentInv = this.getInventoryRaw(inv.parentInventoryId);
-                if (parentInv && Array.isArray(parentInv.items)) {
-                  const pItem = parentInv.items.find(it => it.SKU === targetItem.SKU && (!targetItem.Ubicacion || it.Ubicacion === targetItem.Ubicacion));
-                  if (pItem) {
-                    const pSys = Number(pItem.Stock_Sistema || 0);
-                    const isNegParentMatch = (pSys < 0 && qty === 0 && damagedQty === 0);
-                    pItem.Reconteo_Fisico = qty;
-                    pItem.Reconteo = qty;
-                    pItem.Reconteo_Mal_Estado = damagedQty;
-                    pItem.Malestado_Reconteo = damagedQty;
-                    pItem.Stock_Total_Reconteo = isNegParentMatch ? pSys : (qty + damagedQty);
-                    pItem.Diferencia_Final = pItem.Stock_Total_Reconteo - pSys;
-                    pItem.Costo_Diferencia_Final = pItem.Diferencia_Final * (pItem.Costo_Unitario || 0);
-                    pItem.Fecha_Reconteo = new Date().toISOString();
-                    pItem.Estado_Reconteo = 'Recontado';
-                    if (inv.reviewedBy) pItem.Revisado_Por = inv.reviewedBy;
-                    if (photoUrl) {
-                      pItem.foto_mal_estado = photoUrl;
-                      pItem.foto_mal_estado_reconteo = photoUrl;
-                    }
-                    this.saveInventory(parentInv);
-                  }
-                }
-              } catch (pErr) {
-                console.warn('[inventoryService] Notice syncing to parent inventory:', pErr.message);
-              }
-            }
+
           } else {
             targetItem.Stock_Buen_Estado = qty; // Col M (Buen Estado 1er Conteo)
             targetItem.Stock_Fisico = qty;
             targetItem.Mal_estado = damagedQty; // Col N (Mal Estado 1er Conteo)
             const sys = Number(targetItem.Stock_Sistema || 0);
             const isNegativeStockMatch = (sys < 0 && qty === 0 && damagedQty === 0);
-            targetItem.Stock_Total = isNegativeStockMatch ? sys : (qty + damagedQty); // Col L (Total 1er Conteo: toma negativo si buen estado es 0)
+            targetItem.Stock_Total = (qty + damagedQty); // Col L (Total 1er Conteo: toma negativo si buen estado es 0)
             targetItem.Diferencia = targetItem.Stock_Total - sys; // Col O
             targetItem.Costo_Diferencia = targetItem.Diferencia * (targetItem.Costo_Unitario || 0); // Col P
             targetItem.Fecha_Ultimo_Conteo = new Date().toISOString();
@@ -909,8 +800,6 @@ class InventoryService {
       }
     }
 
-    this.saveInventory(inv);
-
     // Audit log
     auditService.logCount({
       inventoryId: inv.id,
@@ -934,8 +823,9 @@ class InventoryService {
         ? justificationPhoto
         : (driveService.getPhotoAsDataUri(justificationPhotoUrl || targetItem.foto_justificacion) || (justificationPhoto && !justificationPhoto.startsWith('/') ? justificationPhoto : ''));
 
-      const isReconteoMode = !!(inv.isReconteo || inv.phase === 'RECONTEO' || String(inv.id).startsWith('REC-'));
-      gasService.upsertCountToGAS(inv.type, {
+      const isReconteoMode = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
+      const synced = await gasService.upsertCountToGAS(inv.type, {
+        inventoryId:inv.id,itemId:targetItem.id,
         center: inv.center,
         type: inv.type,
         sku: targetItem.SKU,
@@ -945,20 +835,12 @@ class InventoryService {
         almacen: targetItem.Almacen || targetItem.almacen || targetItem.warehouse || almacen || warehouse || '',
         warehouse: targetItem.Almacen || targetItem.almacen || targetItem.warehouse || almacen || warehouse || '',
         isNewLocation: isExplicitNewLocation,
-        stockBuenEstado: isReconteoMode ? (targetItem.Stock_Buen_Estado_1erConteo !== undefined ? targetItem.Stock_Buen_Estado_1erConteo : targetItem.Stock_Buen_Estado) : targetItem.Stock_Buen_Estado,
-        stockFisico: isReconteoMode ? (targetItem.Stock_Fisico_1erConteo !== undefined ? targetItem.Stock_Fisico_1erConteo : targetItem.Stock_Fisico) : targetItem.Stock_Fisico,
-        stockTotal: isReconteoMode ? targetItem.Stock_Total : (Number(targetItem.Stock_Buen_Estado !== undefined ? targetItem.Stock_Buen_Estado : targetItem.Stock_Fisico) + Number(targetItem.Mal_estado || 0)),
-        malEstado: isReconteoMode ? (targetItem.Mal_estado_1erConteo !== undefined ? targetItem.Mal_estado_1erConteo : targetItem.Mal_estado) : (targetItem.Mal_estado || 0),
-        reconteo: isReconteoMode ? qty : (targetItem.Reconteo !== undefined ? targetItem.Reconteo : null),
-        reconteoFisico: isReconteoMode ? qty : (targetItem.Reconteo_Fisico !== undefined ? targetItem.Reconteo_Fisico : null),
-        reconteoMalEstado: isReconteoMode ? damagedQty : (targetItem.Reconteo_Mal_Estado !== undefined ? targetItem.Reconteo_Mal_Estado : null),
-        malestadoReconteo: isReconteoMode ? damagedQty : (targetItem.Malestado_Reconteo !== undefined ? targetItem.Malestado_Reconteo : null),
-        stockTotalReconteo: isReconteoMode ? (Number(qty) + Number(damagedQty || 0)) : targetItem.Stock_Total_Reconteo,
-        reconteo2: targetItem.Reconteo_2 !== undefined ? targetItem.Reconteo_2 : null,
-        malestadoReconteo2: targetItem.Malestado_Reconteo_2 !== undefined ? targetItem.Malestado_Reconteo_2 : null,
-        stockTotalReconteo2: targetItem.Stock_Total_Reconteo_2 !== undefined ? targetItem.Stock_Total_Reconteo_2 : null,
-        reviewer: targetItem.Revisado_Por || inv.reviewedBy || '',
-        isReconteo: isReconteoMode,
+        ...(inv.phase==='RECONTEO_2'||inv.recountRound===2 ? {
+          isReconteo2:true,reconteo2:qty,malestadoReconteo2:damagedQty
+        } : isReconteoMode ? {
+          isReconteo:true,reconteo:qty,malestadoReconteo:damagedQty
+        } : {stockBuenEstado:qty,malEstado:damagedQty}),
+        reviewer:targetItem.Revisado_Por||inv.reviewedBy||'',
         comentario: targetItem.Comentario || '',
         fechaUltimoConteo: targetItem.Fecha_Ultimo_Conteo,
         responsable: targetItem.Responsable || user.displayName || user.username,
@@ -967,13 +849,18 @@ class InventoryService {
         unidad: targetItem.Unidad || 'PZA',
         costoUnitario: targetItem.Costo_Unitario || 0,
         stockSistema: targetItem.Stock_Sistema || 0,
-        photoBase64: isReconteoMode ? '' : resolvedPhotoBase64,
-        justificationPhoto: isReconteoMode ? '' : resolvedJustPhotoBase64
-      }).catch(err => {
-        console.warn(`[inventoryService] Notice syncing count to Google Drive: ${err.message}`);
+        photoBase64: resolvedPhotoBase64,
+        justificationPhoto: resolvedJustPhotoBase64
       });
+      if(!synced.item)throw new Error('Google no devolvió la fila confirmada');
+      Object.assign(targetItem,contract.normalize(synced.item));delete inv.closeOperationId;this.saveInventory(inv);
+      if(inv.parentInventoryId){
+        const parent=this.getInventoryRaw(inv.parentInventoryId);
+        const original=parent?.items.find(it=>contract.member(it)===contract.member(targetItem));
+        if(original){Object.assign(original,contract.normalize(synced.item));delete parent.closeOperationId;this.saveInventory(parent);}
+      }
     } catch (gasErr) {
-      console.warn(`[inventoryService] Notice triggering GAS sync: ${gasErr.message}`);
+      throw gasErr;
     }
 
     return {
@@ -1149,7 +1036,7 @@ class InventoryService {
       throw new Error('No se puede finalizar un inventario sin ítems.');
     }
 
-    const isReconteoMode = !!(inv.isReconteo || inv.phase === 'RECONTEO' || String(inv.id).startsWith('REC-'));
+    const isReconteoMode = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
     const uncounted = inv.items.filter(it => {
       if (isReconteoMode) {
         const hasRec = it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined;
@@ -1176,24 +1063,8 @@ class InventoryService {
           if (parentInv) {
             parentInv.status = 'RECONTEO_COMPLETADO';
             parentInv.items.forEach(pItem => {
-              const recItem = inv.items.find(r => r.SKU === pItem.SKU && (!r.Ubicacion || r.Ubicacion === pItem.Ubicacion));
-              if (recItem) {
-                const recQty = (recItem.Reconteo_Fisico !== null && recItem.Reconteo_Fisico !== undefined)
-                  ? recItem.Reconteo_Fisico
-                  : recItem.Stock_Fisico;
-                const recDam = (recItem.Reconteo_Mal_Estado !== null && recItem.Reconteo_Mal_Estado !== undefined)
-                  ? recItem.Reconteo_Mal_Estado
-                  : (recItem.Mal_estado || 0);
-                if (recQty !== null && recQty !== undefined) {
-                  pItem.Reconteo_Fisico = recQty;
-                  pItem.Reconteo_Mal_Estado = recDam;
-                  pItem.Fecha_Reconteo = recItem.Fecha_Reconteo || new Date().toISOString();
-                  pItem.Estado_Reconteo = 'Recontado';
-                  pItem.Diferencia_Final = Number(recQty) - Number(pItem.Stock_Sistema || 0);
-                  pItem.Costo_Diferencia_Final = pItem.Diferencia_Final * Number(pItem.Costo_Unitario || 0);
-                  if (inv.reviewedBy) pItem.Revisado_Por = inv.reviewedBy;
-                }
-              }
+              const recItem=inv.items.find(r=>contract.member(r)===contract.member(pItem));
+              if(recItem)Object.assign(pItem,contract.normalize(recItem),{id:pItem.id,Estado_Reconteo:'Recontado'});
             });
             this.saveInventory(parentInv);
           }
@@ -1229,495 +1100,53 @@ class InventoryService {
     return inv;
   }
 
-  saveJustification({ inventoryId, sku, justification, photoUrl, reasonType, driveUrl, driveFileId, user, almacen, location, itemId, corroboration, corroboracion, status, isCuadra, isJustification2, round }) {
-    const inv = this.getInventoryRaw(inventoryId);
-    if (!inv) throw new Error('Inventario no encontrado');
-
-    const cleanSku = String(sku).trim().toUpperCase();
-    const cleanAlmacen = almacen ? String(almacen).trim().toUpperCase() : '';
-    const cleanLoc = location ? String(location).trim().toUpperCase() : '';
-
-    const matchingItems = inv.items.filter(it => String(it.SKU || '').trim().toUpperCase() === cleanSku);
-    if (matchingItems.length === 0) throw new Error(`Ítem ${sku} no encontrado en el inventario`);
-
-    let targetWarehouseItems = matchingItems;
-    if (itemId) {
-      const byId = matchingItems.filter(it => it.id === itemId);
-      if (byId.length > 0) targetWarehouseItems = byId;
+  async saveJustification(p) {
+    const inv=this.getInventoryRaw(p.inventoryId);
+    if(!inv||!this.canModifyInventory(inv,p.user))throw new Error('Inventario inexistente o fuera de su centro');
+    const candidates=inv.items.filter(it=>contract.identity(it.SKU)===contract.identity(p.sku)&&
+      (!p.itemId||it.id===p.itemId)&&(!p.almacen||contract.identity(it.Almacen)===contract.identity(p.almacen))&&
+      (!p.location||contract.identity(it.Ubicacion)===contract.identity(p.location)));
+    if(candidates.length!==1)throw new Error('Ítem ambiguo o inexistente; indique almacén y ubicación');
+    const item=candidates[0],round=Number(p.round||(p.isJustification2?2:1)),reviewer=p.user.displayName||p.user.username;
+    const payload={action:'saveJustification',center:inv.center,inventoryId:inv.id,itemId:item.id,sku:item.SKU,
+      almacen:item.Almacen,location:item.Ubicacion,round,isJustification2:round===2,
+      corroboracion:contract.status(p),razon:p.reasonType,comentarioJustificacion:p.justification,reviewedBy:reviewer,
+      originalStockSistema:item.Stock_Sistema_Original??item.Stock_Sistema,fecha:new Date().toISOString(),
+      photoJustificacion:p.driveUrl||p.photoUrl||''};
+    const result=await gasService.saveJustificationToGAS(inv.type,payload);
+    if(!result.item)throw new Error('Apps Script no devolvió la fila confirmada');
+    Object.assign(item,contract.normalize(result.item),{Stock_Sistema_Original:payload.originalStockSistema,
+      corroboracion:payload.corroboracion,corroborationStatus:payload.corroboracion,isCuadra:payload.corroboracion==='CUADRA',
+      requiereReconteo:payload.corroboracion!=='CUADRA',reviewedAt:payload.fecha,Revisado_Por:reviewer});
+    item[round===2?'foto_justificacion_2':'foto_justificacion']=p.driveUrl||p.photoUrl||null;
+    const id='JUST-'+createHash('sha256').update(JSON.stringify([inv.id,contract.member(item),round])).digest('hex');
+    const record={id,inventoryId:inv.id,itemId:item.id,sku:item.SKU,almacen:item.Almacen,ubicacion:item.Ubicacion,
+      round,corroboracion:payload.corroboracion,isCuadra:item.isCuadra,reasonType:p.reasonType,justification:p.justification,
+      reviewedBy:reviewer,reviewedAt:payload.fecha,fechaPrimeraJustificacion:item.Fecha_Primera_Justificacion,
+      fechaJustificacion2:item.Fecha_Justificacion_2,photoUrl:p.driveUrl||p.photoUrl||null,driveUrl:p.driveUrl||null,
+      driveFileId:p.driveFileId||null,center:inv.center,type:inv.type,status:'REVISADO'};
+    storagePath.writeJson(path.join(this.justDir,id+'.json'),record);
+    inv.reviewedBy=reviewer;delete inv.closeOperationId;this.saveInventory(inv);
+    const linkedId=inv.parentInventoryId||inv.recountInventoryId;
+    if(linkedId){
+      const linked=this.getInventoryRaw(linkedId);
+      const match=linked?.items?.find(it=>contract.member(it)===contract.member(item));
+      if(match){Object.assign(match,contract.normalize(result.item),{Stock_Sistema_Original:payload.originalStockSistema,
+        corroboracion:payload.corroboracion,requiereReconteo:item.requiereReconteo});this.saveInventory(linked);}
     }
-    if (targetWarehouseItems === matchingItems && cleanAlmacen) {
-      const byWar = matchingItems.filter(it => String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanAlmacen);
-      if (byWar.length > 0) targetWarehouseItems = byWar;
-    }
-    if (cleanLoc && targetWarehouseItems.length > 1) {
-      const byLoc = targetWarehouseItems.filter(it => String(it.Ubicacion || '').trim().toUpperCase() === cleanLoc);
-      if (byLoc.length > 0) targetWarehouseItems = byLoc;
-    }
-
-    const isTenDigitLoc = (loc) => {
-      if (!loc) return false;
-      const s = String(loc).trim();
-      if (s.length !== 10) return false;
-      const u = s.toUpperCase();
-      if (['SIN UBICAC', 'NO TIENE  ', 'NUEVA_UBIC', 'UNDEFINED '].includes(u)) return false;
-      return true;
-    };
-
-    const item = targetWarehouseItems.find(it => (Number(it.Stock_Fisico) || 0) > 0 && isTenDigitLoc(it.Ubicacion))
-      || targetWarehouseItems.find(it => (Number(it.Stock_Fisico) || 0) > 0)
-      || targetWarehouseItems.find(it => isTenDigitLoc(it.Ubicacion))
-      || targetWarehouseItems[0];
-
-    const reviewerName = user.displayName || user.username;
-    const targetWar = item.Almacen || item.almacen || item.warehouse || cleanAlmacen || '';
-    const isReconteoInv = !!(inv.isReconteo || inv.phase === 'RECONTEO' || String(inv.id).startsWith('REC-') || inv.hasRecount);
-    const hasPreviousJust = !!(item.Fecha_Primera_Justificacion || item.Estado_Justificacion || item.isJustified || item.foto_justificacion);
-    const hasRecountData = !!(item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined || item.Reconteo !== null && item.Reconteo !== undefined || item.Stock_Total_Reconteo !== null && item.Stock_Total_Reconteo !== undefined || item.Fecha_Reconteo);
-
-    const isSecondJust = isJustification2 === true || isJustification2 === 'true' || round === 2 || round === '2' || isReconteoInv || (hasPreviousJust && hasRecountData);
-
-    const justId = driveService.formatJustificationName(inv.type, sku, inv.center, targetWar) + (isSecondJust ? '_JS2' : '');
-    const justFilePath = path.join(this.justDir, `${justId}.json`);
-
-    const effectiveDriveUrl = driveUrl || (photoUrl && String(photoUrl).includes('drive.google.com') ? photoUrl : null);
-    const effectivePhotoUrl = effectiveDriveUrl || photoUrl || null;
-
-    const rawStatus = corroboration || corroboracion || status;
-    const cleanStatus = rawStatus ? String(rawStatus).toUpperCase().trim() : (isCuadra === false ? 'NO CUADRA' : 'CUADRA');
-    const isCuadraFinal = (cleanStatus === 'CUADRA' && isCuadra !== false);
-
-    // Cantidad ingresada en Stock_Fisico / Reconteo_Fisico
-    const physQty = (item.Stock_Fisico !== null && item.Stock_Fisico !== undefined)
-      ? Number(item.Stock_Fisico)
-      : ((item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined) ? Number(item.Reconteo_Fisico) : 0);
-
-    targetWarehouseItems.forEach(it => {
-      if (it.Stock_Sistema_Original === undefined) {
-        it.Stock_Sistema_Original = it.Stock_Sistema !== undefined ? Number(it.Stock_Sistema) : 0;
-      }
-      const unitCost = Number(it.Costo_Unitario || 0);
-
-      it.Estado = isCuadraFinal ? 'CUADRA' : 'NO CUADRA';
-      it.corroboracion = isCuadraFinal ? 'CUADRA' : 'NO CUADRA';
-      it.corroborationStatus = isCuadraFinal ? 'CUADRA' : 'NO CUADRA';
-      it.Estado_Justificacion = it.Estado_Justificacion || (isCuadraFinal ? 'CUADRA' : 'NO CUADRA');
-      it.Razon = reasonType || 'balanceo';
-      it.Razon_Justificacion = it.Razon_Justificacion || (reasonType || 'balanceo');
-      it.Comentario_Justificacion = it.Comentario_Justificacion || (justification || '');
-      it.foto_justificacion = it.foto_justificacion || effectivePhotoUrl;
-      it.drivePhotoUrl = it.drivePhotoUrl || effectiveDriveUrl;
-      it.Revisado_Por = reviewerName;
-      it.Responsable_Justificacion = it.Responsable_Justificacion || reviewerName;
-      if (!it.Fecha_Primera_Justificacion) {
-        it.Fecha_Primera_Justificacion = new Date().toISOString();
-      }
-
-      if (isSecondJust) {
-        it.Fecha_Justificacion_2 = new Date().toISOString();
-        it.Estado_Justificacion_2 = isCuadraFinal ? 'CUADRA' : 'NO CUADRA';
-        it.Razon_Justificacion_2 = reasonType || 'balanceo';
-        it.Comentario_Justificacion_2 = justification || '';
-        it.Responsable_Justificacion_2 = reviewerName;
-        it.foto_justificacion_2 = effectivePhotoUrl;
-        it.drivePhotoUrl_2 = effectiveDriveUrl;
-        it.isSecondJustification = true;
-      }
-
-      it.reviewedAt = new Date().toISOString();
-      it.isCuadra = isCuadraFinal;
-      it.requiereReconteo = !isCuadraFinal;
-
-      if (isCuadraFinal) {
-        // CUADRA: Actualizar Stock_Sistema con el Stock Físico (Col K = Col L) y Diferencia = 0
-        if (it === item) {
-          it.Stock_Sistema = physQty;
-          it.stockSistema = physQty;
-        } else {
-          it.Stock_Sistema = Number(it.Stock_Fisico) || 0;
-          it.stockSistema = Number(it.Stock_Fisico) || 0;
-        }
-        it.Diferencia = 0;
-        it.diferencia = 0;
-        it.Costo_Diferencia = 0;
-        it.costoDiferencia = 0;
-        if (it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined) {
-          it.Diferencia_Final = 0;
-          it.Costo_Diferencia_Final = 0;
-        }
-      } else {
-        // NO CUADRA: NO modificar Stock_Sistema a Stock Físico. Conservar/restaurar Stock_Sistema original
-        const origSys = it.Stock_Sistema_Original !== undefined ? it.Stock_Sistema_Original : it.Stock_Sistema;
-        it.Stock_Sistema = origSys;
-        it.stockSistema = origSys;
-        const currentPhys = (it.Stock_Fisico !== null && it.Stock_Fisico !== undefined)
-          ? Number(it.Stock_Fisico)
-          : (Number(it.Stock_Total) || 0);
-        it.Diferencia = currentPhys - origSys;
-        it.diferencia = it.Diferencia;
-        it.Costo_Diferencia = it.Diferencia * unitCost;
-        it.costoDiferencia = it.Costo_Diferencia;
-        if (it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined) {
-          const recTotal = (it.Stock_Total_Reconteo !== null && it.Stock_Total_Reconteo !== undefined)
-            ? Number(it.Stock_Total_Reconteo)
-            : Number(it.Reconteo_Fisico);
-          it.Diferencia_Final = recTotal - origSys;
-          it.Costo_Diferencia_Final = it.Diferencia_Final * unitCost;
-        }
-      }
-    });
-
-    const justRecord = {
-      id: justId,
-      inventoryId: inv.id,
-      sku,
-      itemId: item.id || itemId || null,
-      descripcion: item.Descripcion,
-      ubicacion: item.Ubicacion,
-      almacen: targetWar,
-      stockSistema: item.Stock_Sistema,
-      stockSistemaOriginal: item.Stock_Sistema_Original !== undefined ? item.Stock_Sistema_Original : item.Stock_Sistema,
-      stockFisico: item.Stock_Fisico,
-      diferencia: item.Diferencia,
-      costoDiferencia: item.Costo_Diferencia,
-      malEstado: item.Mal_estado,
-      justification: justification || 'Sin observaciones adicionales',
-      reasonType: reasonType || 'balanceo',
-      corroboracion: isCuadraFinal ? 'CUADRA' : 'NO CUADRA',
-      estado: isCuadraFinal ? 'CUADRA' : 'NO CUADRA',
-      isCuadra: isCuadraFinal,
-      isSecondJustification: isSecondJust,
-      round: isSecondJust ? 2 : 1,
-      fechaPrimeraJustificacion: item.Fecha_Primera_Justificacion,
-      fechaJustificacion2: isSecondJust ? (item.Fecha_Justificacion_2 || new Date().toISOString()) : null,
-      estadoJustificacion2: isSecondJust ? (isCuadraFinal ? 'CUADRA' : 'NO CUADRA') : null,
-      razonJustificacion2: isSecondJust ? (reasonType || 'balanceo') : null,
-      comentarioJustificacion2: isSecondJust ? (justification || '') : null,
-      responsableJustificacion2: isSecondJust ? reviewerName : null,
-      fotoJustificacion2: isSecondJust ? effectivePhotoUrl : null,
-      photoUrl: effectivePhotoUrl,
-      driveUrl: effectiveDriveUrl,
-      driveFileId: driveFileId || (effectiveDriveUrl ? effectiveDriveUrl.match(/[-\w]{25,}/)?.[0] : null) || null,
-      thumbnailUrl: driveFileId ? `https://lh3.googleusercontent.com/d/${driveFileId}=s1600` : null,
-      reviewedBy: reviewerName,
-      reviewedAt: new Date().toISOString(),
-      center: inv.center,
-      type: inv.type,
-      status: 'REVISADO'
-    };
-
-    storagePath.writeJson(justFilePath, justRecord);
-    inv.reviewedBy = reviewerName;
-    if (inv.status === 'EN_RECONTEO') {
-      const recId = inv.recountInventoryId || `REC-${inv.id}`;
-      let isRecChildDone = false;
-      try {
-        const recChild = this.getInventoryRaw(recId);
-        if (recChild && (recChild.status === 'RECONTEO_COMPLETADO' || recChild.status === 'REVISADO')) {
-          isRecChildDone = true;
-        }
-      } catch (e) {}
-      if (isRecChildDone || inv.hasRecount || isSecondJust) {
-        inv.status = 'RECONTEO_COMPLETADO';
-      }
-    }
-    this.saveInventory(inv);
-
-    // Sincronizar con inventario padre o hijo vinculado si existe
-    try {
-      const linkedId = inv.parentInventoryId || inv.recountInventoryId;
-      if (linkedId) {
-        const linkedInv = this.getInventoryRaw(linkedId);
-        if (linkedInv && Array.isArray(linkedInv.items)) {
-          let linkedTargets = linkedInv.items.filter(it => String(it.SKU || '').trim().toUpperCase() === cleanSku);
-          if (cleanAlmacen) {
-            const byWar = linkedTargets.filter(it => String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanAlmacen);
-            if (byWar.length > 0) linkedTargets = byWar;
-          }
-          linkedTargets.forEach(it => {
-            if (it.Stock_Sistema_Original === undefined) {
-              it.Stock_Sistema_Original = it.Stock_Sistema !== undefined ? Number(it.Stock_Sistema) : 0;
-            }
-            it.Estado = isCuadraFinal ? 'CUADRA' : 'NO CUADRA';
-            it.corroboracion = isCuadraFinal ? 'CUADRA' : 'NO CUADRA';
-            it.Revisado_Por = reviewerName;
-            if (isCuadraFinal) {
-              it.Stock_Sistema = Number(it.Stock_Fisico) || physQty;
-              it.stockSistema = it.Stock_Sistema;
-              it.Diferencia = 0;
-              it.Costo_Diferencia = 0;
-            } else {
-              const orig = it.Stock_Sistema_Original !== undefined ? it.Stock_Sistema_Original : it.Stock_Sistema;
-              it.Stock_Sistema = orig;
-              it.stockSistema = orig;
-              const phys = Number(it.Stock_Fisico) || 0;
-              it.Diferencia = phys - orig;
-              it.Costo_Diferencia = it.Diferencia * (Number(it.Costo_Unitario) || 0);
-            }
-            if (effectivePhotoUrl) it.foto_justificacion = effectivePhotoUrl;
-            if (effectiveDriveUrl) it.drivePhotoUrl = effectiveDriveUrl;
-
-            if (isSecondJust) {
-              it.Fecha_Justificacion_2 = new Date().toISOString();
-              it.Estado_Justificacion_2 = isCuadraFinal ? 'CUADRA' : 'NO CUADRA';
-              it.Razon_Justificacion_2 = reasonType || 'AJUSTE_INVENTARIO';
-              it.Comentario_Justificacion_2 = justification || '';
-              it.Responsable_Justificacion_2 = reviewerName;
-              it.foto_justificacion_2 = effectivePhotoUrl;
-              it.drivePhotoUrl_2 = effectiveDriveUrl;
-              it.isSecondJustification = true;
-            }
-          });
-          this.saveInventory(linkedInv);
-        }
-      }
-    } catch (e) {}
-
-    // Sync justification to Google Sheets in Google Drive (Updates columns I, J, R, S, T y AD-AH para Justificacion 2)
-    try {
-      gasService.upsertCountToGAS(inv.type, {
-        center: inv.center,
-        sku: item.SKU,
-        barcode: item.Codigo_Barras,
-        location: item.Ubicacion,
-        almacen: targetWar,
-        warehouse: targetWar,
-        stockSistema: isCuadraFinal ? item.Stock_Sistema : (item.Stock_Sistema_Original !== undefined ? item.Stock_Sistema_Original : item.Stock_Sistema),
-        originalStockSistema: item.Stock_Sistema_Original !== undefined ? item.Stock_Sistema_Original : item.Stock_Sistema,
-        stockSistemaOriginal: item.Stock_Sistema_Original !== undefined ? item.Stock_Sistema_Original : item.Stock_Sistema,
-        stockFisico: isSecondJust ? undefined : (isReconteoInv ? (item.Stock_Fisico_1erConteo !== undefined ? item.Stock_Fisico_1erConteo : item.Stock_Fisico) : item.Stock_Fisico),
-        malEstado: isSecondJust ? undefined : (isReconteoInv ? (item.Mal_estado_1erConteo !== undefined ? item.Mal_estado_1erConteo : item.Mal_estado) : (item.Mal_estado || 0)),
-        reconteoFisico: isSecondJust ? undefined : (item.Reconteo_Fisico !== undefined ? item.Reconteo_Fisico : null),
-        reconteoMalEstado: isSecondJust ? undefined : (item.Reconteo_Mal_Estado !== undefined ? item.Reconteo_Mal_Estado : null),
-        comentario: `[Justificado: ${reasonType || 'Ajuste'}] ${justification}`,
-        razon: reasonType || 'balanceo',
-        razonJustificacion: reasonType || 'balanceo',
-        reasonType: reasonType || 'balanceo',
-        comentarioJustificacion: justification || '',
-        justification: justification || '',
-        reviewer: reviewerName,
-        responsableJustificacion: reviewerName,
-        fechaPrimeraJustificacion: isSecondJust ? undefined : (item.Fecha_Primera_Justificacion || new Date().toISOString()),
-        fechaUltimoConteo: item.Fecha_Ultimo_Conteo,
-        responsable: item.Responsable || '', // Preserve original counter (Col R)
-        estado: isCuadraFinal ? 'CUADRA' : 'NO CUADRA',
-        estadoJustificacion: isCuadraFinal ? 'CUADRA' : 'NO CUADRA',
-        isCuadra: isCuadraFinal,
-        corroboracion: isCuadraFinal ? 'CUADRA' : 'NO CUADRA',
-        isReconteo: !isSecondJust && isReconteoInv,
-        isJustification2: isSecondJust,
-        round: isSecondJust ? 2 : 1,
-        fechaJustificacion2: isSecondJust ? (item.Fecha_Justificacion_2 || new Date().toISOString()) : (item.Fecha_Justificacion_2 || ''),
-        estadoJustificacion2: isSecondJust ? (isCuadraFinal ? 'CUADRA' : 'NO CUADRA') : (item.Estado_Justificacion_2 || ''),
-        razonJustificacion2: isSecondJust ? (reasonType || 'balanceo') : (item.Razon_Justificacion_2 || ''),
-        comentarioJustificacion2: isSecondJust ? (justification || '') : (item.Comentario_Justificacion_2 || ''),
-        responsableJustificacion2: isSecondJust ? reviewerName : (item.Responsable_Justificacion_2 || ''),
-        photoJustificacion: effectivePhotoUrl,
-        driveUrl: effectiveDriveUrl,
-        photoBase64: '', // Protect backups: never send text URLs to photoBase64
-        justificationPhoto: ''
-      }).catch(e => console.warn('[inventoryService] Justification GAS sync notice:', e.message));
-    } catch (e) {}
-
-    auditService.logJustification({
-      inventoryId: inv.id,
-      sku,
-      justification,
-      photoUrl,
-      user: user.username,
-      reviewerName,
-      center: inv.center,
-      diffQty: 0,
-      diffCost: 0
-    });
-
-    return justRecord;
+    auditService.logJustification({inventoryId:inv.id,sku:item.SKU,justification:p.justification,photoUrl:record.photoUrl,
+      user:p.user.username,reviewerName:reviewer,center:inv.center,diffQty:item.Diferencia,diffCost:item.Costo_Diferencia});
+    return {...record,item};
   }
 
-  corroborateItem({ inventoryId, sku, status, user, almacen, location, itemId }) {
-    const inv = this.getInventoryRaw(inventoryId);
-    if (!inv) throw new Error('Inventario no encontrado');
-
-    const reviewerName = user.displayName || user.username;
-    const cleanStatus = String(status || '').toUpperCase().trim(); // 'CUADRA' or 'NO_CUADRA'
-    const cleanSku = String(sku).trim().toUpperCase();
-    const cleanAlmacen = almacen ? String(almacen).trim().toUpperCase() : '';
-    const cleanLoc = location ? String(location).trim().toUpperCase() : '';
-
-    const matchingItems = inv.items.filter(it => String(it.SKU || '').trim().toUpperCase() === cleanSku);
-    if (matchingItems.length === 0) throw new Error(`Ítem ${sku} no encontrado en el inventario`);
-
-    let targetItems = matchingItems;
-    if (itemId) {
-      const byId = matchingItems.filter(it => it.id === itemId);
-      if (byId.length > 0) targetItems = byId;
-    }
-    if (targetItems === matchingItems && cleanAlmacen) {
-      const byWar = matchingItems.filter(it => String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanAlmacen);
-      if (byWar.length > 0) targetItems = byWar;
-    }
-    if (cleanLoc && targetItems.length > 1) {
-      const byLoc = targetItems.filter(it => String(it.Ubicacion || '').trim().toUpperCase() === cleanLoc);
-      if (byLoc.length > 0) targetItems = byLoc;
-    }
-
-    targetItems.forEach(item => {
-      if (item.Stock_Sistema_Original === undefined) {
-        item.Stock_Sistema_Original = item.Stock_Sistema !== undefined ? Number(item.Stock_Sistema) : 0;
-      }
-      const unitCost = Number(item.Costo_Unitario || 0);
-
-      item.corroboracion = cleanStatus;
-      item.corroborationStatus = cleanStatus;
-      item.Revisado_Por = reviewerName; // Col V
-      item.reviewedAt = new Date().toISOString();
-      item.Fecha_Primera_Justificacion = item.Fecha_Primera_Justificacion || new Date().toISOString().split('T')[0];
-
-      if (cleanStatus === 'CUADRA') {
-        item.Estado = 'CUADRA';
-        item.Responsable_Justificacion = reviewerName;
-        item.Fecha_Primera_Justificacion = new Date().toISOString();
-        item.requiereReconteo = false;
-        item.Razon = item.Razon || 'CUADRADO_REVISION';
-        item.Comentario_Justificacion = item.Comentario_Justificacion || 'Ítem corroborado como cuadra en 1ra justificación';
-
-        // Cuando el encargado o administrador marca como "cuadra", la cantidad ingresada
-        // en la columna L (Stock_Fisico) se actualiza en la columna K (Stock_Sistema) para que el ERI final lo tome como correcto
-        const physQty = (item.Stock_Fisico !== null && item.Stock_Fisico !== undefined)
-          ? Number(item.Stock_Fisico)
-          : ((item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined) ? Number(item.Reconteo_Fisico) : 0);
-
-        item.Stock_Sistema = physQty;
-        item.stockSistema = physQty;
-        item.Diferencia = 0;
-        item.diferencia = 0;
-        item.Costo_Diferencia = 0;
-        item.costoDiferencia = 0;
-        item.isCuadra = true;
-        if (item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined) {
-          item.Diferencia_Final = 0;
-          item.Costo_Diferencia_Final = 0;
-        }
-      } else {
-        item.Estado = 'NO CUADRA';
-        item.Estado_Justificacion = 'NO CUADRA';
-        item.corroboracion = 'NO CUADRA';
-        item.corroborationStatus = 'NO CUADRA';
-        item.Responsable_Justificacion = reviewerName;
-        item.Fecha_Primera_Justificacion = new Date().toISOString();
-        item.requiereReconteo = true;
-        item.isCuadra = false;
-
-        // NO CUADRA: Preservar o restaurar el Stock_Sistema original
-        const origSys = item.Stock_Sistema_Original !== undefined ? item.Stock_Sistema_Original : item.Stock_Sistema;
-        item.Stock_Sistema = origSys;
-        item.stockSistema = origSys;
-        const phys = (item.Stock_Fisico !== null && item.Stock_Fisico !== undefined) ? Number(item.Stock_Fisico) : (Number(item.Stock_Total) || 0);
-        item.Diferencia = phys - origSys;
-        item.diferencia = item.Diferencia;
-        item.Costo_Diferencia = item.Diferencia * unitCost;
-        item.costoDiferencia = item.Costo_Diferencia;
-        if (item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined) {
-          const recTotal = (item.Stock_Total_Reconteo !== null && item.Stock_Total_Reconteo !== undefined) ? Number(item.Stock_Total_Reconteo) : Number(item.Reconteo_Fisico);
-          item.Diferencia_Final = recTotal - origSys;
-          item.Costo_Diferencia_Final = item.Diferencia_Final * unitCost;
-        }
-      }
-    });
-
-    inv.reviewedBy = reviewerName;
-    this.saveInventory(inv);
-
-    // Sincronizar con inventario padre o hijo vinculado si existe
-    try {
-      const linkedId = inv.parentInventoryId || inv.recountInventoryId;
-      if (linkedId) {
-        const linkedInv = this.getInventoryRaw(linkedId);
-        if (linkedInv && Array.isArray(linkedInv.items)) {
-          let linkedTargets = linkedInv.items.filter(it => String(it.SKU || '').trim().toUpperCase() === cleanSku);
-          if (cleanAlmacen) {
-            const byWar = linkedTargets.filter(it => String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase() === cleanAlmacen);
-            if (byWar.length > 0) linkedTargets = byWar;
-          }
-          linkedTargets.forEach(item => {
-            if (item.Stock_Sistema_Original === undefined) {
-              item.Stock_Sistema_Original = item.Stock_Sistema !== undefined ? Number(item.Stock_Sistema) : 0;
-            }
-            item.corroboracion = cleanStatus;
-            item.corroborationStatus = cleanStatus;
-            item.Revisado_Por = reviewerName;
-            item.Responsable_Justificacion = reviewerName;
-            item.Fecha_Primera_Justificacion = new Date().toISOString();
-            item.reviewedAt = new Date().toISOString();
-            if (cleanStatus === 'CUADRA') {
-              item.Estado = 'CUADRA';
-              item.Estado_Justificacion = 'CUADRA';
-              item.requiereReconteo = false;
-              const physQty = (item.Stock_Fisico !== null && item.Stock_Fisico !== undefined)
-                ? Number(item.Stock_Fisico)
-                : ((item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined) ? Number(item.Reconteo_Fisico) : 0);
-              item.Stock_Sistema = physQty;
-              item.stockSistema = physQty;
-              item.Diferencia = 0;
-              item.Costo_Diferencia = 0;
-              if (item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined) {
-                item.Diferencia_Final = 0;
-                item.Costo_Diferencia_Final = 0;
-              }
-            } else {
-              item.Estado = 'NO CUADRA';
-              item.Estado_Justificacion = 'NO CUADRA';
-              item.requiereReconteo = true;
-              const orig = item.Stock_Sistema_Original !== undefined ? item.Stock_Sistema_Original : item.Stock_Sistema;
-              item.Stock_Sistema = orig;
-              item.stockSistema = orig;
-              const phys = Number(item.Stock_Fisico) || 0;
-              item.Diferencia = phys - orig;
-              item.Costo_Diferencia = item.Diferencia * (Number(item.Costo_Unitario) || 0);
-            }
-          });
-          this.saveInventory(linkedInv);
-        }
-      }
-    } catch (e) {}
-
-    // Sync to GAS (Update Col K Stock_Sistema with Col L Stock_Fisico when Cuadra, Col Q Estado, Col U Responsable Justificacion)
-    targetItems.forEach(item => {
-      try {
-        gasService.upsertCountToGAS(inv.type, {
-          center: inv.center,
-          sku: item.SKU,
-          barcode: item.Codigo_Barras,
-          location: item.Ubicacion,
-          ubicacion1: item.Ubicacion_1,
-          ubicacion2: item.Ubicacion_2,
-          almacen: item.Almacen || item.almacen || item.warehouse || cleanAlmacen || '',
-          warehouse: item.Almacen || item.almacen || item.warehouse || cleanAlmacen || '',
-          stockSistema: cleanStatus === 'CUADRA' ? item.Stock_Sistema : (item.Stock_Sistema_Original !== undefined ? item.Stock_Sistema_Original : item.Stock_Sistema),
-          originalStockSistema: item.Stock_Sistema_Original !== undefined ? item.Stock_Sistema_Original : item.Stock_Sistema,
-          stockSistemaOriginal: item.Stock_Sistema_Original !== undefined ? item.Stock_Sistema_Original : item.Stock_Sistema,
-          stockFisico: item.Stock_Fisico,   // Columna L
-          malEstado: item.Mal_estado || 0,
-          reviewer: reviewerName,
-          responsableJustificacion: reviewerName,
-          fechaPrimeraJustificacion: item.Fecha_Primera_Justificacion || new Date().toISOString(),
-          responsable: item.Responsable || '',
-          estado: item.Estado,
-          estadoJustificacion: item.Estado,
-          razon: item.Razon || '',
-          comentarioJustificacion: item.Comentario_Justificacion || '',
-          isCuadra: cleanStatus === 'CUADRA',
-          corroboracion: cleanStatus
-        }).catch(e => console.warn('[inventoryService] Notice updating corroboration in GAS:', e.message));
-      } catch (e) {}
-    });
-
-    return {
-      success: true,
-      sku,
-      status: cleanStatus,
-      reviewer: reviewerName,
-      stockSistema: cleanStatus === 'CUADRA' ? matchingItems[0].Stock_Sistema : (matchingItems[0].Stock_Sistema_Original !== undefined ? matchingItems[0].Stock_Sistema_Original : matchingItems[0].Stock_Sistema)
-    };
+  async corroborateItem(p) {
+    const inv=this.getInventoryRaw(p.inventoryId);
+    const item=inv?.items?.find(it=>(p.itemId?it.id===p.itemId:contract.identity(it.SKU)===contract.identity(p.sku))&&
+      (!p.almacen||contract.identity(it.Almacen)===contract.identity(p.almacen))&&(!p.location||contract.identity(it.Ubicacion)===contract.identity(p.location)));
+    if(!item)throw new Error('Ítem inexistente');
+    const result=await this.saveJustification({...p,round:1,corroboracion:p.status,
+      reasonType:item.Razon||'AJUSTE_INVENTARIO',justification:item.Comentario_Justificacion||'',photoUrl:item.foto_justificacion});
+    return {success:true,sku:p.sku,status:result.corroboracion,justification:result};
   }
 
   enableRecount({ inventoryId, user, skusToRecount }) {
@@ -2040,7 +1469,7 @@ class InventoryService {
           closedAt: inv.closedAt || null,
           closedBy: inv.closedBy || null,
           phase: inv.phase || (inv.isReconteo ? 'RECONTEO' : 'CONTEO'),
-          isReconteo: !!(inv.isReconteo || inv.phase === 'RECONTEO' || String(inv.id).startsWith('REC-')),
+          isReconteo: !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-')),
           parentInventoryId: inv.parentInventoryId || null,
           hasRecount: inv.hasRecount || false,
           hasRecount2: inv.hasRecount2 || false,
@@ -2128,7 +1557,10 @@ class InventoryService {
           pItem.Estado_Reconteo = 'Recontado';
           if (childRecountInv.reviewedBy) pItem.Revisado_Por = childRecountInv.reviewedBy;
           const finalRecQty = pItem.Reconteo_Fisico !== null && pItem.Reconteo_Fisico !== undefined ? Number(pItem.Reconteo_Fisico) : Number(pItem.Stock_Fisico || 0);
-          pItem.Diferencia_Final = finalRecQty - Number(pItem.Stock_Sistema || 0);
+          pItem.Reconteo=pItem.Reconteo_Fisico;
+          pItem.Malestado_Reconteo=pItem.Reconteo_Mal_Estado;
+          pItem.Stock_Total_Reconteo=finalRecQty+Number(pItem.Reconteo_Mal_Estado||0);
+          pItem.Diferencia_Final = (pItem.Estado_Justificacion_2||pItem.Estado)==='CUADRA'?0:pItem.Stock_Total_Reconteo - Number(pItem.Stock_Sistema || 0);
           pItem.Costo_Diferencia_Final = pItem.Diferencia_Final * Number(pItem.Costo_Unitario || 0);
         }
       });
@@ -2138,11 +1570,14 @@ class InventoryService {
     const justPrimary = this.getJustificationsForInventory(primaryInv.id);
     const justChild = childRecountInv ? this.getJustificationsForInventory(childRecountInv.id) : [];
     const justMap = new Map();
-    const makeJustKey = (j) => j.id || `${String(j.sku || '').trim().toUpperCase()}___${String(j.almacen || j.warehouse || '').trim().toUpperCase()}___${String(j.ubicacion || '').trim().toUpperCase()}`;
+    const makeJustKey = (j) => j.id || (String(j.round||1)+'___') + `${String(j.sku || '').trim().toUpperCase()}___${String(j.almacen || j.warehouse || '').trim().toUpperCase()}___${String(j.ubicacion || '').trim().toUpperCase()}`;
     justPrimary.forEach(j => justMap.set(makeJustKey(j), j));
     justChild.forEach(j => justMap.set(makeJustKey(j), j));
     const justifications = Array.from(justMap.values());
 
+    if(!this.canModifyInventory(primaryInv,user))throw new Error('Inventario fuera de su centro');
+    primaryInv.closeOperationId ||= randomUUID();
+    this.saveInventory(primaryInv);
     // 1. Create final file in Google Drive via driveService
     const driveResult = await driveService.createFinalDriveFile({
       inventory: primaryInv,
@@ -2159,6 +1594,8 @@ class InventoryService {
     primaryInv.driveFileId = driveResult.fileId;
     primaryInv.driveFileName = driveResult.fileName;
     primaryInv.driveUrl = driveResult.driveUrl || null;
+    primaryInv.spreadsheetUrl=driveResult.spreadsheetUrl;
+    primaryInv.manifest=driveResult.manifest;
     this.saveInventory(primaryInv);
 
     // If child recount inventory exists, close it as well
@@ -2239,7 +1676,7 @@ class InventoryService {
       try {
         let remoteRows = [];
         if (inv.spreadsheetUrl || inv.driveUrl) {
-          remoteRows = await gasService.fetchSpreadsheetItems(inv.spreadsheetUrl || inv.driveUrl);
+          remoteRows = await gasService.fetchSpreadsheetItems(inv.spreadsheetUrl || inv.driveUrl,inv);
         }
         if ((!remoteRows || remoteRows.length === 0) && inv.type && inv.center) {
           remoteRows = await gasService.fetchProductsFromScript(inv.type, inv.center);
@@ -2253,11 +1690,7 @@ class InventoryService {
             const itWar = String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase();
 
             // Buscar coincidencia exacta por SKU + Ubicación + Almacén, o fallback a SKU
-            const match = remoteRows.find(r => 
-              String(r.SKU || '').trim().toUpperCase() === itSku &&
-              (!itLoc || !r.Ubicacion || String(r.Ubicacion).trim().toUpperCase() === itLoc) &&
-              (!itWar || !r.Almacen || String(r.Almacen).trim().toUpperCase() === itWar)
-            ) || remoteRows.find(r => String(r.SKU || '').trim().toUpperCase() === itSku);
+            const match=remoteRows.find(r=>contract.member(r)===contract.member(it));
 
             if (match) {
               // 1er Conteo
@@ -2312,6 +1745,7 @@ class InventoryService {
       }
     }
 
+    delete inv.closeOperationId;
     this.saveInventory(inv);
     auditService.logReopen({
       inventoryId: inv.id,
@@ -2329,257 +1763,22 @@ class InventoryService {
     };
   }
 
-  async syncInventoryFromSheet({ inventoryId, user }) {
-    const inv = this.getInventoryRaw(inventoryId);
-    if (!inv) throw new Error('Inventario no encontrado');
-
-    const isEncargado = user && user.role === 'ENCARGADO';
-    if (isEncargado && inv.center && !config.isSameCenter(inv.center, user.center)) {
-      throw new Error(`No tiene permisos para modificar inventarios del centro ${inv.center}`);
-    }
-
-    let remoteRows = [];
-    if (inv.spreadsheetUrl || inv.driveUrl) {
-      remoteRows = await gasService.fetchSpreadsheetItems(inv.spreadsheetUrl || inv.driveUrl);
-    }
-    if ((!remoteRows || remoteRows.length === 0) && inv.type && inv.center) {
-      remoteRows = await gasService.fetchProductsFromScript(inv.type, inv.center);
-    }
-
-    if (!Array.isArray(remoteRows) || remoteRows.length === 0) {
-      throw new Error('No se pudieron obtener datos del archivo de Google Sheets o está vacío.');
-    }
-
-    let updatedCount = 0;
-    inv.items.forEach(it => {
-      const itSku = String(it.SKU || '').trim().toUpperCase();
-      const itLoc = String(it.Ubicacion || '').trim().toUpperCase();
-      const itWar = String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase();
-
-      const match = remoteRows.find(r => 
-        String(r.SKU || '').trim().toUpperCase() === itSku &&
-        (!itLoc || !r.Ubicacion || String(r.Ubicacion).trim().toUpperCase() === itLoc) &&
-        (!itWar || !r.Almacen || String(r.Almacen).trim().toUpperCase() === itWar)
-      ) || remoteRows.find(r => String(r.SKU || '').trim().toUpperCase() === itSku);
-
-      if (match) {
-        // Stock Sistema y Costo
-        if (match.Stock_Sistema !== null && match.Stock_Sistema !== undefined) it.Stock_Sistema = match.Stock_Sistema;
-        if (match.Costo_Unitario !== null && match.Costo_Unitario !== undefined) it.Costo_Unitario = match.Costo_Unitario;
-
-        const sys = Number(it.Stock_Sistema || 0);
-
-        // 1er Conteo
-        if (match.Stock_Fisico !== null && match.Stock_Fisico !== undefined) it.Stock_Fisico = match.Stock_Fisico;
-        if (match.Stock_Buen_Estado !== null && match.Stock_Buen_Estado !== undefined) it.Stock_Buen_Estado = match.Stock_Buen_Estado;
-        if (match.Mal_estado !== null && match.Mal_estado !== undefined) it.Mal_estado = match.Mal_estado;
-        if (match.Stock_Total !== null && match.Stock_Total !== undefined) it.Stock_Total = match.Stock_Total;
-        if (match.Diferencia !== null && match.Diferencia !== undefined) it.Diferencia = match.Diferencia;
-        if (match.Costo_Diferencia !== null && match.Costo_Diferencia !== undefined) it.Costo_Diferencia = match.Costo_Diferencia;
-
-        // Regla de Negativos 1er Conteo
-        const phys1 = Number(it.Stock_Buen_Estado ?? it.Stock_Fisico ?? 0);
-        const dam1 = Number(it.Mal_estado ?? 0);
-        if (sys < 0 && phys1 === 0 && dam1 === 0) {
-          it.Stock_Total = sys;
-          it.Diferencia = 0;
-          it.Costo_Diferencia = 0;
-        }
-
-        // Reconteo 1
-        if (match.Reconteo_Fisico !== null && match.Reconteo_Fisico !== undefined) it.Reconteo_Fisico = match.Reconteo_Fisico;
-        if (match.Reconteo !== null && match.Reconteo !== undefined) it.Reconteo = match.Reconteo;
-        if (match.Reconteo_Mal_Estado !== null && match.Reconteo_Mal_Estado !== undefined) it.Reconteo_Mal_Estado = match.Reconteo_Mal_Estado;
-        if (match.Malestado_Reconteo !== null && match.Malestado_Reconteo !== undefined) it.Malestado_Reconteo = match.Malestado_Reconteo;
-        if (match.Stock_Total_Reconteo !== null && match.Stock_Total_Reconteo !== undefined) it.Stock_Total_Reconteo = match.Stock_Total_Reconteo;
-        if (match.Diferencia_Final !== null && match.Diferencia_Final !== undefined) it.Diferencia_Final = match.Diferencia_Final;
-        if (match.Costo_Diferencia_Final !== null && match.Costo_Diferencia_Final !== undefined) it.Costo_Diferencia_Final = match.Costo_Diferencia_Final;
-        if (match.Fecha_Reconteo) it.Fecha_Reconteo = match.Fecha_Reconteo;
-
-        // Regla de Negativos Reconteo 1
-        if (it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined) {
-          const recPhys1 = Number(it.Reconteo_Fisico);
-          const recDam1 = Number(it.Reconteo_Mal_Estado ?? it.Malestado_Reconteo ?? 0);
-          if (sys < 0 && recPhys1 === 0 && recDam1 === 0) {
-            it.Stock_Total_Reconteo = sys;
-            it.Diferencia_Final = 0;
-            it.Costo_Diferencia_Final = 0;
-          }
-        }
-
-        // Reconteo 2
-        if (match.Reconteo_2 !== null && match.Reconteo_2 !== undefined) it.Reconteo_2 = match.Reconteo_2;
-        if (match.Malestado_Reconteo_2 !== null && match.Malestado_Reconteo_2 !== undefined) it.Malestado_Reconteo_2 = match.Malestado_Reconteo_2;
-        if (match.Stock_Total_Reconteo_2 !== null && match.Stock_Total_Reconteo_2 !== undefined) it.Stock_Total_Reconteo_2 = match.Stock_Total_Reconteo_2;
-        if (match.Diferencia_Final_2 !== null && match.Diferencia_Final_2 !== undefined) it.Diferencia_Final_2 = match.Diferencia_Final_2;
-        if (match.Costo_Diferencia_Final_2 !== null && match.Costo_Diferencia_Final_2 !== undefined) it.Costo_Diferencia_Final_2 = match.Costo_Diferencia_Final_2;
-        if (match.Fecha_Reconteo_2) it.Fecha_Reconteo_2 = match.Fecha_Reconteo_2;
-
-        // Regla de Negativos Reconteo 2
-        if (it.Reconteo_2 !== null && it.Reconteo_2 !== undefined) {
-          const recPhys2 = Number(it.Reconteo_2);
-          const recDam2 = Number(it.Malestado_Reconteo_2 ?? 0);
-          if (sys < 0 && recPhys2 === 0 && recDam2 === 0) {
-            it.Stock_Total_Reconteo_2 = sys;
-            it.Diferencia_Final_2 = 0;
-            it.Costo_Diferencia_Final_2 = 0;
-          }
-        }
-
-        // Ubicaciones adicionales
-        if (match.Ubicacion_1 !== undefined && match.Ubicacion_1 !== null) it.Ubicacion_1 = match.Ubicacion_1;
-        if (match.Ubicacion_2 !== undefined && match.Ubicacion_2 !== null) it.Ubicacion_2 = match.Ubicacion_2;
-
-        // Metadatos de conteo de Google Sheets
-        if (match.Fecha_Ultimo_Conteo) it.Fecha_Ultimo_Conteo = match.Fecha_Ultimo_Conteo;
-        if (match.Responsable) it.Responsable = match.Responsable;
-
-        const isCountedInSheet = !!match.Fecha_Ultimo_Conteo || (match.Stock_Fisico !== null && match.Stock_Fisico !== undefined && match.Stock_Fisico !== '');
-        if (isCountedInSheet) {
-          it.Estado = 'Contado';
-          it.locked = true;
-          if (!it.Fecha_Ultimo_Conteo) {
-            it.Fecha_Ultimo_Conteo = new Date().toISOString();
-          }
-        }
-
-        // Justificación y Corroboración desde Google Sheets
-        const hasSheetJust = !!(match.Comentario_Justificacion || match.Razon || match.Razon_Justificacion || match.corroboracion);
-        if (hasSheetJust) {
-          if (match.Comentario_Justificacion) {
-            it.Comentario_Justificacion = match.Comentario_Justificacion;
-            it.justification = match.Comentario_Justificacion;
-          }
-          if (match.Razon || match.Razon_Justificacion) {
-            it.Razon_Justificacion = match.Razon || match.Razon_Justificacion;
-            it.Razon = match.Razon || match.Razon_Justificacion;
-          }
-          if (match.corroboracion) {
-            it.corroboracion = match.corroboracion;
-            it.corroborationStatus = match.corroboracion;
-            it.isCuadra = String(match.corroboracion).toUpperCase().includes('CUADRA') && !String(match.corroboracion).toUpperCase().includes('NO');
-          }
-          if (match.Revisado_Por) {
-            it.Revisado_Por = match.Revisado_Por;
-            it.Responsable_Justificacion = match.Revisado_Por;
-          }
-          if (match.Fecha_Primera_Justificacion) {
-            it.Fecha_Primera_Justificacion = match.Fecha_Primera_Justificacion;
-          } else {
-            it.Fecha_Primera_Justificacion = it.Fecha_Primera_Justificacion || new Date().toISOString();
-          }
-
-          // Crear o sincronizar registro en data/justifications/
-          const skuClean = String(it.SKU || '').replace(/[^a-zA-Z0-9_-]/g, '_');
-          const warClean = String(it.Almacen || it.almacen || 'GEN').replace(/[^a-zA-Z0-9_-]/g, '_');
-          const justId = `JUST-${inv.type || 'CICLICO'}-${skuClean}-${inv.center || 'GEN'}-${warClean}`;
-          const justFilePath = path.join(this.justDir, `${justId}.json`);
-          const isCuadra = it.isCuadra === true || String(it.corroboracion || '').toUpperCase().trim() === 'CUADRA';
-          
-          const justRecord = {
-            id: justId,
-            inventoryId: inv.id,
-            sku: it.SKU,
-            itemId: it.id,
-            descripcion: it.Descripcion || '',
-            ubicacion: it.Ubicacion || '',
-            almacen: it.Almacen || warClean,
-            stockSistema: it.Stock_Sistema || 0,
-            stockSistemaOriginal: it.Stock_Sistema_Original !== undefined ? it.Stock_Sistema_Original : it.Stock_Sistema,
-            stockFisico: it.Stock_Fisico,
-            diferencia: it.Diferencia || 0,
-            costoDiferencia: it.Costo_Diferencia || 0,
-            malEstado: it.Mal_estado || 0,
-            justification: it.Comentario_Justificacion || 'Justificado en Google Sheets',
-            reasonType: it.Razon_Justificacion || it.Razon || 'balanceo',
-            corroboracion: isCuadra ? 'CUADRA' : 'NO CUADRA',
-            estado: isCuadra ? 'CUADRA' : 'NO CUADRA',
-            isCuadra: isCuadra,
-            reviewedBy: it.Revisado_Por || 'Encargado / Sheets',
-            reviewedAt: it.Fecha_Primera_Justificacion || new Date().toISOString(),
-            center: inv.center,
-            type: inv.type || 'CICLICO',
-            status: 'REVISADO'
-          };
-          storagePath.writeJson(justFilePath, justRecord);
-        }
-
-        updatedCount++;
-      }
+  async syncInventoryFromSheet({inventoryId,user}) {
+    const inv=this.getInventoryRaw(inventoryId);
+    if(!inv||!this.canModifyInventory(inv,user))throw new Error('Inventario fuera de su centro');
+    const rows=inv.spreadsheetUrl?await gasService.fetchSpreadsheetItems(inv.spreadsheetUrl):await gasService.fetchProductsFromScript(inv.type,inv.center);
+    const map=new Map();
+    rows.forEach(raw=>{const item=contract.normalize(raw),key=contract.member(item);if(map.has(key))throw new Error('Identidad duplicada en Google Sheets');map.set(key,item);});
+    let updatedCount=0;
+    inv.items.forEach(item=>{
+      const found=map.get(contract.member(item));if(!found)return;
+      Object.assign(item,found);item.locked=contract.has(found.Stock_Total);
+      const state=found.Estado_Justificacion_2||found.Estado;
+      item.corroboracion=state;item.corroborationStatus=state;item.isCuadra=state==='CUADRA';
+      updatedCount++;
     });
-
-    // Detectar si en Google Sheets hay filas adicionales o nuevas ubicaciones que no estén en el inventario local
-    remoteRows.forEach(r => {
-      const rSku = String(r.SKU || '').trim().toUpperCase();
-      const rLoc = String(r.Ubicacion || '').trim().toUpperCase();
-      if (!rSku) return;
-      const exists = inv.items.some(it => 
-        String(it.SKU || '').trim().toUpperCase() === rSku &&
-        (!rLoc || String(it.Ubicacion || '').trim().toUpperCase() === rLoc)
-      );
-      if (!exists && (r.isAdditionalLocation || (r.Stock_Fisico !== null && r.Stock_Fisico !== undefined && r.Stock_Fisico !== ''))) {
-        const hasCount = !!r.Fecha_Ultimo_Conteo || (r.Stock_Fisico !== null && r.Stock_Fisico !== undefined);
-        inv.items.push({
-          id: `ITEM-EXTRA-${rSku}-${inv.items.length + 1}`,
-          SKU: r.SKU,
-          Codigo_Barras: r.Codigo_Barras || '',
-          Descripcion: r.Descripcion || '',
-          Ubicacion: r.Ubicacion || '',
-          Ubicacion_1: r.Ubicacion_1 || '',
-          Ubicacion_2: r.Ubicacion_2 || '',
-          Almacen: r.Almacen || '',
-          Categoria: r.Categoria || '',
-          Clasificacion_ABC: r.Clasificacion_ABC || 'C',
-          Unidad: r.Unidad || 'PZA',
-          Costo_Unitario: r.Costo_Unitario || 0,
-          Stock_Sistema: r.Stock_Sistema || 0,
-          Stock_Total: r.Stock_Total || 0,
-          Stock_Buen_Estado: r.Stock_Buen_Estado ?? r.Stock_Fisico ?? 0,
-          Stock_Fisico: r.Stock_Fisico ?? null,
-          Mal_estado: r.Mal_estado || 0,
-          Diferencia: r.Diferencia || 0,
-          Costo_Diferencia: r.Costo_Diferencia || 0,
-          Fecha_Ultimo_Conteo: r.Fecha_Ultimo_Conteo || (hasCount ? new Date().toISOString() : null),
-          Responsable: r.Responsable || '',
-          Estado: hasCount ? 'Contado' : 'Pendiente',
-          locked: hasCount,
-          isAdditionalLocation: true
-        });
-        updatedCount++;
-      }
-    });
-
-    // Evaluar si todos los ítems fueron contados y reconciliar estado operativo
-    const allCounted = inv.items.length > 0 && inv.items.every(it => it.Stock_Fisico !== null && it.Stock_Fisico !== undefined);
-    const unadjustedDiffs = inv.items.filter(it => {
-      const isDiff = it.Diferencia !== null && it.Diferencia !== undefined && Number(it.Diferencia) !== 0;
-      if (!isDiff) return false;
-      const isCuadra = it.isCuadra === true || String(it.corroboracion || '').toUpperCase().trim() === 'CUADRA';
-      const hasJust = !!(it.Comentario_Justificacion || it.justification);
-      return !isCuadra && !hasJust;
-    });
-
-    if (allCounted) {
-      if (unadjustedDiffs.length === 0) {
-        inv.status = 'REVISADO';
-        inv.isFinalized = true;
-        inv.closedAt = inv.closedAt || new Date().toISOString();
-      } else if (inv.status === 'EN_PROGRESO') {
-        inv.status = 'PENDIENTE_JUSTIFICACION';
-      }
-    }
-
-    inv.lastGasSyncAt = new Date().toISOString();
-    this.saveInventory(inv);
-
-    return {
-      success: true,
-      inventoryId: inv.id,
-      itemsUpdated: updatedCount,
-      updatedCount: updatedCount,
-      totalItems: inv.items.length,
-      syncedAt: inv.lastGasSyncAt
-    };
+    inv.lastGasSyncAt=new Date().toISOString();this.saveInventory(inv);
+    return {success:true,inventoryId:inv.id,itemsUpdated:updatedCount,updatedCount,totalItems:inv.items.length,syncedAt:inv.lastGasSyncAt};
   }
 
   async syncAllActiveInventoriesFromSheets(user) {
@@ -2639,8 +1838,8 @@ class InventoryService {
       throw new Error(`Ítem con SKU ${sku} no encontrado en el inventario`);
     }
 
-    const qty = parseInt(stockFisico, 10) || 0;
-    const damagedQty = parseInt(malEstado, 10) || 0;
+    const qty = contract.quantity(stockFisico,'stockFisico');
+    const damagedQty = contract.quantity(malEstado,'malEstado');
     const unitCost = Number(targetItem.Costo_Unitario) || 0;
     const sysStock = Number(targetItem.Stock_Sistema) || 0;
     const phaseClean = String(countPhase || '1ER_CONTEO').toUpperCase().trim();
@@ -2649,7 +1848,7 @@ class InventoryService {
       const isNegRec2Match = (sysStock < 0 && qty === 0 && damagedQty === 0);
       targetItem.Reconteo_2 = qty;
       targetItem.Malestado_Reconteo_2 = damagedQty;
-      targetItem.Stock_Total_Reconteo_2 = isNegRec2Match ? sysStock : (qty + damagedQty);
+      targetItem.Stock_Total_Reconteo_2 = (qty + damagedQty);
       targetItem.Diferencia_Final_2 = targetItem.Stock_Total_Reconteo_2 - sysStock;
       targetItem.Costo_Diferencia_Final_2 = targetItem.Diferencia_Final_2 * unitCost;
       targetItem.Fecha_Reconteo_2 = new Date().toISOString();
@@ -2661,7 +1860,7 @@ class InventoryService {
       targetItem.Reconteo = qty;
       targetItem.Reconteo_Mal_Estado = damagedQty;
       targetItem.Malestado_Reconteo = damagedQty;
-      targetItem.Stock_Total_Reconteo = isNegRec1Match ? sysStock : (qty + damagedQty);
+      targetItem.Stock_Total_Reconteo = (qty + damagedQty);
       targetItem.Diferencia_Final = targetItem.Stock_Total_Reconteo - sysStock;
       targetItem.Costo_Diferencia_Final = targetItem.Diferencia_Final * unitCost;
       targetItem.Fecha_Reconteo = new Date().toISOString();
@@ -2673,7 +1872,7 @@ class InventoryService {
       targetItem.Stock_Fisico = qty;
       targetItem.Stock_Buen_Estado = qty;
       targetItem.Mal_estado = damagedQty;
-      targetItem.Stock_Total = isNeg1Match ? sysStock : (qty + damagedQty);
+      targetItem.Stock_Total = (qty + damagedQty);
       targetItem.Diferencia = targetItem.Stock_Total - sysStock;
       targetItem.Costo_Diferencia = targetItem.Diferencia * unitCost;
       targetItem.Fecha_Ultimo_Conteo = new Date().toISOString();
@@ -2692,7 +1891,7 @@ class InventoryService {
       timestamp: new Date().toISOString()
     });
 
-    this.saveInventory(inv);
+
 
     // Sincronizar únicamente el bloque de columnas correspondiente a la fase editada.
     try {
@@ -2745,9 +1944,15 @@ class InventoryService {
         });
       }
 
-      gasService.upsertCountToGAS(inv.type, gasPayload)
-        .catch(err => console.warn(`[updateItemQuantityInInventory] Aviso sincronizando con Sheets: ${err.message}`));
-    } catch (e) {}
+      const synced=await gasService.upsertCountToGAS(inv.type,{...gasPayload,inventoryId:inv.id,itemId:targetItem.id});
+      if(!synced.item)throw new Error('Google no devolvió la fila confirmada');
+      Object.assign(targetItem,contract.normalize(synced.item));delete inv.closeOperationId;this.saveInventory(inv);
+      if(inv.parentInventoryId){
+        const parent=this.getInventoryRaw(inv.parentInventoryId);
+        const original=parent?.items.find(it=>contract.member(it)===contract.member(targetItem));
+        if(original){Object.assign(original,contract.normalize(synced.item));delete parent.closeOperationId;this.saveInventory(parent);}
+      }
+    } catch(e){throw e;}
 
     return {
       success: true,
@@ -3057,133 +2262,22 @@ class InventoryService {
     return organized;
   }
 
-  async deleteItem({ inventoryId, itemId, sku, location, user }) {
-    const inv = this.getInventoryRaw(inventoryId);
-    if (!inv) {
-      throw new Error(`Inventario '${inventoryId}' no encontrado`);
-    }
-
-    const u = String(user.username || '').toLowerCase().trim();
-    const c = String(user.clave || '').toLowerCase().trim();
-    const d = String(user.displayName || '').toLowerCase().trim();
-
-    if (!this.canModifyInventory(inv, user)) {
-      throw new Error(`No tiene permisos para modificar inventarios del centro ${inv.center}`);
-    }
-
-    // 0. Check if this is an additional location (Ubicacion_1 or Ubicacion_2) on an existing item
-    const cleanLoc = String(location || '').trim().toUpperCase();
-    if (cleanLoc) {
-      const parentWithLoc = inv.items.find(it => {
-        const matchesSku = !sku || String(it.SKU).trim().toUpperCase() === String(sku).trim().toUpperCase();
-        const matchesId = !itemId || it.id === itemId;
-        return (matchesSku || matchesId) && (
-          String(it.Ubicacion_1 || '').trim().toUpperCase() === cleanLoc ||
-          String(it.Ubicacion_2 || '').trim().toUpperCase() === cleanLoc
-        );
-      });
-
-      if (parentWithLoc) {
-        if (String(parentWithLoc.Ubicacion_1 || '').trim().toUpperCase() === cleanLoc) {
-          parentWithLoc.Ubicacion_1 = parentWithLoc.Ubicacion_2 || '';
-          parentWithLoc.Ubicacion_2 = '';
-        } else if (String(parentWithLoc.Ubicacion_2 || '').trim().toUpperCase() === cleanLoc) {
-          parentWithLoc.Ubicacion_2 = '';
-        }
-
-        parentWithLoc.additionalLocations = [parentWithLoc.Ubicacion_1, parentWithLoc.Ubicacion_2].filter(Boolean);
-        this.saveInventory(inv);
-
-        // Sync to GAS to update/clear Col E or Col F
-        gasService.upsertCountToGAS(inv.type, {
-          center: inv.center,
-          sku: parentWithLoc.SKU,
-          barcode: parentWithLoc.Codigo_Barras,
-          location: parentWithLoc.Ubicacion,
-          ubicacion1: parentWithLoc.Ubicacion_1 || '',
-          ubicacion2: parentWithLoc.Ubicacion_2 || '',
-          stockSistema: parentWithLoc.Stock_Sistema,
-          stockFisico: parentWithLoc.Stock_Fisico,
-          malEstado: parentWithLoc.Mal_estado || 0,
-          responsable: user.displayName || user.username,
-          estado: parentWithLoc.Estado || 'Pendiente'
-        }).catch(e => console.warn('[InventoryService] Warning syncing cleared location to GAS:', e.message));
-
-        auditService.logAction({
-          action: 'ADDITIONAL_LOCATION_REMOVED',
-          details: `Ubicación adicional '${cleanLoc}' removida del SKU ${parentWithLoc.SKU}`,
-          user: user.username,
-          center: inv.center,
-          targetId: inventoryId
-        });
-
-        return {
-          success: true,
-          message: `Ubicación adicional '${cleanLoc}' del SKU ${parentWithLoc.SKU} removida correctamente`,
-          item: parentWithLoc
-        };
-      }
-    }
-
-    // 1. Try finding by ID first
-    let itemIdx = inv.items.findIndex(it => it.id === itemId || String(it.id).trim() === String(itemId).trim());
-
-    // 2. Fallback: match by SKU and location
-    if (itemIdx === -1 && (sku || location)) {
-      itemIdx = inv.items.findIndex(it => {
-        const matchesSku = !sku || String(it.SKU).trim().toUpperCase() === String(sku).trim().toUpperCase();
-        const matchesLoc = !location || String(it.Ubicacion).trim().toUpperCase() === String(location).trim().toUpperCase();
-        return matchesSku && matchesLoc;
-      });
-    }
-
-    // 3. Fallback: find any extra location row for this SKU
-    if (itemIdx === -1 && sku) {
-      for (let i = inv.items.length - 1; i >= 0; i--) {
-        const it = inv.items[i];
-        if (String(it.SKU).trim().toUpperCase() === String(sku).trim().toUpperCase()) {
-          if (it.isAdditionalLocation || String(it.id).startsWith('ITEM-NEW-LOC') || it.originalItemId || it.Stock_Sistema === 0) {
-            itemIdx = i;
-            break;
-          }
-        }
-      }
-    }
-
-    if (itemIdx === -1) {
-      throw new Error('Ítem o ubicación no encontrada en este inventario');
-    }
-
-    const item = inv.items[itemIdx];
-
-    inv.items.splice(itemIdx, 1);
-    this.saveInventory(inv);
-
-    // Also delete from Google Sheets if it was pushed there
-    gasService.deleteAdditionalLocationFromGAS(inv.type, {
-      center: inv.center,
-      type: inv.type,
-      sku: item.SKU,
-      location: item.Ubicacion,
-      warehouse: item.Almacen || inv.center || '',
-      almacen: item.Almacen || inv.center || ''
-    }).catch(err => {
-      console.warn('[InventoryService] Warning deleting additional location from GAS:', err.message);
-    });
-
-    auditService.logAction({
-      action: 'LOCATION_DELETED',
-      details: `Ubicación eliminada: SKU ${item.SKU} - Ubic: ${item.Ubicacion || 'S/U'}`,
-      user: user.username,
-      center: inv.center,
-      targetId: inventoryId
-    });
-
-    return {
-      success: true,
-      message: `Ubicación '${item.Ubicacion || 'S/U'}' del SKU ${item.SKU} eliminada correctamente`
-    };
+  async deleteItem({inventoryId,itemId,sku,location,user}) {
+    const inv=this.getInventoryRaw(inventoryId);
+    if(!inv||!this.canModifyInventory(inv,user))throw new Error('Inventario inexistente o fuera de su centro');
+    const matches=inv.items.filter(it=>(itemId?it.id===itemId:contract.identity(it.SKU)===contract.identity(sku))&&
+      [it.Ubicacion_1,it.Ubicacion_2].some(loc=>loc&&contract.identity(loc)===contract.identity(location)));
+    if(matches.length!==1)throw new Error('Solo se puede eliminar una ubicación adicional identificada exactamente.');
+    const item=matches[0];
+    const result=await gasService.deleteAdditionalLocationFromGAS(inv.type,{center:inv.center,sku:item.SKU,
+      warehouse:item.Almacen,location,originalLocation:item.Ubicacion,inventoryId:inv.id,itemId:item.id});
+    if(!result.cleared)throw new Error('Google no confirmó la eliminación');
+    item.Ubicacion_1=result.ubicacion1;item.Ubicacion_2=result.ubicacion2;
+    item.additionalLocations=[item.Ubicacion_1,item.Ubicacion_2].filter(Boolean);this.saveInventory(inv);
+    return {success:true,item,message:'Ubicación eliminada y confirmada en Google Sheets'};
   }
+
+
 }
 
 module.exports = new InventoryService();

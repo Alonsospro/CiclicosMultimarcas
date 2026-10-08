@@ -117,7 +117,10 @@ window.InventoryView = {
           centers: selectedCenters
         });
 
-        window.Toast.success(`¡Se crearon ${res.count || selectedCenters.length} inventarios masivos con éxito! Listos sin asignar.`);
+        const summary=res.count+' creados, '+res.existingCount+' ya existentes, '+res.failedCount+' fallidos.';
+        if(res.failedCount){
+          window.Toast.warning(summary+' '+res.results.filter(r=>r.status==='failed').map(r=>r.center+': '+r.error).join(' | '));
+        }else window.Toast.success(summary+' Productos cargados desde Google Sheets.');
         window.ModalHelper.close(modalId);
         await this.loadInventories();
       } catch (err) {
