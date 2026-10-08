@@ -395,6 +395,54 @@ class InventoryService {
     return newInventory;
   }
 
+  async bulkCreateInventories({ type = 'CICLICO', date = null, centers = null, user }) {
+    const cleanType = String(type || 'CICLICO').toUpperCase().trim();
+    const targetDate = date ? String(date).trim() : new Date().toISOString().slice(0, 10);
+    
+    // Official 14 weekly centers
+    const officialCenterCodes = [
+      '1120', '1160', '1180', '1300', '1310', '1340', '1700', '1800', '1820', '2100', '2150', '3100', '3200', '5100'
+    ];
+    
+    const targetCenters = Array.isArray(centers) && centers.length > 0 ? centers : officialCenterCodes;
+    const createdInventories = [];
+
+    for (const center of targetCenters) {
+      const centerObj = config.findCenter(center);
+      const centerCode = centerObj ? centerObj.code : String(center).trim();
+      const uniqueSuffix = Date.now().toString(36).toUpperCase() + Math.random().toString(36).substring(2, 5).toUpperCase();
+      const invId = `INV-${cleanType}-${centerCode}-${uniqueSuffix}`;
+      
+      // Auto-naming format requested by user: "tipo de inventario-centro-fecha"
+      const autoName = `${cleanType}-${centerCode}-${targetDate}`;
+
+      const newInv = {
+        id: invId,
+        name: autoName,
+        type: cleanType,
+        center: centerCode,
+        status: 'EN_PROGRESO',
+        createdAt: new Date().toISOString(),
+        createdBy: user.username,
+        assignedAuxiliars: [], // Unassigned: to be assigned by the warehouse manager
+        items: [] // Blank items list ready for Excel import or manual assignment
+      };
+
+      this.saveInventory(newInv);
+      createdInventories.push(newInv);
+    }
+
+    auditService.logAction({
+      action: 'BULK_INVENTORIES_CREATED',
+      details: `Creación masiva de ${createdInventories.length} inventarios ${cleanType} para fecha ${targetDate}`,
+      user: user.username,
+      center: 'GLOBAL',
+      targetId: `BULK-${cleanType}-${targetDate}`
+    });
+
+    return createdInventories;
+  }
+
   canModifyInventory(inv, user) {
     if (!inv || !user) return false;
     if (user.role === 'ADMIN' || user.isSuperadmin) return true;

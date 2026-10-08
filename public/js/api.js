@@ -140,6 +140,13 @@ window.API = {
     });
   },
 
+  bulkCreateInventories(payload) {
+    return this.request('/inventories/bulk-create', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  },
+
   fetchFromGas(payload) {
     return this.request('/inventories/fetch-from-gas', {
       method: 'POST',

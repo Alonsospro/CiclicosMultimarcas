@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const inventoryService = require('../services/inventoryService');
 const gasService = require('../services/gasService');
-const { authenticate, requireRole, requireInventoryCreator } = require('../middlewares/authMiddleware');
+const { authenticate, requireRole, requireInventoryCreator, requireBulkInventoryCreator } = require('../middlewares/authMiddleware');
 const { restrictCenter } = require('../middlewares/centerMiddleware');
 
 // GET /api/inventories (List)
@@ -84,6 +84,28 @@ router.post('/', authenticate, requireInventoryCreator, restrictCenter, async (r
     res.status(201).json({ success: true, inventory: newInv });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/inventories/bulk-create (Bulk create weekly inventories - Juan Carlos, Absael & Alonso only)
+router.post('/bulk-create', authenticate, requireBulkInventoryCreator, async (req, res) => {
+  try {
+    const { type, date, centers } = req.body;
+    const created = await inventoryService.bulkCreateInventories({
+      type,
+      date,
+      centers,
+      user: req.user
+    });
+    res.status(201).json({
+      success: true,
+      message: `Se crearon ${created.length} inventarios masivos con éxito.`,
+      count: created.length,
+      inventories: created
+    });
+  } catch (err) {
+    console.error('[inventoryRoutes] Error in /bulk-create:', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 

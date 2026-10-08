@@ -5,6 +5,131 @@ window.InventoryView = {
 
   init() {
     this.setupListeners();
+    this.setupBulkInventoryModal();
+  },
+
+  setupBulkInventoryModal() {
+    const btnOpen = document.getElementById('btn-open-bulk-inv-modal');
+    const modalId = 'modal-bulk-inventory';
+    const form = document.getElementById('form-bulk-inventory');
+    const container = document.getElementById('bulk-centers-checkboxes');
+    const countSpan = document.getElementById('bulk-selected-count');
+    const previewDiv = document.getElementById('bulk-preview-names');
+    const typeSelect = document.getElementById('bulk-inv-type');
+    const dateInput = document.getElementById('bulk-inv-date');
+
+    const officialCenters = [
+      { code: '1120', name: 'Volvo - Km 14' },
+      { code: '1160', name: 'Av. Banzer 3er anillo' },
+      { code: '1180', name: 'Foton - Km 10' },
+      { code: '1300', name: 'John Deere - Km 10' },
+      { code: '1310', name: 'Sucursal Montero' },
+      { code: '1340', name: 'Sucursal Cuatro Cañadas' },
+      { code: '1700', name: 'Av. Grigota 3er anillo' },
+      { code: '1800', name: 'Express San Julián' },
+      { code: '1820', name: 'Express San Pedro' },
+      { code: '2100', name: 'Sucursal El Alto, La Paz' },
+      { code: '2150', name: 'Centro Foton El Alto, La Paz' },
+      { code: '3100', name: 'Sucursal Cochabamba' },
+      { code: '3200', name: 'Centro Foton Blanco Galindo' },
+      { code: '5100', name: 'Sucursal Tarija' }
+    ];
+
+    const updatePreview = () => {
+      const type = (typeSelect?.value || 'CICLICO').toUpperCase().trim();
+      const date = dateInput?.value || new Date().toISOString().slice(0, 10);
+      const checkedBoxes = container ? Array.from(container.querySelectorAll('input[type="checkbox"]:checked')) : [];
+      const checkedCodes = checkedBoxes.map(cb => cb.value);
+      
+      if (countSpan) countSpan.textContent = checkedCodes.length;
+
+      if (!previewDiv) return;
+      if (checkedCodes.length === 0) {
+        previewDiv.textContent = 'Ningún centro seleccionado';
+        previewDiv.style.color = '#ef4444';
+        return;
+      }
+      previewDiv.style.color = 'var(--text-main)';
+      const previewList = checkedCodes.slice(0, 4).map(c => `${type}-${c}-${date}`);
+      const more = checkedCodes.length > 4 ? ` ... (+${checkedCodes.length - 4} más)` : '';
+      previewDiv.textContent = previewList.join(', ') + more;
+    };
+
+    btnOpen?.addEventListener('click', () => {
+      const today = new Date();
+      const localDate = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+      if (dateInput) dateInput.value = localDate;
+      if (typeSelect) typeSelect.value = 'CICLICO';
+
+      if (container) {
+        container.innerHTML = officialCenters.map(c => `
+          <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; cursor: pointer; padding: 4px 6px; border-radius: 4px; background: rgba(30, 41, 59, 0.5);">
+            <input type="checkbox" value="${c.code}" class="bulk-center-chk" checked style="accent-color: #38bdf8;" />
+            <span style="font-weight: 700; color: #38bdf8;">${c.code}</span>
+            <span style="color: var(--text-muted); font-size: 0.74rem;">${c.name}</span>
+          </label>
+        `).join('');
+
+        container.querySelectorAll('.bulk-center-chk').forEach(chk => {
+          chk.addEventListener('change', updatePreview);
+        });
+      }
+
+      updatePreview();
+      window.ModalHelper.open(modalId);
+    });
+
+    document.getElementById('btn-bulk-select-all')?.addEventListener('click', () => {
+      container?.querySelectorAll('.bulk-center-chk').forEach(c => { c.checked = true; });
+      updatePreview();
+    });
+
+    document.getElementById('btn-bulk-select-none')?.addEventListener('click', () => {
+      container?.querySelectorAll('.bulk-center-chk').forEach(c => { c.checked = false; });
+      updatePreview();
+    });
+
+    typeSelect?.addEventListener('change', updatePreview);
+    dateInput?.addEventListener('input', updatePreview);
+
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const type = (typeSelect?.value || 'CICLICO').toUpperCase().trim();
+      const date = dateInput?.value;
+      const checkedBoxes = container ? Array.from(container.querySelectorAll('input[type="checkbox"]:checked')) : [];
+      const selectedCenters = checkedBoxes.map(cb => cb.value);
+
+      if (selectedCenters.length === 0) {
+        window.Toast.warning('Debe seleccionar al menos un centro para crear los inventarios.');
+        return;
+      }
+
+      const submitBtn = document.getElementById('btn-submit-bulk-inventory');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando ' + selectedCenters.length + ' inventarios...';
+      }
+
+      try {
+        const res = await window.API.bulkCreateInventories({
+          type,
+          date,
+          centers: selectedCenters
+        });
+
+        window.Toast.success(`¡Se crearon ${res.count || selectedCenters.length} inventarios masivos con éxito! Listos sin asignar.`);
+        window.ModalHelper.close(modalId);
+        await this.loadInventories();
+      } catch (err) {
+        console.error('[inventoryView] Error in bulkCreate:', err);
+        window.Toast.danger(err.message || 'Error al generar inventarios masivos');
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = '<i class="fa-solid fa-bolt"></i> Crear Inventarios Masivos';
+        }
+      }
+    });
   },
 
   setupListeners() {

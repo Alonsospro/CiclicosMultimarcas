@@ -128,6 +128,11 @@ window.Auth = {
       el.style.display = canCreateInv ? '' : 'none';
     });
 
+    const isBulkCreator = this.isBulkCreator();
+    document.querySelectorAll('.role-bulk-creator-only').forEach(el => {
+      el.style.display = isBulkCreator ? '' : 'none';
+    });
+
     const invSubtitle = document.getElementById('inv-header-subtitle');
     if (invSubtitle) {
       if (role === 'AUXILIAR') {
@@ -180,6 +185,18 @@ window.Auth = {
     const u = String(this.currentUser.username || '').toLowerCase().trim();
     const d = String(this.currentUser.displayName || '').toLowerCase().trim();
     return u === 'jcarlos' || u === 'absael' || d.includes('juan carlos') || d.includes('absael') || this.currentUser.clave === 'JCS' || this.currentUser.clave === 'ABS';
+  },
+
+  isBulkCreator() {
+    if (!this.currentUser) return false;
+    if (this.isAlonso()) return true;
+    const u = String(this.currentUser.username || '').toLowerCase().trim();
+    const d = String(this.currentUser.displayName || '').toLowerCase().trim();
+    const c = String(this.currentUser.clave || '').toUpperCase().trim();
+    return u === 'jcarlos' || u === 'juancarlos' || u === 'juan carlos' || d.includes('juan carlos') || c === 'JCS' ||
+           u === 'absael' || d.includes('absael') || c === 'ABS' ||
+           u === 'alonso' || d.includes('alonso') || c === 'ADM' ||
+           (this.currentUser.isSuperadmin);
   },
 
   canManageUsers() {

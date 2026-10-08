@@ -123,7 +123,36 @@ function requireInventoryCreator(req, res, next) {
 
   return res.status(403).json({
     success: false,
-    message: 'Acceso denegado: No cuenta con permisos para crear o aperturar inventarios.'
+    message: 'Acceso denegado: No tienes permisos para crear inventarios.'
+  });
+}
+
+function isBulkInventoryCreator(user) {
+  if (!user) return false;
+  if (user.isSuperadmin) return true;
+  const u = String(user.username || user.usuario || '').toLowerCase().trim();
+  const d = String(user.displayName || user.name || user.nombre || '').toLowerCase().trim();
+  const email = String(user.email || '').toLowerCase().trim();
+  const c = String(user.clave || '').toUpperCase().trim();
+  return (
+    u === 'alonso' || d.includes('alonso') || email === 'alonsospro@gmail.com' || c === 'ADM' ||
+    u === 'absael' || d.includes('absael') || c === 'ABS' ||
+    u === 'jcarlos' || u === 'juancarlos' || u === 'juan carlos' || d.includes('juan carlos') || c === 'JCS'
+  );
+}
+
+function requireBulkInventoryCreator(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'No autenticado.' });
+  }
+
+  if (isBulkInventoryCreator(req.user)) {
+    return next();
+  }
+
+  return res.status(403).json({
+    success: false,
+    message: 'Acceso denegado: La creación masiva de inventarios está reservada exclusivamente para Juan Carlos, Absael y Alonso.'
   });
 }
 
@@ -132,6 +161,8 @@ module.exports = {
   requireRole,
   requireAlonso,
   requireInventoryCreator,
+  requireBulkInventoryCreator,
+  isBulkInventoryCreator,
   isAlonso,
   canCreateInventory,
   canManageUsers,
