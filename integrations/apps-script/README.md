@@ -12,7 +12,8 @@ Este cambio requiere actualizar la app y Apps Script juntos. El archivo `Invento
    - `INVENTORY_SPREADSHEET_ID`: ID de la hoja con las pestañas de centros; puede omitirse en un proyecto vinculado a esa hoja.
    - `APPS_SCRIPT_TOKEN`: secreto compartido, generado para esta integración.
    - `ROOT_CICLICO`, `ROOT_BARRIDO`, `ROOT_SEMANAL` y `ROOT_MENSUAL`: IDs de las carpetas de cierres correspondientes a los tipos usados. También se reconocen las raíces GENERAL/EXPRESS. Configurar explícitamente para no depender de los valores heredados.
-   - `PHOTOS_ROOT_ID`: carpeta para evidencias. Si se omite, se usa la raíz del tipo.
+   - `PHOTOS_MALESTADO_ROOT_ID` y `PHOTOS_JUSTIFICATIONS_ROOT_ID`: opcionales para sobrescribir las carpetas raíz de evidencia configuradas en `CFG.photoRoots`. El código ya apunta a las carpetas `malestado` y `justificaciones` compartidas para esta integración, y crea debajo las carpetas de fecha y centro.
+   - `PHOTOS_ROOT_ID`: raíz genérica heredada. Se usa solo cuando no está configurada la raíz específica por categoría; debe ser la carpeta padre `fotos`.
    - `REFERENCE_PHOTOS_FOLDER_ID`: carpeta opcional con imágenes cuyo nombre, sin extensión, coincide exactamente con el SKU.
    - Copie solo el ID de la carpeta (el texto después de `/folders/` en el enlace); se aceptan IDs o enlaces de carpeta. No use IDs de documentos ni enlaces de archivos. La cuenta Google que ejecuta la implementación de Apps Script debe tener acceso de edición a las carpetas de fotos y de cierres.
    - Las raíces de Drive no traen IDs de ejemplo: cada propiedad `ROOT_...` debe contener una carpeta real. Si falta o el ID no tiene acceso, el webhook devuelve un mensaje que señala la propiedad que hay que corregir.

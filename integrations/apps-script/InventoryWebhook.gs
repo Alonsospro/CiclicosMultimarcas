@@ -56,6 +56,11 @@ const CFG = {
   defaultSheetName: 'Inventario',
   headerRow: 1,
   dataStartRow: 2,
+  // Carpetas existentes proporcionadas para evidencias; cada una contiene fecha/centro.
+  photoRoots: {
+    malestado: '1q0rRvFpiFXDlXuX97odyz-bVcGZIxwEm',
+    justificaciones: '1tBlqX8MXyfD6SjQ6aLoViCDqYd_8MK54'
+  },
   // Configurar ROOT_CICLICO, ROOT_BARRIDO, ROOT_MENSUAL, etc. en propiedades.
   driveRoots: {}
 };
@@ -588,8 +593,14 @@ function savePhotoIfAny_(p,center,type,sku,category){
   else if(!isJust)value=p.photoBase64||p.foto_mal_estado||p.photoUrl||p.photo;
   if(!value)return null;
   if(typeof value!=='string')throw new Error('Imagen inválida');
+  const specificPhotoKey=category==='justificaciones'?'PHOTOS_JUSTIFICATIONS_ROOT_ID':'PHOTOS_MALESTADO_ROOT_ID';
+  const specificPhotoRoot=property_(specificPhotoKey)||CFG.photoRoots[category];
   const photoRoot=property_('PHOTOS_ROOT_ID');
-  const roots=allowedRoots_().concat(photoRoot?[driveFolderId_(photoRoot,'PHOTOS_ROOT_ID')]:[]);
+  const roots=allowedRoots_().concat(
+    Object.entries(CFG.photoRoots).map(([kind,id])=>driveFolderId_(property_(kind==='justificaciones'?'PHOTOS_JUSTIFICATIONS_ROOT_ID':'PHOTOS_MALESTADO_ROOT_ID')||id,'PHOTOS_'+kind.toUpperCase()+'_ROOT_ID')),
+    specificPhotoRoot?[driveFolderId_(specificPhotoRoot,specificPhotoKey)]:[],
+    photoRoot?[driveFolderId_(photoRoot,'PHOTOS_ROOT_ID')]:[]
+  );
   if(value.startsWith('https://')){
     const match=value.match(/^https:\/\/(?:drive\.google\.com|lh3\.googleusercontent\.com)\/(?:file\/d\/|d\/|.*[?&]id=)([-\w]+)/);
     if(!match)throw new Error('La foto debe ser base64 o una referencia válida de Drive');
@@ -603,9 +614,17 @@ function savePhotoIfAny_(p,center,type,sku,category){
   if(!/^\d{4}$/.test(String(center||'')))throw new Error('Centro inválido para foto');
   const when=new Date(p.date||p.fecha||new Date());if(!Number.isFinite(when.getTime()))throw new Error('Fecha de foto inválida');
   const tag=Utilities.formatDate(when,Session.getScriptTimeZone()||'America/La_Paz','yyyy-MM-dd');
+  const categoryPhotoKey=category==='justificaciones'?'PHOTOS_JUSTIFICATIONS_ROOT_ID':'PHOTOS_MALESTADO_ROOT_ID';
+  const categoryPhotoRoot=property_(categoryPhotoKey)||CFG.photoRoots[category];
   const photosRoot=property_('PHOTOS_ROOT_ID');
-  let folder=photosRoot?getDriveFolder_(photosRoot,'PHOTOS_ROOT_ID'):getRootFolderForType_(type);
-  ['fotos',category,tag,String(center)+' '+String(type||'CICLICO')].forEach(seg=>{folder=getOrCreateFolder_(folder,seg);});
+  const categoryRoot=Boolean(categoryPhotoRoot);
+  let folder=categoryRoot
+    ?getDriveFolder_(categoryPhotoRoot,categoryPhotoKey)
+    :(photosRoot?getDriveFolder_(photosRoot,'PHOTOS_ROOT_ID'):getRootFolderForType_(type));
+  const pathSegments=categoryRoot
+    ?[tag,String(center)+' '+String(type||'CICLICO')]
+    :['fotos',category,tag,String(center)+' '+String(type||'CICLICO')];
+  pathSegments.forEach(seg=>{folder=getOrCreateFolder_(folder,seg);});
   const ext=match[1]==='image/png'?'.png':match[1]==='image/webp'?'.webp':'.jpg';
   const digest=hash_(JSON.stringify([p.inventoryId||'',p.itemId||sku,p.almacen||p.warehouse||'',p.location||p.ubicacion||'',p.round||(p.isJustification2?2:1),value]));
   const name=String(sku||'SKU').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,60)+'_'+digest+ext;
