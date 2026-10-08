@@ -30,6 +30,7 @@
   <link rel="stylesheet" href="/css/components.css?v=2.2">
   <link rel="stylesheet" href="/css/responsive.css?v=2.2">
   <link rel="stylesheet" href="/css/liquid-glass.css?v=2.3">
+  <link rel="stylesheet" href="/css/inventory-layout.css?v=2.4">
 </head>
 <body data-auth-state="checking">
   <!-- Ambient background glow elements -->
@@ -49,7 +50,7 @@
         </div>
       </div>
 
-      <nav>
+      <nav aria-label="Secciones principales">
         <ul class="nav-links" id="nav-links">
           <li><button class="nav-item-btn active" data-view="inventories"><i class="fa-solid fa-list-check"></i> Inventarios</button></li>
           <li class="role-encargado-admin"><button class="nav-item-btn" data-view="assignments"><i class="fa-solid fa-user-tag"></i> Asignaciones</button></li>
@@ -201,7 +202,7 @@
               <h2 class="card-title"><i class="fa-solid fa-list-check" style="color: var(--primary);"></i> Inventarios Disponibles</h2>
               <p class="stat-subtext" id="inv-header-subtitle">Listado de inventarios según centro y permisos</p>
             </div>
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <div class="inventory-list-tools" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
               <div style="position: relative; min-width: 200px;">
                 <input type="text" id="search-inventory-list" class="form-input" style="height: 38px; font-size: 0.88rem; padding-left: 2rem; padding-right: 2rem; width: 100%;" placeholder="Buscar inventario por nombre o código...">
                 <i class="fa-solid fa-magnifying-glass" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: #64748b; font-size: 0.85rem; pointer-events: none;"></i>
@@ -265,7 +266,7 @@
             </div>
           </div>
 
-          <div class="table-responsive">
+          <div class="table-responsive inventory-list-container">
             <table class="data-table" id="table-inventories">
               <thead>
                 <tr>
@@ -2856,7 +2857,7 @@
   <script src="/js/api.js?v=2.3"></script>
   <script src="/js/auth.js?v=2.3"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
-  <script src="/js/views/inventoryView.js?v=2.3"></script>
+  <script src="/js/views/inventoryView.js?v=2.4"></script>
   <script src="/js/views/barridoView.js?v=2.2"></script>
   <script src="/js/views/assignmentsView.js?v=2.2"></script>
   <script src="/js/views/justificationsView.js?v=2.2"></script>
@@ -2865,6 +2866,6 @@
   <script src="/js/components/snapshotManagerModal.js?v=2.2"></script>
   <script src="/js/views/dashboardView.js?v=2.2"></script>
   <script src="/js/views/userManagementView.js?v=2.2"></script>
-  <script src="/js/app.js?v=2.3"></script>
+  <script src="/js/app.js?v=2.4"></script>
 </body>
 </html>

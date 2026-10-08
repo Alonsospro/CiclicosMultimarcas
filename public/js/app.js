@@ -68,10 +68,28 @@ window.Router = {
     document.querySelectorAll('.nav-item-btn').forEach(btn => {
       if (btn.getAttribute('data-view') === (viewName === 'count' ? 'inventories' : viewName)) {
         btn.classList.add('active');
+        btn.setAttribute('aria-current', 'page');
       } else {
         btn.classList.remove('active');
+        btn.removeAttribute('aria-current');
       }
     });
+
+    // Reveal the selected section inside the menu without scrolling the page.
+    const navLinks = document.getElementById('nav-links');
+    const activeNavButton = navLinks?.querySelector('.nav-item-btn.active');
+    if (activeNavButton && navLinks.scrollWidth > navLinks.clientWidth) {
+      const menuRect = navLinks.getBoundingClientRect();
+      const buttonRect = activeNavButton.getBoundingClientRect();
+      const left = buttonRect.left - menuRect.left;
+      const right = buttonRect.right - menuRect.right;
+      if (left < 0 || right > 0) {
+        navLinks.scrollTo({
+          left: navLinks.scrollLeft + (left < 0 ? left : right),
+          behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+        });
+      }
+    }
 
     // Update active indicator on user dropdown trigger when visiting user-menu views
     const userTrigger = document.getElementById('user-dropdown-trigger');
