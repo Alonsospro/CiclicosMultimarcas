@@ -113,11 +113,6 @@ window.MetricsReportModal = {
     // Abrir modal de vista previa
     window.ModalHelper?.open('modal-metrics-report');
 
-    // Inicializar y renderizar los gráficos de alta definición
-    setTimeout(() => {
-      this.renderReportCharts(metricsData.summary || {}, metricsData.discrepanciesList || []);
-    }, 120);
-
     window.Toast?.success('Informe administrativo generado correctamente');
   },
 
@@ -205,57 +200,57 @@ window.MetricsReportModal = {
     this.reportCharts = [];
     const summary = metrics.summary || {};
     const escape = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-    const money = value => Number(value ?? 0).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const percent = value => Number(value ?? 0).toFixed(2) + '%';
-    const filters = metrics.filters || {};
-    const scope = [
-      ['Centro', filters.center || inv.center || 'TODOS'],
-      ['Tipo', filters.type || inv.type || 'TODOS'],
-      ['Período', filters.period || 'TODO'],
-      ['Desde', filters.startDate || 'Sin límite'],
-      ['Hasta', filters.endDate || 'Sin límite']
-    ];
-    const discrepancies = metrics.discrepanciesList || [];
-    const shortages = discrepancies.filter(row => (row.diferenciaFinal ?? row.diferencia ?? 0) < 0);
-    const eris = [
-      ['ERI existencias', summary.eriItemInicial, summary.eriItemFinal],
-      ['ERI SKU', summary.eriSkuInicial, summary.eriSkuFinal],
-      ['ERI monetario', summary.eriMonetarioInicial, summary.eriMonetarioFinal]
-    ];
-    this.chartData = {
-      donutLabels: ['Registros exactos finales', 'Registros con diferencia final'],
-      donutValues: [summary.itemsCuadradosFinal ?? 0, summary.discrepanciasFinal ?? 0],
-      donutColors: ['#059669', '#dc2626'],
-      barLabels: shortages.map(row => row.sku),
-      barValues: shortages.map(row => Math.abs(row.costoDiferenciaFinal ?? row.costoDiferencia ?? 0)),
-      eriComparison: { labels: eris.map(row => row[0]), initial: eris.map(row => row[1] ?? 0), final: eris.map(row => row[2] ?? 0) }
+    const numeric = (...values) => {
+      for (const value of values) if (value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value))) return Number(value);
+      return 0;
     };
+    const count = value => Math.max(0, Math.round(numeric(value)));
+    const money = value => numeric(value).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const percentValue = value => Math.min(100, Math.max(0, numeric(value)));
+    const percent = value => percentValue(value).toFixed(2) + '%';
+    const filters = metrics.filters || {};
+    const center = filters.center || inv.center || 'Todos los centros';
+    const type = filters.type || inv.type || 'Todos los tipos';
+    const periodNames = { TODO: 'Todo el histórico', TODOS: 'Todo el histórico', HOY: 'Hoy', TODAY: 'Hoy', ESTA_SEMANA: 'Esta semana', THIS_WEEK: 'Esta semana', ESTE_MES: 'Este mes', THIS_MONTH: 'Este mes', MES_ANTERIOR: 'Mes anterior', LAST_MONTH: 'Mes anterior', PERSONALIZADO: 'Período personalizado' };
+    const period = periodNames[String(filters.period || 'TODO').toUpperCase()] || String(filters.period || 'Todo el histórico');
+    const dateRange = filters.startDate || filters.endDate ? `${filters.startDate || 'Inicio'} — ${filters.endDate || 'Actualidad'}` : period;
+    const generatedAt = new Date().toLocaleString('es-BO', { dateStyle: 'medium', timeStyle: 'short' });
+    const totalUnits = count(numeric(summary.totalAuditedSystemUnits, summary.totalItemsAuditedUnits, summary.eriItems?.unitsTotal, summary.totalItemsAudited));
+    const totalSkus = count(summary.totalSkusAudited ?? summary.totalItemsAudited);
+    const unitsExactInitial = Math.min(totalUnits, count(numeric(summary.itemsCuadrados1erUnits, summary.eriItems?.unitsExactInicial, summary.totalAuditedSystemUnits !== undefined && summary.eriItemInicial !== undefined ? totalUnits * Number(summary.eriItemInicial) / 100 : undefined)));
+    const unitsExactFinal = Math.min(totalUnits, count(numeric(summary.itemsCuadradosFinalUnits, summary.eriItems?.unitsExactFinal, summary.totalAuditedSystemUnits !== undefined && summary.eriItemFinal !== undefined ? totalUnits * Number(summary.eriItemFinal) / 100 : undefined)));
+    const exactRecordsInitial = count(numeric(summary.itemsCuadrados1erConteo, summary.totalSkusExactFirstCount));
+    const exactRecordsFinal = count(numeric(summary.itemsCuadradosFinal, summary.totalSkusExactFinal));
+    const initialEri = percentValue(numeric(summary.eriItemInicial, summary.itemsCuadrados1erPercent, totalUnits > 0 ? unitsExactInitial / totalUnits * 100 : 0));
+    const finalEri = percentValue(numeric(summary.eriItemFinal, summary.itemsCuadradosFinalPercent, summary.eriPercent, totalUnits > 0 ? unitsExactFinal / totalUnits * 100 : 0));
+    const initialSkuEri = percentValue(numeric(summary.eriSkuInicial, summary.eriSku?.inicial));
+    const finalSkuEri = percentValue(numeric(summary.eriSkuFinal, summary.eriSku?.final));
+    const initialMoneyEri = percentValue(numeric(summary.eriMonetarioInicial, summary.eriMonetario?.inicial));
+    const finalMoneyEri = percentValue(numeric(summary.eriMonetarioFinal, summary.eriMonetario?.final));
+    const locationsEri = percentValue(numeric(summary.eruPercent, summary.totalLocationsEvaluated > 0 ? summary.exactMatchingLocations / summary.totalLocationsEvaluated * 100 : 0));
+    const finalImpact = Math.abs(numeric(summary.impactoFinancieroFinal, summary.impactoFinanciero?.finalAbsoluteDiffCost));
+    const initialImpact = Math.abs(numeric(summary.impactoFinanciero1er, summary.impactoFinanciero?.initialAbsoluteDiffCost));
+    const initialDiscrepancies = count(numeric(summary.discrepancias1erConteo, Math.max(0, totalSkus - exactRecordsInitial)));
+    const finalDiscrepancies = count(numeric(summary.discrepanciasFinal, Math.max(0, totalSkus - exactRecordsFinal)));
+    const damagedCost = Math.abs(numeric(summary.impactoFinanciero?.finalDamagedCost, summary.totalDamagedCost));
+    const warehouse = filters.warehouse || filters.almacen || inv.warehouse || inv.almacen || (String(center).toUpperCase().includes('TODO') ? 'Todos los almacenes' : 'Consolidado del centro');
+    const rows = [['Existencias auditadas', totalUnits, 'Unidades en alcance'], ['SKU auditados', totalSkus, 'Códigos revisados'], ['Registros conformes · inicial', exactRecordsInitial, `${initialEri.toFixed(2)}% de exactitud`], ['Registros con diferencia · inicial', initialDiscrepancies, 'Revisados en conciliación'], ['Registros conformes · final', exactRecordsFinal, `${finalEri.toFixed(2)}% de exactitud`], ['Registros pendientes · final', finalDiscrepancies, finalDiscrepancies ? 'Requieren regularización' : 'Sin pendientes']];
+    const resultTotal = exactRecordsFinal + finalDiscrepancies;
+    const exactRatio = resultTotal > 0 ? Math.min(100, exactRecordsFinal / resultTotal * 100) : finalEri;
+    const impactMax = Math.max(initialImpact, finalImpact);
+    const initialImpactWidth = impactMax ? initialImpact / impactMax * 100 : 0;
+    const finalImpactWidth = impactMax ? finalImpact / impactMax * 100 : 0;
+    const improvement = finalEri - initialEri;
+    const targetMessage = finalEri >= 95 ? 'Cumple la meta de exactitud del 95%' : 'Por debajo de la meta de exactitud del 95%';
     container.innerHTML = `
-      <div class="rep-exec-banner"><img src="/logos/nibol.svg" alt="NIBOL" style="height:24px" />
-        <div><h1 class="rep-exec-banner-title">INFORME DE MÉTRICAS DE INVENTARIO</h1>
-          <p class="rep-exec-banner-sub">${escape(inv.name || inv.id)} · Centro ${escape(inv.center || metrics.filters?.center)}</p></div></div>
-      <p class="rep-report-scope">${scope.map(([label, value]) => `<strong>${label}:</strong> ${escape(value)}`).join(' · ')}</p>
-      <div class="rep-exec-summary-box">
-        ${summary.totalInventories ?? 0} inventario(s), ${summary.totalSkusAudited ?? 0} SKU auditados,
-        ${summary.totalItemsAudited ?? 0} registros y ${summary.totalAuditedSystemUnits ?? 0} existencias de sistema.
-        Emisión: ${new Date().toLocaleString('es-BO')}. Los totales consolidados suman las evaluaciones de cada inventario.
-      </div>
-      <table class="rep-exec-table"><thead><tr><th>Indicador</th><th>Primer conteo</th><th>Final</th><th>Meta ≥95%</th></tr></thead>
-        <tbody>${eris.map(row => `<tr><td>${row[0]}</td><td>${percent(row[1])}</td><td>${percent(row[2])}</td><td>${Number(row[2]) >= 95 ? 'Cumple' : 'Por debajo de la meta'}</td></tr>`).join('')}</tbody></table>
-      <p>Exactitud de ubicación (ERU): ${percent((summary.totalLocationsEvaluated || 0) > 0 ? summary.eruPercent : 0)}
-        · ${summary.exactMatchingLocations ?? 0} de ${summary.totalLocationsEvaluated ?? 0} ubicaciones exactas.</p>
-      <p>Valor de sistema: Bs. ${money(summary.totalAuditedSystemValue)} · Diferencia absoluta final: Bs. ${money(summary.impactoFinancieroFinal)}.</p>
-      <h3>Fuentes utilizadas</h3>
-      <table class="rep-exec-table"><thead><tr><th>Inventario / centro</th><th>Pestaña</th><th>Filas / SKU únicos</th><th>Lectura</th></tr></thead>
-        <tbody>${(metrics.sourceDiagnostics || []).map(source => `<tr><td>${escape(source.name || source.id)} / ${escape(source.center)}</td>
-          <td>${escape(source.sheetName || 'Inventario activo')}</td><td>${source.actualRows ?? 0} / ${source.actualSkus ?? 0}</td><td>${escape(source.readAt || '')}</td></tr>`).join('')}</tbody></table>
-      ${(metrics.sourceDiagnostics || []).flatMap(source => (source.warnings || []).map(warning => `<p>${escape(source.name || source.id)}: ${escape(warning)}</p>`)).join('')}
-      <h3>Diferencias observadas</h3>
-      <table class="rep-exec-table"><thead><tr><th>SKU</th><th>Almacén / ubicación</th><th>Diferencia inicial</th><th>Diferencia final</th><th>Costo final (Bs.)</th></tr></thead>
-        <tbody>${discrepancies.map(row => `<tr><td>${escape(row.sku)}</td><td>${escape(row.almacen)} / ${escape(row.ubicacion)}</td>
-          <td>${row.diferencia1erConteo ?? row.diferencia ?? 0}</td><td>${row.diferenciaFinal ?? 0}</td><td>${money(row.costoDiferenciaFinal)}</td></tr>`).join('') || '<tr><td colspan="5">Sin diferencias registradas.</td></tr>'}</tbody></table>
-      <div class="rep-charts-grid-3">${['rep-chart-result-donut', 'rep-chart-sku-bars', 'rep-chart-eri-comparison'].map(id => `<div class="rep-chart-card"><div class="rep-chart-canvas-wrapper"><canvas id="${id}"></canvas></div></div>`).join('')}</div>
-    `;
+      <header class="rep-executive-header"><img src="/logos/nibol.svg" alt="NIBOL" class="rep-executive-logo" /><div class="rep-executive-heading"><h1>INFORME EJECUTIVO · CONTROL DE INVENTARIO</h1><p>${escape(inv.name || inv.id || 'Resumen de inventario')} · ${escape(type)} · ${escape(center)}</p></div><div class="rep-executive-date"><span>FECHA DEL INFORME</span><strong>${escape(generatedAt)}</strong></div></header>
+      <div class="rep-executive-meta"><span><strong>CENTRO:</strong> ${escape(center)}</span><span><strong>ALMACÉN:</strong> ${escape(warehouse)}</span><span><strong>PERÍODO:</strong> ${escape(dateRange)}</span><span><strong>TIPO:</strong> ${escape(type)}</span></div>
+      <p class="rep-executive-summary">Se evaluaron <strong>${totalUnits.toLocaleString('es-BO')} existencias</strong> correspondientes a <strong>${totalSkus.toLocaleString('es-BO')} SKU</strong>. La exactitud pasó de <strong>${initialEri.toFixed(2)}%</strong> en el primer conteo a <strong>${finalEri.toFixed(2)}%</strong> al cierre${improvement >= 0 ? `, una mejora de ${improvement.toFixed(2)} puntos` : `, una variación de ${improvement.toFixed(2)} puntos`}. ${finalDiscrepancies ? `Quedan ${finalDiscrepancies.toLocaleString('es-BO')} diferencias pendientes de regularización.` : 'El conteo cerró sin diferencias pendientes.'}</p>
+      <section class="rep-executive-kpis" aria-label="Indicadores principales"><article class="rep-executive-kpi"><span>SKU AUDITADOS</span><strong>${totalSkus.toLocaleString('es-BO')}</strong><small>${totalUnits.toLocaleString('es-BO')} existencias en alcance</small></article><article class="rep-executive-kpi"><span>EXACTITUD INICIAL · ERI</span><strong>${initialEri.toFixed(2)}%</strong><small>${exactRecordsInitial.toLocaleString('es-BO')} registros conformes</small></article><article class="rep-executive-kpi rep-executive-kpi-success"><span>CUADRE FINAL EFECTIVO</span><strong>${finalEri.toFixed(2)}%</strong><small>${exactRecordsFinal.toLocaleString('es-BO')} registros conformes</small></article><article class="rep-executive-kpi rep-executive-kpi-impact"><span>IMPACTO PENDIENTE · Bs.</span><strong>${finalImpact > 0 ? `(${money(finalImpact)})` : money(0)}</strong><small>${finalDiscrepancies.toLocaleString('es-BO')} diferencias al cierre</small></article></section>
+      <section class="rep-executive-results-grid"><article class="rep-executive-panel"><h2>RESUMEN OPERATIVO DE CONCILIACIÓN</h2><table class="rep-executive-results-table"><thead><tr><th>Resultado</th><th>Cantidad</th><th>Estado</th></tr></thead><tbody>${rows.map((row, index) => `<tr${index === rows.length - 1 ? ' class="rep-executive-pending-row"' : ''}><td>${escape(row[0])}</td><td>${count(row[1]).toLocaleString('es-BO')}</td><td>${escape(row[2])}</td></tr>`).join('')}</tbody></table><div class="rep-executive-impact-row"><span>Impacto financiero · primer conteo</span><strong>Bs. ${money(initialImpact)}</strong></div><div class="rep-executive-impact-row is-final"><span>Impacto financiero · cierre final</span><strong>Bs. ${money(finalImpact)}</strong></div></article>
+      <article class="rep-executive-panel"><h2>RESULTADO DEL INVENTARIO</h2><div class="rep-executive-donut-layout"><div class="rep-executive-donut" role="img" aria-label="${exactRatio.toFixed(1)} por ciento de registros conformes al cierre" style="--report-exact-share:${exactRatio}%"><div><strong>${finalEri.toFixed(1)}%</strong><span>CONFORME</span></div></div><div class="rep-executive-legend"><div><span class="rep-executive-dot is-exact"></span><span>Registros conformes</span><strong>${exactRecordsFinal.toLocaleString('es-BO')}</strong></div><div><span class="rep-executive-dot is-pending"></span><span>Registros pendientes</span><strong>${finalDiscrepancies.toLocaleString('es-BO')}</strong></div><div><span class="rep-executive-dot is-location"></span><span>Exactitud de ubicación · ERU</span><strong>${locationsEri.toFixed(2)}%</strong></div></div></div></article></section>
+      <section class="rep-executive-trends"><article class="rep-executive-panel"><h2>COMPARATIVO DE EXACTITUD · ERI</h2>${[['Existencias', initialEri, finalEri], ['SKU', initialSkuEri, finalSkuEri], ['Monetario', initialMoneyEri, finalMoneyEri]].map(([label, first, last]) => `<div class="rep-executive-eri-row"><span>${escape(label)}</span><div class="rep-executive-eri-bars"><div><small>Inicial ${percent(first)}</small><i><b style="width:${percentValue(first)}%"></b></i></div><div><small>Final ${percent(last)}</small><i class="is-final"><b style="width:${percentValue(last)}%"></b></i></div></div><strong class="rep-executive-eri-delta">${(last - first >= 0 ? '+' : '')}${(last - first).toFixed(2)} pts</strong></div>`).join('')}</article><article class="rep-executive-panel rep-executive-financial-panel"><h2>IMPACTO ECONÓMICO AGREGADO · Bs.</h2><div class="rep-executive-financial-bar"><span>Primer conteo</span><i><b style="width:${initialImpactWidth}%"></b></i><strong>${money(initialImpact)}</strong></div><div class="rep-executive-financial-bar is-final"><span>Cierre final</span><i><b style="width:${finalImpactWidth}%"></b></i><strong>${money(finalImpact)}</strong></div><p class="rep-executive-target ${finalEri >= 95 ? 'is-met' : 'is-below'}">${escape(targetMessage)}</p>${damagedCost > 0 ? `<small class="rep-executive-damaged">Averías registradas: Bs. ${money(damagedCost)}</small>` : ''}</article></section>
+      <footer class="rep-executive-footer"><span>NIBOL · Informe de resultados de inventario</span><span>Generado ${escape(generatedAt)}</span></footer>`;
   },
 
   renderReportCharts(summary, discrepancies) {
@@ -542,7 +537,7 @@ window.MetricsReportModal = {
         jsPDF: {
           unit: 'mm',
           format: 'a4',
-          orientation: 'portrait'
+          orientation: 'landscape'
         },
         pagebreak: {
           mode: ['avoid-all', 'css', 'legacy']
@@ -631,7 +626,7 @@ window.MetricsReportModal = {
     });
 
     const imgData = canvas.toDataURL('image/jpeg', 0.95);
-    const pdf = new JsPDFClass('p', 'mm', 'a4');
+    const pdf = new JsPDFClass('l', 'mm', 'a4');
     const pdfWidth = pdf.internal.pageSize.getWidth();
     const pdfHeight = pdf.internal.pageSize.getHeight();
     const imgWidth = pdfWidth - 10;
