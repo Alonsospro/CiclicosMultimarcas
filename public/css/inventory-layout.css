@@ -1,0 +1,258 @@
+/* Readable inventory lists and a navigation strip contained within the viewport. */
+.navbar > nav {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-inline: 1rem;
+}
+
+.navbar .nav-links {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-glass) transparent;
+  scroll-padding-inline: 0.25rem;
+  padding: 0.35rem 0.25rem 0.5rem;
+}
+
+.navbar .nav-links > li {
+  flex: 0 0 auto;
+}
+
+.navbar .nav-links .nav-item-btn {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.navbar .nav-links::-webkit-scrollbar { height: 4px; }
+.navbar .nav-links::-webkit-scrollbar-thumb {
+  background: var(--border-glass);
+  border-radius: 999px;
+}
+
+#view-inventories,
+#view-inventories > .card,
+.inventory-list-tools,
+.inventory-list-tools > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+#view-inventories > .card > .card-header {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+#view-inventories > .card > .card-header > div:first-child {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.inventory-list-tools { flex: 1 1 640px; }
+
+#table-inventories {
+  width: 100%;
+  table-layout: fixed;
+}
+
+#table-inventories th,
+#table-inventories td,
+#table-inventories .badge {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  text-overflow: clip;
+}
+
+#table-inventories th:nth-child(1) { width: 15%; }
+#table-inventories th:nth-child(2) { width: 21%; }
+#table-inventories th:nth-child(3) { width: 8%; }
+#table-inventories th:nth-child(4) { width: 7%; }
+#table-inventories th:nth-child(5) { width: 15%; }
+#table-inventories th:nth-child(6) { width: 16%; }
+#table-inventories th:nth-child(7) { width: 18%; }
+
+#table-inventories th,
+#table-inventories td {
+  padding: 0.85rem 0.65rem;
+}
+
+#table-inventories .inventory-code strong {
+  color: var(--primary);
+  font-family: var(--font-mono);
+}
+
+#table-inventories .inventory-action-label { display: none; }
+
+[data-theme="light"] #table-inventories .inventory-code strong { color: #047857; }
+[data-theme="light"] #table-inventories .badge-neutral { color: var(--text-muted); }
+[data-theme="light"] #table-inventories .badge-info { color: #0369a1; }
+[data-theme="light"] #table-inventories .badge-warning { color: #92400e; }
+[data-theme="light"] #table-inventories .badge-success { color: #166534; }
+
+.inventory-progress-content {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.inventory-progress-track {
+  height: 6px;
+  background: var(--border-glass);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.inventory-progress-caption {
+  font-size: 0.8rem;
+  font-family: var(--font-mono);
+  line-height: 1.5;
+}
+
+.inventory-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#table-inventories .inventory-actions .btn {
+  min-width: 44px;
+  max-width: 100%;
+  white-space: normal;
+}
+
+@media screen and (max-width: 1100px) {
+  .navbar {
+    flex-wrap: wrap;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 0.65rem;
+  }
+
+  .navbar .nav-brand { order: 1; width: auto; }
+  .navbar .nav-user-panel { order: 2; width: auto; min-width: 0; }
+  .navbar > nav {
+    order: 3;
+    flex: 0 0 100%;
+    width: 100%;
+    margin: 0;
+  }
+
+  .inventory-list-container {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+  }
+
+  #table-inventories {
+    display: block;
+    border: 0;
+  }
+
+  /* Keep column headings available to screen readers. */
+  #table-inventories thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  #table-inventories tbody {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    width: 100%;
+  }
+
+  #table-inventories tr[data-inv-id] {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    gap: 0.85rem 1rem;
+    min-width: 0;
+    padding: 1.15rem;
+    border: 1px solid var(--border-glass);
+    border-radius: var(--radius-md);
+    background: var(--bg-input);
+    box-shadow: var(--glass-highlight), var(--shadow-sm);
+  }
+
+  /* Filters set display:none on rows; never override that with !important. */
+  #table-inventories tr[data-inv-id] > td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    text-align: left !important;
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  #table-inventories td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+
+  #table-inventories .inventory-name { order: 0; grid-column: 1 / -1; font-size: 1.05rem; }
+  #table-inventories .inventory-code { order: 1; grid-column: 1 / -1; font-size: 0.8rem; }
+  #table-inventories .col-inv-type { order: 2; }
+  #table-inventories .inventory-center { order: 3; }
+  #table-inventories .inventory-status { order: 4; grid-column: 1 / -1; }
+  #table-inventories .inventory-progress { order: 5; grid-column: 1 / -1; }
+  #table-inventories .inventory-actions { order: 6; grid-column: 1 / -1; }
+
+  #table-inventories .inventory-actions {
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 0.85rem;
+  }
+
+  #table-inventories .inventory-action-label { display: inline; }
+
+  #table-inventories .inventory-actions .btn {
+    min-height: 44px;
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+  }
+
+  #table-inventories tbody > tr:not([data-inv-id]) {
+    display: block;
+    grid-column: 1 / -1;
+  }
+
+  #table-inventories td[colspan] { display: block; }
+}
+
+@media screen and (max-width: 768px) {
+  .inventory-list-tools > div { width: 100%; }
+  #view-inventories > .card > .card-header > div:first-child,
+  .inventory-list-tools { flex-basis: auto; }
+  #view-inventories .inventory-list-tools .form-select,
+  #view-inventories .inventory-list-tools .btn {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+@media screen and (max-width: 640px) {
+  #table-inventories tbody { grid-template-columns: minmax(0, 1fr); }
+  #table-inventories tr[data-inv-id] { padding: 1rem; }
+  .navbar { flex-direction: column; }
+  .navbar .nav-brand,
+  .navbar .nav-user-panel { width: 100%; }
+}

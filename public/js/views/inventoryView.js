@@ -877,6 +877,17 @@ window.InventoryView = {
         return;
       }
 
+      const statusLabels = {
+        EN_PROGRESO: 'En progreso',
+        PENDIENTE_JUSTIFICACION: 'En justificación',
+        EN_RECONTEO: 'En reconteo',
+        RECONTEO_COMPLETADO: 'Reconteo completado',
+        REVISADO: 'Revisado',
+        CERRADO: 'Cerrado',
+        FINALIZADO: 'Finalizado',
+        FIRMADO: 'Firmado'
+      };
+
       tbody.innerHTML = list.map(inv => {
         const percent = inv.totalItems > 0 ? Math.round((inv.countedItems / inv.totalItems) * 100) : 0;
         let badgeClass = 'badge-neutral';
@@ -888,21 +899,21 @@ window.InventoryView = {
 
         return `
           <tr data-inv-id="${inv.id}" data-inv-status="${inv.status || ''}" data-inv-type="${inv.type || ''}" data-inv-center="${inv.center || ''}">
-            <td><strong style="color: var(--primary); font-family: var(--font-mono);">${inv.id}</strong></td>
-            <td><strong>${inv.name}</strong></td>
-            <td class="role-encargado-admin col-inv-type"><span class="badge badge-neutral">${inv.type}</span></td>
-            <td><span class="badge badge-neutral">${inv.center}</span></td>
-            <td><span class="badge ${badgeClass}">${inv.status}</span></td>
-            <td>
-              <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <div style="flex: 1; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; min-width: 60px;">
+            <td class="inventory-code" data-label="ID / Código"><strong>${inv.id}</strong></td>
+            <td class="inventory-name" data-label="Nombre del inventario"><strong>${inv.name}</strong></td>
+            <td class="role-encargado-admin col-inv-type" data-label="Tipo"><span class="badge badge-neutral">${inv.type}</span></td>
+            <td class="inventory-center" data-label="Centro"><span class="badge badge-neutral">${inv.center}</span></td>
+            <td class="inventory-status" data-label="Estado"><span class="badge ${badgeClass}">${statusLabels[inv.status] || inv.status || 'Sin estado'}</span></td>
+            <td class="inventory-progress" data-label="Progreso">
+              <div class="inventory-progress-content">
+                <div class="inventory-progress-track">
                   <div style="width: ${percent}%; height: 100%; background: var(--primary);"></div>
                 </div>
-                <span style="font-size: 0.75rem; font-family: var(--font-mono);">${inv.countedItems}/${inv.totalItems} (${percent}%)</span>
+                <span class="inventory-progress-caption">${inv.countedItems}/${inv.totalItems} (${percent}%)</span>
               </div>
             </td>
-            <td>
-              <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
+            <td class="inventory-actions" data-label="Acciones">
+              <div class="inventory-action-buttons">
                 <button class="btn btn-primary btn-sm" onclick="window.InventoryView.openInventory('${inv.id}')">
                   <i class="fa-solid fa-play"></i> ${window.Auth.currentUser?.role === 'AUXILIAR' ? 'Contar' : 'Abrir'}
                 </button>
@@ -912,14 +923,16 @@ window.InventoryView = {
                       <i class="fa-solid fa-signature"></i> Finalizar
                     </button>
                   ` : ''}
-                  <button class="btn btn-secondary btn-sm" onclick="window.InventoryView.syncInventoryFromSheetRow('${inv.id}', this)" title="Sincronizar conteos desde Google Sheets" style="color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);">
+                  <button class="btn btn-secondary btn-sm" onclick="window.InventoryView.syncInventoryFromSheetRow('${inv.id}', this)" title="Sincronizar conteos desde Google Sheets" aria-label="Sincronizar conteos desde Google Sheets" style="color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);">
                     <i class="fa-solid fa-rotate"></i>
+                    <span class="inventory-action-label">Sincronizar</span>
                   </button>
                   <button class="btn btn-secondary btn-sm" onclick="window.InventoryView.promptAssign('${inv.id}', '${safeName}', '${inv.center}')" title="Asignar tareas a Auxiliar de este centro">
                     <i class="fa-solid fa-user-tag"></i> Asignar
                   </button>
-                  <button class="btn btn-danger btn-sm" onclick="window.InventoryView.promptDelete('${inv.id}', ${inv.countedItems || 0})" title="Eliminar inventario/tarea">
+                  <button class="btn btn-danger btn-sm" onclick="window.InventoryView.promptDelete('${inv.id}', ${inv.countedItems || 0})" title="Eliminar inventario/tarea" aria-label="Eliminar inventario">
                     <i class="fa-solid fa-trash"></i>
+                    <span class="inventory-action-label">Eliminar</span>
                   </button>
                 ` : ''}
               </div>
