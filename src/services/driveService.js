@@ -80,19 +80,19 @@ class DriveService {
   }
 
   formatDate(date) {
-    if (!date) {
-      const d = new Date();
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    }
-    if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return date;
-    }
-    const d = new Date(date);
-    if (isNaN(d.getTime())) {
-      const now = new Date();
-      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    }
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const timeZone = 'America/La_Paz';
+    const targetDate = date ? new Date(date) : new Date();
+    const resolvedDate = Number.isNaN(targetDate.getTime()) ? new Date() : targetDate;
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(resolvedDate);
+    const fields = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    const localDate = `${fields.year}-${fields.month}-${fields.day}`;
+    // Keep an explicit date-only value as the same calendar day.
+    return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : localDate;
   }
 
   getCenterName(center) {

@@ -580,6 +580,17 @@ function getHistory_(type,center){
 }
 
 
+function photoDateTag_(value){
+  const tz=Session.getScriptTimeZone()||'America/La_Paz';
+  if(!value)return Utilities.formatDate(new Date(),tz,'yyyy-MM-dd');
+  const raw=String(value).trim();
+  // A date-only value represents a calendar day, not midnight UTC.
+  const dateOnly=raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(dateOnly)return dateOnly[1]+'-'+dateOnly[2]+'-'+dateOnly[3];
+  const parsed=new Date(value);
+  if(!Number.isFinite(parsed.getTime()))throw new Error('Fecha de foto inválida');
+  return Utilities.formatDate(parsed,tz,'yyyy-MM-dd');
+}
 function savePhotoDirectly_(p){
   const category=String(p.category||p.photoType||'malestado').toLowerCase().includes('just')?'justificaciones':'malestado';
   const photo=savePhotoIfAny_(p,p.center,p.type,p.sku||p.SKU||p.barcode,category);
@@ -612,8 +623,7 @@ function savePhotoIfAny_(p,center,type,sku,category){
   if(!match)throw new Error('Formato inválido: use JPEG, PNG o WebP base64');
   const bytes=Utilities.base64Decode(match[2]);if(!bytes.length||bytes.length>10*1024*1024)throw new Error('Tamaño inválido (máximo 10 MB)');
   if(!/^\d{4}$/.test(String(center||'')))throw new Error('Centro inválido para foto');
-  const when=new Date(p.date||p.fecha||new Date());if(!Number.isFinite(when.getTime()))throw new Error('Fecha de foto inválida');
-  const tag=Utilities.formatDate(when,Session.getScriptTimeZone()||'America/La_Paz','yyyy-MM-dd');
+  const tag=photoDateTag_(p.date||p.fecha);
   const categoryPhotoKey=category==='justificaciones'?'PHOTOS_JUSTIFICATIONS_ROOT_ID':'PHOTOS_MALESTADO_ROOT_ID';
   const categoryPhotoRoot=property_(categoryPhotoKey)||CFG.photoRoots[category];
   const photosRoot=property_('PHOTOS_ROOT_ID');
