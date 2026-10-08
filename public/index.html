@@ -29,8 +29,9 @@
   <link rel="stylesheet" href="/css/layout.css?v=2.2">
   <link rel="stylesheet" href="/css/components.css?v=2.2">
   <link rel="stylesheet" href="/css/responsive.css?v=2.2">
+  <link rel="stylesheet" href="/css/liquid-glass.css?v=2.3">
 </head>
-<body>
+<body data-auth-state="checking">
   <!-- Ambient background glow elements -->
   <div class="ambient-glow"></div>
   <div class="ambient-glow-2"></div>
@@ -137,12 +138,19 @@
     </header>
 
     <!-- Main Views Area -->
-    <main class="main-content">
+    <section id="session-loading" class="session-loading" role="status" aria-live="polite">
+      <div class="session-loading-panel">
+        <span class="session-spinner" aria-hidden="true"></span>
+        <p>Restaurando tu sesión…</p>
+        <small>Preparando tu espacio de inventario</small>
+      </div>
+    </section>
+    <main class="main-content" aria-busy="true">
       
       <!-- VIEW: LOGIN -->
-      <section id="view-login" class="view-container active">
-        <div style="max-width: 440px; margin: 4rem auto 2rem auto;">
-          <div class="card" style="padding: 2.25rem;">
+      <section id="view-login" class="view-container">
+        <div class="login-shell">
+          <div class="card login-panel">
             <div style="text-align: center; margin-bottom: 2rem;">
               <div class="login-brand-logo-wrapper" id="login-logo-rotator" title="Multimarcas (Clic para cambiar marca)">
                 <div class="logo-rotator-viewport">
@@ -163,7 +171,7 @@
 
               <div class="form-group">
                 <label class="form-label" for="login-password"><i class="fa-solid fa-lock"></i> Contraseña o PIN</label>
-                <div style="position: relative; display: flex; align-items: center;">
+                <div class="login-password-wrap">
                   <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password" required style="padding-right: 2.75rem; width: 100%;">
                   <button type="button" id="btn-toggle-password" style="position: absolute; right: 0.75rem; background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.35rem; display: flex; align-items: center; justify-content: center;" title="Mostrar / Ocultar contraseña">
                     <i class="fa-solid fa-eye" id="icon-toggle-password"></i>
@@ -2845,10 +2853,10 @@
   <script src="/js/components/confirmationModal.js?v=2.2"></script>
   <script src="/js/components/scannerModal.js?v=2.2"></script>
   <script src="/js/components/logoRotator.js?v=2.2"></script>
-  <script src="/js/api.js?v=2.2"></script>
-  <script src="/js/auth.js?v=2.2"></script>
+  <script src="/js/api.js?v=2.3"></script>
+  <script src="/js/auth.js?v=2.3"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
-  <script src="/js/views/inventoryView.js?v=2.2"></script>
+  <script src="/js/views/inventoryView.js?v=2.3"></script>
   <script src="/js/views/barridoView.js?v=2.2"></script>
   <script src="/js/views/assignmentsView.js?v=2.2"></script>
   <script src="/js/views/justificationsView.js?v=2.2"></script>
@@ -2857,6 +2865,6 @@
   <script src="/js/components/snapshotManagerModal.js?v=2.2"></script>
   <script src="/js/views/dashboardView.js?v=2.2"></script>
   <script src="/js/views/userManagementView.js?v=2.2"></script>
-  <script src="/js/app.js?v=2.2"></script>
+  <script src="/js/app.js?v=2.3"></script>
 </body>
 </html>

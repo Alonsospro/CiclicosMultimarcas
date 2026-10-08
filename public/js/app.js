@@ -41,6 +41,11 @@ window.Router = {
       return;
     }
 
+    // Ignore inventory responses that finish after the user navigated elsewhere.
+    if (viewName !== 'count' && window.InventoryView) {
+      window.InventoryView.openRequestId = (window.InventoryView.openRequestId || 0) + 1;
+    }
+
     // Hide all view containers
     document.querySelectorAll('.view-container').forEach(v => {
       v.classList.remove('active');
@@ -51,6 +56,9 @@ window.Router = {
     if (targetElement) {
       targetElement.classList.add('active');
       this.currentView = viewName;
+      document.body.dataset.authState = viewName === 'login' ? 'anonymous' : 'authenticated';
+      document.getElementById('session-loading')?.setAttribute('hidden', '');
+      document.querySelector('.main-content')?.setAttribute('aria-busy', 'false');
       try {
         localStorage.setItem('nibol_active_view', viewName);
       } catch (e) {}
@@ -58,7 +66,7 @@ window.Router = {
 
     // Update active nav button
     document.querySelectorAll('.nav-item-btn').forEach(btn => {
-      if (btn.getAttribute('data-view') === viewName) {
+      if (btn.getAttribute('data-view') === (viewName === 'count' ? 'inventories' : viewName)) {
         btn.classList.add('active');
       } else {
         btn.classList.remove('active');
@@ -456,7 +464,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const savedView = localStorage.getItem('nibol_active_view') || 'inventories';
     const activeInvId = localStorage.getItem('nibol_active_inv_id');
     if (savedView === 'count' && activeInvId) {
-      window.InventoryView.openInventory(activeInvId);
+      await window.InventoryView.openInventory(activeInvId);
     } else {
       window.Router.navigate(savedView);
     }

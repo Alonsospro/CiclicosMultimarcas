@@ -42,17 +42,23 @@ window.API = {
       if (response.status === 401) {
         const isLoginEndpoint = endpoint === '/auth/login' || endpoint.endsWith('/auth/login');
         if (isLoginEndpoint) {
-          throw new Error(data && data.message ? data.message : 'Usuario o contraseña incorrectos.');
+          const error = new Error(data && data.message ? data.message : 'Usuario o contraseña incorrectos.');
+          error.status = response.status;
+          throw error;
         } else {
-          if (window.Auth && typeof window.Auth.logout === 'function') {
+          if (window.Auth && typeof window.Auth.logout === 'function' && token === this.getToken()) {
             window.Auth.logout(false);
           }
-          throw new Error((data && data.message) || 'Sesión expirada. Por favor ingrese nuevamente.');
+          const error = new Error((data && data.message) || 'Sesión expirada. Por favor ingrese nuevamente.');
+          error.status = response.status;
+          throw error;
         }
       }
 
       if (!response.ok) {
-        throw new Error(data.message || `Error del servidor: ${response.status}`);
+        const error = new Error((data && data.message) || `Error del servidor: ${response.status}`);
+        error.status = response.status;
+        throw error;
       }
 
       return data;
@@ -81,8 +87,8 @@ window.API = {
     });
   },
 
-  getMe() {
-    return this.request('/auth/me');
+  getMe(options = {}) {
+    return this.request('/auth/me', options);
   },
 
   getCenters() {

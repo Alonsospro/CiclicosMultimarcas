@@ -2,8 +2,10 @@
 window.Auth = {
   currentUser: null,
   token: null,
+  sessionVersion: 0,
 
   init() {
+    this.currentUser = null;
     this.token = localStorage.getItem(window.AppConfig.storageTokenKey);
     const storedUser = localStorage.getItem(window.AppConfig.storageUserKey);
     if (storedUser) {
@@ -21,8 +23,12 @@ window.Auth = {
       return false;
     }
 
+    const version = this.sessionVersion;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await window.API.getMe();
+      const res = await window.API.getMe({ signal: controller.signal });
+      if (version !== this.sessionVersion) return false;
       if (res && res.user) {
         this.currentUser = res.user;
         localStorage.setItem(window.AppConfig.storageUserKey, JSON.stringify(res.user));
@@ -30,9 +36,9 @@ window.Auth = {
         return true;
       }
     } catch (e) {
+      if (version !== this.sessionVersion) return false;
       // Only logout if explicitly unauthorized (token expired/invalid)
-      const msg = String(e.message || '').toLowerCase();
-      if (msg.includes('401') || msg.includes('expirad') || msg.includes('no autorizad') || msg.includes('token')) {
+      if (e.status === 401 || e.status === 403) {
         this.logout(false);
         return false;
       }
@@ -43,12 +49,16 @@ window.Auth = {
       }
       this.logout(false);
       return false;
+    } finally {
+      clearTimeout(timeout);
     }
+    this.logout(false);
     return false;
   },
 
   async login(username, password) {
     const res = await window.API.login(username, password);
+    this.sessionVersion++;
     this.token = res.token;
     this.currentUser = res.user;
     localStorage.setItem(window.AppConfig.storageTokenKey, res.token);
@@ -58,10 +68,17 @@ window.Auth = {
   },
 
   logout(showToast = true) {
+    this.sessionVersion++;
     this.token = null;
     this.currentUser = null;
     localStorage.removeItem(window.AppConfig.storageTokenKey);
     localStorage.removeItem(window.AppConfig.storageUserKey);
+
+    if (window.InventoryView) {
+      window.InventoryView.openRequestId = (window.InventoryView.openRequestId || 0) + 1;
+      window.InventoryView.currentInventory = null;
+    }
+    window.ModalHelper?.closeAll();
 
     document.getElementById('main-navbar').style.display = 'none';
     window.Router.navigate('login');
