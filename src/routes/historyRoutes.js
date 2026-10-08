@@ -57,7 +57,7 @@ router.get('/', authenticate, restrictCenter, async (req, res) => {
           // If no local snapshot and no embedded items, verify if physical document exists and can be retrieved
           if (!localSnapshot && !hasPhysicalItems && (item.spreadsheetUrl || item.driveUrl)) {
             try {
-              const fetched = await gasService.fetchSpreadsheetItems(item.spreadsheetUrl || item.driveUrl);
+              const fetched = await gasService.fetchSpreadsheetItems(item.spreadsheetUrl || item.driveUrl,item);
               if (fetched && fetched.length > 0) {
                 hasPhysicalItems = true;
                 totalCount = fetched.length;
@@ -232,7 +232,7 @@ router.get('/:fileId', authenticate, async (req, res) => {
 
     if ((!record.items || record.items.length === 0) && (record.spreadsheetUrl || record.driveUrl)) {
       try {
-        const fetchedItems = await gasService.fetchSpreadsheetItems(record.spreadsheetUrl || record.driveUrl);
+        const fetchedItems = await gasService.fetchSpreadsheetItems(record.spreadsheetUrl || record.driveUrl,record);
         if (fetchedItems && fetchedItems.length > 0) {
           record.items = fetchedItems;
           record.totalItems = fetchedItems.length;
@@ -305,7 +305,7 @@ router.get('/:fileId/download', authenticate, async (req, res) => {
 
     if ((!record.items || record.items.length === 0) && (record.spreadsheetUrl || record.driveUrl)) {
       try {
-        const fetchedItems = await gasService.fetchSpreadsheetItems(record.spreadsheetUrl || record.driveUrl);
+        const fetchedItems = await gasService.fetchSpreadsheetItems(record.spreadsheetUrl || record.driveUrl,record);
         if (fetchedItems && fetchedItems.length > 0) {
           record.items = fetchedItems;
           record.totalItems = fetchedItems.length;

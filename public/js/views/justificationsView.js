@@ -549,7 +549,7 @@ window.JustificationsView = {
           ? Number(it.Stock_Buen_Estado)
           : ((it.Stock_Fisico !== null && it.Stock_Fisico !== undefined) ? Number(it.Stock_Fisico) : 0);
         const dam1 = Number(it.Mal_estado || 0);
-        const isNeg1Match = (sys < 0 && phys1 === 0 && dam1 === 0);
+        const isNeg1Match = false; // Physical totals never inherit negative system stock.
 
         const diff1 = isNeg1Match ? 0 : ((it.Diferencia !== null && it.Diferencia !== undefined && String(it.Diferencia).trim() !== '')
           ? Number(it.Diferencia)
@@ -1006,7 +1006,7 @@ window.JustificationsView = {
                       const rec1Dam = (item.Reconteo_Mal_Estado !== undefined && item.Reconteo_Mal_Estado !== null && String(item.Reconteo_Mal_Estado).trim() !== '')
                         ? Number(item.Reconteo_Mal_Estado)
                         : ((item.Malestado_Reconteo !== null && item.Malestado_Reconteo !== undefined && String(item.Malestado_Reconteo).trim() !== '') ? Number(item.Malestado_Reconteo) : 0);
-                      const isNegRec1Match = (itemSys < 0 && (item.Reconteo ?? rec1StockTotal) === 0 && rec1Dam === 0);
+                      const isNegRec1Match = false; // Physical totals never inherit negative system stock.
                       const finalDiffQty1 = isNegRec1Match ? 0 : ((item.Diferencia_Final !== undefined && item.Diferencia_Final !== null && String(item.Diferencia_Final).trim() !== '')
                         ? Number(item.Diferencia_Final)
                         : (rec1StockTotal - itemSys));
@@ -1021,7 +1021,7 @@ window.JustificationsView = {
                       const rec2Dam = (item.Malestado_Reconteo_2 !== undefined && item.Malestado_Reconteo_2 !== null && String(item.Malestado_Reconteo_2).trim() !== '')
                         ? Number(item.Malestado_Reconteo_2)
                         : 0;
-                      const isNegRec2Match = (itemSys < 0 && (item.Reconteo_2 ?? rec2StockTotal) === 0 && rec2Dam === 0);
+                      const isNegRec2Match = false; // Physical totals never inherit negative system stock.
                       const finalDiffQty2 = isNegRec2Match ? 0 : ((item.Diferencia_Final_2 !== undefined && item.Diferencia_Final_2 !== null && String(item.Diferencia_Final_2).trim() !== '')
                         ? Number(item.Diferencia_Final_2)
                         : (rec2StockTotal !== null ? (rec2StockTotal - itemSys) : null));
@@ -1768,7 +1768,7 @@ window.JustificationsView = {
     const isSecondJust = !!(this.currentIsSecondJustification || document.getElementById('just-modal-is-second-just')?.value === 'true');
 
     try {
-      await window.API.saveJustification({
+      const savedResponse=await window.API.saveJustification({
         inventoryId,
         sku,
         almacen,
@@ -1787,19 +1787,6 @@ window.JustificationsView = {
         driveUrl: driveUrl || (photoUrl && String(photoUrl).includes('drive.google.com') ? photoUrl : null),
         driveFileId
       });
-
-      // La segunda justificación ya se persiste completa en AD:AH. El endpoint de
-      // corroboración pertenece a la primera justificación y no debe ejecutarse aquí.
-      if (!isSecondJust && window.API.corroborateItem) {
-        await window.API.corroborateItem(inventoryId, {
-          sku,
-          status: corroboration,
-          almacen,
-          warehouse: almacen,
-          location,
-          itemId
-        });
-      }
 
       // Update in-memory item state so subsequent navigations are immediately accurate
       let updatedSys = null;
@@ -1822,26 +1809,10 @@ window.JustificationsView = {
           itemObj.corroborationStatus = corroboration;
           itemObj.corroboracion = corroboration;
           itemObj.Estado = isCuadraStatus ? 'CUADRA' : 'NO CUADRA';
-          if (isCuadraStatus) {
-            const phys = (itemObj.Stock_Fisico !== null && itemObj.Stock_Fisico !== undefined) ? Number(itemObj.Stock_Fisico) : 0;
-            itemObj.Stock_Sistema = phys;
-            itemObj.stockSistema = phys;
-            itemObj.Diferencia = 0;
-            itemObj.diferencia = 0;
-            itemObj.Costo_Diferencia = 0;
-            itemObj.costoDiferencia = 0;
-            updatedSys = phys;
-          } else {
-            const orig = itemObj.Stock_Sistema_Original !== undefined ? itemObj.Stock_Sistema_Original : itemObj.Stock_Sistema;
-            itemObj.Stock_Sistema = orig;
-            itemObj.stockSistema = orig;
-            const phys = (itemObj.Stock_Fisico !== null && itemObj.Stock_Fisico !== undefined) ? Number(itemObj.Stock_Fisico) : 0;
-            itemObj.Diferencia = phys - orig;
-            itemObj.diferencia = itemObj.Diferencia;
-            itemObj.Costo_Diferencia = itemObj.Diferencia * (Number(itemObj.Costo_Unitario) || 0);
-            itemObj.costoDiferencia = itemObj.Costo_Diferencia;
-            updatedSys = orig;
-          }
+          const confirmed=savedResponse.justification?.item;
+          if(!confirmed)throw new Error('Falta el ítem confirmado por Google');
+          Object.assign(itemObj,confirmed);
+          updatedSys=confirmed.Stock_Sistema;
           itemObj.justificationDetails = {
             reasonType,
             justification,
@@ -2114,26 +2085,9 @@ window.JustificationsView = {
         targetItem.corroboracion = status;
         targetItem.Estado = isCuadraStatus ? 'CUADRA' : 'NO CUADRA';
         targetItem.isJustified = isCuadraStatus;
-        if (isCuadraStatus) {
-          const phys = (targetItem.Stock_Fisico !== null && targetItem.Stock_Fisico !== undefined) ? Number(targetItem.Stock_Fisico) : 0;
-          targetItem.Stock_Sistema = phys;
-          targetItem.stockSistema = phys;
-          targetItem.Diferencia = 0;
-          targetItem.diferencia = 0;
-          targetItem.Costo_Diferencia = 0;
-          targetItem.costoDiferencia = 0;
-          updatedSys = phys;
-        } else {
-          const orig = targetItem.Stock_Sistema_Original !== undefined ? targetItem.Stock_Sistema_Original : targetItem.Stock_Sistema;
-          targetItem.Stock_Sistema = orig;
-          targetItem.stockSistema = orig;
-          const phys = (targetItem.Stock_Fisico !== null && targetItem.Stock_Fisico !== undefined) ? Number(targetItem.Stock_Fisico) : 0;
-          targetItem.Diferencia = phys - orig;
-          targetItem.diferencia = targetItem.Diferencia;
-          targetItem.Costo_Diferencia = targetItem.Diferencia * (Number(targetItem.Costo_Unitario) || 0);
-          targetItem.costoDiferencia = targetItem.Costo_Diferencia;
-          updatedSys = orig;
-        }
+        const confirmed=res.justification?.item;
+        if(!confirmed)throw new Error('Falta el ítem confirmado por Google');
+        Object.assign(targetItem,confirmed);updatedSys=confirmed.Stock_Sistema;
       }
 
       // Update DOM surgically without re-rendering everything or losing scroll

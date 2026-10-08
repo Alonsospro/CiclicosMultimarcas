@@ -1,3 +1,4 @@
+const contract=require('./inventoryContract');
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
@@ -188,139 +189,19 @@ class DriveService {
     return null;
   }
 
-  async createFinalDriveFile({ inventory, justifications, user, reviewNotes }) {
-    const { id, type, center, items } = inventory;
-    const fileName = this.formatInventoryFileName(type, center, new Date());
-    const folderPath = this.getDriveFolderPath(type, center);
-
-    const fileId = `DRIVE-FILE-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-    const isReconteo = !!(inventory.isReconteo || inventory.phase === 'RECONTEO' || String(inventory.id || '').startsWith('REC-') || inventory.hasRecount);
-
-    const driveRecord = {
-      fileId,
-      fileName: `${fileName}.xlsx`,
-      logicalPath: `${folderPath}/${fileName}.xlsx`,
-      inventoryId: id,
-      type,
-      center,
-      isReconteo,
-      closedBy: user.username,
-      closedAt: new Date().toISOString(),
-      reviewNotes: reviewNotes || 'Revisión finalizada y aprobada por administrador',
-      totalItems: items.length,
-      justificationsCount: (justifications || []).length,
-      items: items.map(item => {
-        const matchingJust = (justifications || []).find(j => (j.sku || j.SKU) === item.SKU);
-        const razon = item.Razon || item.Razon_Justificacion || (matchingJust ? (matchingJust.reasonType || matchingJust.razon) : '');
-        const comentarioJust = item.Comentario_Justificacion || (matchingJust ? (matchingJust.justification || matchingJust.comentario) : '');
-
-        // In reconteo, or if not a valid data:image, NEVER send photoBase64 to prevent overwriting images with .doc
-        const rawPhoto = isReconteo ? null : this.getPhotoAsDataUri(item.foto_mal_estado);
-        const photoData = (rawPhoto && String(rawPhoto).startsWith('data:image/')) ? rawPhoto : '';
-
-        return {
-          SKU: item.SKU,
-          Codigo_Barras: item.Codigo_Barras,
-          Descripcion: item.Descripcion,
-          Ubicacion: item.Ubicacion,
-          Categoria: item.Categoria,
-          Clasificacion_ABC: item.Clasificacion_ABC,
-          Unidad: item.Unidad,
-          Costo_Unitario: item.Costo_Unitario,
-          Stock_Sistema: item.Stock_Sistema,
-          Stock_Fisico: item.Stock_Fisico,
-          Diferencia: (item.Stock_Fisico !== null ? item.Stock_Fisico : 0) - item.Stock_Sistema,
-          Costo_Diferencia: ((item.Stock_Fisico !== null ? item.Stock_Fisico : 0) - item.Stock_Sistema) * (item.Costo_Unitario || 0),
-          Fecha_Ultimo_Conteo: item.Fecha_Ultimo_Conteo,
-          Responsable: item.Responsable,
-          Estado: item.Estado || 'Revisado',
-          Mal_estado: item.Mal_estado || 0,
-          Comentario: item.Comentario || '',
-          Razon: razon || '',
-          Razon_Justificacion: razon || '',
-          Comentario_Justificacion: comentarioJust || '',
-          Reconteo_Fisico: item.Reconteo_Fisico !== undefined ? item.Reconteo_Fisico : null,
-          Reconteo_Mal_Estado: item.Reconteo_Mal_Estado !== undefined ? item.Reconteo_Mal_Estado : 0,
-          Diferencia_Final: (item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined && item.Reconteo_Fisico !== '')
-            ? (Number(item.Reconteo_Fisico) - Number(item.Stock_Sistema || 0))
-            : ((item.Stock_Fisico !== null ? Number(item.Stock_Fisico) : 0) - Number(item.Stock_Sistema || 0)),
-          Costo_Diferencia_Final: (item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined && item.Reconteo_Fisico !== '')
-            ? ((Number(item.Reconteo_Fisico) - Number(item.Stock_Sistema || 0)) * (Number(item.Costo_Unitario) || 0))
-            : (((item.Stock_Fisico !== null ? Number(item.Stock_Fisico) : 0) - Number(item.Stock_Sistema || 0)) * (Number(item.Costo_Unitario) || 0)),
-          photoBase64: photoData
-        };
-      }),
-      justifications: isReconteo ? [] : (justifications || []).map(j => {
-        const rawPhoto = this.getPhotoAsDataUri(j.photoUrl);
-        const photoData = (rawPhoto && String(rawPhoto).startsWith('data:image/')) ? rawPhoto : '';
-        return {
-          sku: j.sku || j.SKU || '',
-          justification: j.justification || '',
-          reasonType: j.reasonType || '',
-          photoBase64: photoData
-        };
-      })
-    };
-
-    // Call GAS Webhook and capture real Drive URL if returned
-    let realDriveUrl = null;
-    let spreadsheetUrl = null;
-    try {
-      const cleanCenter = config.getCenterCode ? config.getCenterCode(center) : center;
-      const gasResult = await gasService.syncFinalInventoryToGAS(type, {
-        fileId,
-        fileName: `${fileName}.xlsx`,
-        folderPath,
-        center: cleanCenter,
-        isReconteo,
-        items,
-        driveRecord,
-        reviewNotes: reviewNotes || 'Revisión finalizada'
-      });
-      // Extract real Drive URLs from GAS response
-      if (gasResult) {
-        if (gasResult.spreadsheetUrl && typeof gasResult.spreadsheetUrl === 'string') {
-          spreadsheetUrl = gasResult.spreadsheetUrl;
-        }
-        const candidateUrl = gasResult.driveUrl || gasResult.url || gasResult.folderUrl || gasResult.spreadsheetUrl || null;
-        if (candidateUrl && typeof candidateUrl === 'string' && candidateUrl.includes('google.com')) {
-          realDriveUrl = candidateUrl;
-        }
-      }
-    } catch (err) {
-      console.warn('[driveService] GAS remote sync fallback:', err.message);
-    }
-
-    // Fallback: use the configured Drive snapshots folder
-    const fallbackDriveUrl = config.driveSnapshotsFolderUrl || config.driveReferenceFolderUrl || null;
-    const driveUrl = realDriveUrl || fallbackDriveUrl;
-
-    // Save real Drive URLs in history record
-    driveRecord.driveUrl = driveUrl;
-    driveRecord.spreadsheetUrl = spreadsheetUrl;
-
-    // Save final file record to history directory
-    const historyFilePath = path.join(this.historyDir, `${fileId}.json`);
-    storagePath.writeJson(historyFilePath, driveRecord);
-
-    try {
-      const metricsService = require('./metricsService');
-      if (metricsService && typeof metricsService.invalidateCache === 'function') {
-        metricsService.invalidateCache();
-      }
-    } catch (cacheErr) {
-      // ignore circular reference or cache err
-    }
-
-    return {
-      success: true,
-      fileId,
-      fileName: `${fileName}.xlsx`,
-      folderPath,
-      driveUrl,
-      spreadsheetUrl,
-      historyFilePath
-    };
+  async createFinalDriveFile({inventory,justifications,user,reviewNotes}) {
+    const items=inventory.items.map(contract.finalItem);
+    if(!items.length)throw new Error('No se puede cerrar un inventario vacío');
+    const record={inventoryId:inventory.id,type:inventory.type,center:inventory.center,
+      closedBy:user.username,closedAt:new Date().toISOString(),reviewNotes:reviewNotes||'',items,
+      justifications:(justifications||[]).map(j=>({...j,photoBase64:''})),totalItems:items.length};
+    const result=await gasService.syncFinalInventoryToGAS(inventory.type,{
+      operationId:inventory.closeOperationId,center:inventory.center,driveRecord:record});
+    if(!result.success||!result.fileId||!result.spreadsheetUrl)throw new Error('Google no confirmó el archivo final');
+    const history={...record,fileId:result.fileId,fileName:result.fileName,spreadsheetUrl:result.spreadsheetUrl,
+      driveUrl:result.spreadsheetUrl,manifest:result.manifest};
+    storagePath.writeJson(path.join(this.historyDir,result.fileId+'.json'),history);
+    return {...result,driveUrl:result.spreadsheetUrl};
   }
 
   async savePhotoFile(fileBuffer, originalName = 'photo.jpg', mimeType = 'image/jpeg', metadata = {}) {
@@ -408,15 +289,17 @@ class DriveService {
         mimeType,
         inventoryId: metadata.inventoryId || null,
         isJustification2,
-        prefix
+        prefix,
+        itemId:metadata.itemId, round:metadata.round||(isJustification2?2:1), almacen:metadata.almacen, location:metadata.location
       });
     } catch (err) {
-      console.warn('[driveService] Notice during GAS photo sync:', err.message);
+      throw err;
     }
 
     const drivePhoto = (gasResult && gasResult.photo) || {};
     const defaultFolderUrl = details.category === 'justificaciones' ? config.driveJustifFolderUrl : config.driveDamagedFolderUrl;
-    const driveUrl = gasResult?.driveUrl || drivePhoto.url || defaultFolderUrl;
+    const driveUrl = gasResult?.driveUrl || drivePhoto.url;
+    if(!drivePhoto.id||!driveUrl)throw new Error('Google no confirmó la foto');
     const driveFileId = gasResult?.driveFileId || drivePhoto.id || null;
     const thumbnailUrl = gasResult?.thumbnailUrl || drivePhoto.thumbnailUrl || (driveFileId ? `https://lh3.googleusercontent.com/d/${driveFileId}=s1600` : null);
     const directUrl = gasResult?.directUrl || drivePhoto.directUrl || (driveFileId ? `https://drive.google.com/uc?export=view&id=${driveFileId}` : driveUrl);
@@ -455,7 +338,7 @@ class DriveService {
       driveFileId,
       thumbnailUrl,
       directUrl,
-      driveSaved: !!driveUrl,
+      driveSaved: !!driveFileId,
       driveFolderPath: details.folderPath,
       driveLogicalPath: details.logicalPath,
       driveFileName: details.fileName,
