@@ -651,6 +651,9 @@ img, video, canvas, svg {
   }
 
   #modal-metrics-report .modal-container {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
     max-width: 100% !important;
     width: 100% !important;
     box-shadow: none !important;
@@ -662,6 +665,8 @@ img, video, canvas, svg {
   }
 
   #report-preview-viewport {
+    height: auto !important;
+    max-height: none !important;
     background: transparent !important;
     padding: 0 !important;
     margin: 0 !important;
@@ -687,6 +692,14 @@ img, video, canvas, svg {
   .data-table th, .data-table td {
     border-color: #ccc !important;
     color: black !important;
+  }
+
+  .rep-exec-table thead {
+    display: table-header-group;
+  }
+
+  .rep-exec-table tr, .rep-chart-card {
+    break-inside: avoid;
   }
 
   .rep-page-break-inside-avoid {
