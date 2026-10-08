@@ -177,9 +177,7 @@ window.InventoryView = {
         localStorage.removeItem('nibol_active_inv_id');
         localStorage.setItem('nibol_active_view', 'inventories');
       } catch (e) {}
-      document.getElementById('view-count').classList.remove('active');
-      document.getElementById('view-inventories').classList.add('active');
-      this.loadInventories();
+      window.Router.navigate('inventories');
     });
 
     // Purge all inventories button (Admin)
@@ -798,9 +796,7 @@ window.InventoryView = {
         } catch (e) {}
 
         this.currentInventory = null;
-        document.getElementById('view-count')?.classList.remove('active');
-        document.getElementById('view-inventories')?.classList.add('active');
-        await this.loadInventories();
+        window.Router.navigate('inventories');
       } catch (err) {
         window.Toast.danger(err.message || 'Error al enviar inventario');
         this.updateSubmitButtonState();
@@ -971,6 +967,14 @@ window.InventoryView = {
   },
 
   async openInventory(id) {
+    const requestId = this.openRequestId = (this.openRequestId || 0) + 1;
+    const sessionVersion = window.Auth.sessionVersion;
+    const isCurrentRequest = () => requestId === this.openRequestId &&
+      sessionVersion === window.Auth.sessionVersion && !!window.Auth.currentUser && !!window.Auth.token;
+    if (!isCurrentRequest()) {
+      window.Router.navigate('login');
+      return;
+    }
     try {
       try {
         localStorage.setItem('nibol_active_inv_id', id);
@@ -980,9 +984,13 @@ window.InventoryView = {
       let inv = null;
       try {
         const res = await window.API.getInventoryById(id);
+        if (!isCurrentRequest()) return;
         inv = res.inventory;
         try { localStorage.setItem(`nibol_inv_detail_${id}`, JSON.stringify(inv)); } catch (e) {}
       } catch (netErr) {
+        if (!isCurrentRequest()) return;
+        // Cached inventory must never bypass a server refusal or an expired session.
+        if (netErr.status && netErr.status < 500) throw netErr;
         const cachedRaw = localStorage.getItem(`nibol_inv_detail_${id}`);
         if (cachedRaw) {
           inv = JSON.parse(cachedRaw);
@@ -992,11 +1000,14 @@ window.InventoryView = {
         }
       }
 
+      if (!isCurrentRequest()) return;
+      if (!inv) throw new Error('El servidor no devolvió el inventario solicitado.');
       this.currentInventory = inv;
 
       // Un auxiliar no puede abrir un inventario que ya fue enviado a justificación
       if (window.Auth.currentUser?.role === 'AUXILIAR' && inv && inv.status !== 'EN_PROGRESO') {
         window.Toast.warning('Este inventario ya ha sido completado y enviado a justificación. Ya no está disponible en su bandeja.');
+        window.Router.navigate('inventories');
         return;
       }
 
@@ -1010,8 +1021,7 @@ window.InventoryView = {
         return;
       }
 
-      document.getElementById('view-inventories').classList.remove('active');
-      document.getElementById('view-count').classList.add('active');
+      window.Router.navigate('count');
 
       document.getElementById('count-inv-title').textContent = `${this.currentInventory.name} (${this.currentInventory.center})`;
       
@@ -1029,6 +1039,8 @@ window.InventoryView = {
       this.renderCountTable();
       this.updateSubmitButtonState();
     } catch (err) {
+      if (!isCurrentRequest()) return;
+      window.Router.navigate('inventories');
       window.Toast.danger(err.message || 'No se pudo abrir el inventario');
     }
   },
@@ -2387,11 +2399,10 @@ window.InventoryView = {
           // If current inventory was open, return to list view
           if (this.currentInventory && this.currentInventory.id === targetId) {
             this.currentInventory = null;
-            document.getElementById('view-count')?.classList.remove('active');
-            document.getElementById('view-inventories')?.classList.add('active');
+            window.Router.navigate('inventories');
+          } else {
+            await this.loadInventories();
           }
-
-          await this.loadInventories();
 
           if (submitBtn) {
             submitBtn.disabled = false;
@@ -2425,10 +2436,7 @@ window.InventoryView = {
       } catch (e) {}
 
       this.currentInventory = null;
-      document.getElementById('view-count')?.classList.remove('active');
-      document.getElementById('view-inventories')?.classList.add('active');
-
-      await this.loadInventories();
+      window.Router.navigate('inventories');
       if (window.HistoryView && typeof window.HistoryView.loadHistory === 'function') {
         window.HistoryView.loadHistory().catch(() => {});
       }

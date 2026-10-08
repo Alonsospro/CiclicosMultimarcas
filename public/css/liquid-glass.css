@@ -1,0 +1,202 @@
+/* Liquid glass surfaces shared by the app, with readable dark and light themes. */
+:root {
+  --bg-app: #071521;
+  --bg-card: rgba(24, 43, 60, 0.62);
+  --bg-card-hover: rgba(40, 61, 79, 0.72);
+  --bg-glass: rgba(19, 37, 53, 0.64);
+  --bg-glass-strong: rgba(20, 36, 52, 0.88);
+  --bg-input: rgba(6, 20, 33, 0.66);
+  --border-glass: rgba(224, 243, 255, 0.2);
+  --border-subtle: rgba(224, 243, 255, 0.12);
+  --text-muted: #bbcedd;
+  --text-dim: #99b0c2;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 26px;
+  --glass-blur: 22px;
+  --glass-reflection: rgba(255, 255, 255, 0.12);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  --glass-shadow: 0 18px 48px rgba(0, 8, 20, 0.25);
+}
+
+[data-theme="light"] {
+  --bg-app: #e8f1f5;
+  --bg-card: rgba(255, 255, 255, 0.68);
+  --bg-card-hover: rgba(255, 255, 255, 0.82);
+  --bg-glass: rgba(255, 255, 255, 0.68);
+  --bg-glass-strong: rgba(245, 251, 255, 0.94);
+  --bg-input: rgba(255, 255, 255, 0.74);
+  --border-glass: rgba(54, 86, 107, 0.22);
+  --border-subtle: rgba(54, 86, 107, 0.14);
+  --text-muted: #3e5669;
+  --text-dim: #526b7c;
+  --glass-reflection: rgba(255, 255, 255, 0.56);
+  --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --glass-shadow: 0 18px 48px rgba(34, 65, 90, 0.12);
+}
+
+body {
+  background-image:
+    radial-gradient(ellipse at 10% 15%, rgba(21, 174, 142, 0.2), transparent 52%),
+    radial-gradient(ellipse at 90% 55%, rgba(85, 164, 242, 0.18), transparent 52%),
+    radial-gradient(ellipse at 45% 100%, rgba(103, 92, 188, 0.12), transparent 55%);
+  background-attachment: fixed;
+}
+
+.ambient-glow, .ambient-glow-2 {
+  animation: none;
+  will-change: auto;
+}
+
+.card, .stat-tile, .navbar, .modal-box, .user-dropdown-menu, .toast,
+.session-loading-panel {
+  background-color: var(--bg-card);
+  background-image: linear-gradient(135deg, var(--glass-reflection), transparent 48%);
+  border: 1px solid var(--border-glass);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(145%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(145%);
+  box-shadow: var(--glass-shadow), var(--glass-highlight), inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.card:hover, .stat-tile:hover {
+  border-color: var(--border-glass);
+  box-shadow: var(--glass-shadow), var(--glass-highlight);
+}
+
+.navbar {
+  margin: 0.75rem 1.25rem 0;
+  top: 0.75rem;
+  border-radius: 24px;
+  background-color: var(--bg-glass-strong);
+}
+
+.stat-tile, .user-dropdown-menu { border-radius: 22px; }
+.modal-box, .user-dropdown-menu, .toast { background-color: var(--bg-glass-strong); }
+.modal-overlay {
+  background: rgba(2, 10, 20, 0.55);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.btn, .nav-item-btn, .user-dropdown-trigger, .nav-icon-btn {
+  border-radius: 999px;
+}
+
+.btn-secondary {
+  background-image: linear-gradient(145deg, var(--glass-reflection), transparent 70%);
+  box-shadow: var(--glass-highlight), 0 4px 12px rgba(0, 8, 20, 0.1);
+}
+
+.btn-primary {
+  background: linear-gradient(145deg, #108466, #05654f);
+  border-color: rgba(142, 255, 214, 0.36);
+  box-shadow: var(--glass-highlight), 0 7px 22px rgba(0, 114, 81, 0.24);
+}
+.btn-primary:hover { background: linear-gradient(145deg, #08785a, #045a46); }
+
+.btn:focus-visible, .nav-item-btn:focus-visible, .user-dropdown-trigger:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 3px;
+}
+
+.form-input, .form-select, .form-textarea {
+  min-height: 48px;
+  background-color: var(--bg-input);
+  box-shadow: inset 0 1px 3px rgba(0, 8, 20, 0.1);
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2), inset 0 1px 0 var(--glass-reflection);
+}
+.form-select option { background: var(--bg-app); color: var(--text-main); }
+.table-responsive { background: var(--bg-input); }
+.data-table th { background: var(--bg-glass-strong); }
+
+.login-shell {
+  width: min(100%, 440px);
+  margin: clamp(1.5rem, 6vh, 5rem) auto 2rem;
+}
+.login-panel { padding: clamp(1.5rem, 5vw, 2.5rem); border-radius: 32px; }
+.login-panel .form-group { align-items: stretch; text-align: left; }
+.login-panel .form-label { justify-content: flex-start; text-align: left; }
+.login-panel .form-input { text-align: left; }
+.login-password-wrap { position: relative; display: flex; align-items: center; width: 100%; }
+.login-brand-logo-wrapper {
+  border-radius: 22px;
+  box-shadow: 0 8px 28px rgba(0, 8, 20, 0.14), inset 0 1px 0 white;
+}
+#btn-login-submit { min-height: 50px; }
+
+/* Keep private views out of the page until session restoration has settled. */
+body[data-auth-state="checking"] .main-content,
+body[data-auth-state="checking"] #main-navbar,
+body[data-auth-state="anonymous"] .view-container:not(#view-login),
+body[data-auth-state="authenticated"] #view-login {
+  display: none !important;
+}
+
+.session-loading {
+  min-height: 80vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+.session-loading[hidden] { display: none; }
+.session-loading-panel {
+  width: min(100%, 360px);
+  padding: 2.5rem 1.5rem;
+  border-radius: 32px;
+  text-align: center;
+}
+.session-loading-panel p { margin: 1rem 0 0.5rem; font-weight: 600; }
+.session-loading-panel small { color: var(--text-muted); }
+.session-spinner {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--border-glass);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: sessionSpin 0.9s linear infinite;
+}
+@keyframes sessionSpin { to { transform: rotate(360deg); } }
+
+@media (max-width: 640px) {
+  :root { --glass-blur: 16px; }
+  .navbar { margin: 0.5rem 0.5rem 0; top: 0.5rem; border-radius: 22px; }
+  .login-shell { margin-top: 2rem; }
+  .login-panel { padding: 1.75rem 1.25rem; }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .card, .stat-tile, .navbar, .modal-box, .user-dropdown-menu, .toast,
+  .session-loading-panel { background-color: var(--bg-glass-strong); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .card, .stat-tile, .navbar, .modal-box, .user-dropdown-menu, .toast,
+  .session-loading-panel {
+    background: var(--bg-app);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-container.active, .modal-box, .session-spinner,
+  .btn-clicked, .btn-clicked i, .btn-clicked svg {
+    animation: none !important;
+  }
+  .btn, .card, .stat-tile { transition: none; }
+}
+
+@media print {
+  body { background: white; }
+  .card, .stat-tile, .navbar, .modal-box {
+    background: white;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+  }
+  .session-loading { display: none; }
+}
