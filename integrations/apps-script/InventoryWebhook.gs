@@ -314,6 +314,15 @@ function doPost(e){
     const body=JSON.parse(e?.postData?.contents||'{}');authenticate_(body);
     const readActions=['ping','getItems','getProducts','readItems','getHistory','listFinalFiles','readFinalInventory','getReferencePhoto','getLogos','listLogos','diagnostic'];
     if(readActions.includes(body.action))return json_(dispatchRead_(body));
+    // Photos use a separate user lock so Drive uploads cannot block inventory writes.
+    if(body.action==='savePhoto'||body.action==='uploadPhoto'){
+      const photoLock=LockService.getUserLock();
+      if(!photoLock.tryLock(25000))return json_({success:false,retryable:true,error:'Servidor ocupado al guardar la foto. Reintente con el mismo operationId.'});
+      try{
+        const result=savePhotoDirectly_(body);
+        return json_({success:true,action:body.action,...result});
+      }finally{photoLock.releaseLock();}
+    }
     lock=LockService.getScriptLock();
     if(!lock.tryLock(25000))return json_({success:false,retryable:true,error:'Servidor ocupado. Reintente con el mismo operationId.'});
     const clean={...body};delete clean.apiToken;
@@ -330,7 +339,6 @@ function doPost(e){
       case 'saveJustification':result=upsertCount_({...body,action:'saveJustification'});break;
       case 'deleteAdditionalLocation':case 'deleteItem':result=deleteAdditionalLocation_(body);break;
       case 'createFinalFile':result=createFinalFile_(body);break;
-      case 'savePhoto':case 'uploadPhoto':result=savePhotoDirectly_(body);break;
       default:throw new Error('Acción no soportada: '+body.action);
     }
     result={success:true,action:body.action,...result};
