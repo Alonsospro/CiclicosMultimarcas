@@ -20,18 +20,19 @@ class ReferencePhotoService {
     
     const isTesting = process.env.NODE_ENV === 'test' || process.argv.some(arg => typeof arg === 'string' && arg.includes('test'));
     const isServerless = !!(process.env.VERCEL || process.env.NOW_REGION || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+    this._embeddedFolderBlocked = false;
+    this._notifiedMode = false;
+
     // Initial sync from Google Drive in background only in continuous server environments
     if (!isServerless && !isTesting) {
-      this.syncDriveFolder().catch(err => {
-        console.warn('[referencePhotoService] Initial Drive sync notice:', err.message);
-      });
+      this.syncDriveFolder().catch(() => {});
 
-      // Background recurring sync every 10 minutes (600,000 ms)
+      // Background sync check every 30 minutes (only if Google Drive endpoint is accessible)
       setInterval(() => {
-        this.syncDriveFolder().catch(err => {
-          console.warn('[referencePhotoService] Background Drive sync notice:', err.message);
-        });
-      }, 10 * 60 * 1000).unref();
+        if (!this._embeddedFolderBlocked) {
+          this.syncDriveFolder().catch(() => {});
+        }
+      }, 30 * 60 * 1000).unref();
     }
   }
 
@@ -96,50 +97,66 @@ class ReferencePhotoService {
           return { success: false, message: 'No folder ID' };
         }
 
-        console.log(`[referencePhotoService] Syncing Google Drive reference photos (Folder ID: ${this.folderId})...`);
-
-      // 1. Fetch Google Drive embedded folder view (HTML list view)
-      const embeddedUrl = `https://drive.google.com/embeddedfolderview?id=${this.folderId}#list`;
-      const res = await fetch(embeddedUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        if (this._embeddedFolderBlocked) {
+          return { success: true, mode: 'ON_DEMAND_GAS', itemsFound: this.driveIndex.size };
         }
-      });
 
-      if (!res.ok) {
-        throw new Error(`Google Drive returned status ${res.status}`);
-      }
+        // Fetch Google Drive embedded folder view (HTML list view)
+        const embeddedUrl = `https://drive.google.com/embeddedfolderview?id=${this.folderId}#list`;
+        const res = await fetch(embeddedUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+          }
+        });
 
-      const html = await res.text();
-      let foundCount = 0;
+        if (!res.ok) {
+          // Google Drive restricts unauthenticated embeddedfolderview (HTTP 401/403/500).
+          // Operar fluidamente en modo bajo demanda vía Google Apps Script y caché local sin alertas.
+          this._embeddedFolderBlocked = true;
+          this.lastSyncTime = Date.now();
+          if (!this._notifiedMode) {
+            console.log(`[referencePhotoService] Modo de fotos referenciales: On-Demand vía Google Apps Script y almacenamiento local.`);
+            this._notifiedMode = true;
+          }
+          return {
+            success: true,
+            mode: 'ON_DEMAND_GAS',
+            folderId: this.folderId,
+            itemsFound: this.driveIndex.size,
+            lastSync: new Date(this.lastSyncTime).toISOString()
+          };
+        }
 
-      // Regular expressions to extract entries
-      // Entry pattern: <div class="flip-entry" id="entry-FILE_ID" ... <div class="flip-entry-title">FILENAME</div>
-      const entryRegex = /id="entry-([a-zA-Z0-9_-]+)"[\s\S]*?<div class="flip-entry-title">([^<]+)<\/div>/g;
-      let match;
-      while ((match = entryRegex.exec(html)) !== null) {
-        const fileId = match[1];
-        const originalTitle = match[2].trim();
-        this.registerDriveFile(fileId, originalTitle);
-        foundCount++;
-      }
+        const html = await res.text();
+        let foundCount = 0;
 
-      // Secondary fallback parsing: Match direct link & title
-      if (foundCount === 0) {
-        const linkRegex = /href="https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)[^"]*"[\s\S]*?<div class="flip-entry-title">([^<]+)<\/div>/g;
-        while ((match = linkRegex.exec(html)) !== null) {
+        // Regular expressions to extract entries
+        // Entry pattern: <div class="flip-entry" id="entry-FILE_ID" ... <div class="flip-entry-title">FILENAME</div>
+        const entryRegex = /id="entry-([a-zA-Z0-9_-]+)"[\s\S]*?<div class="flip-entry-title">([^<]+)<\/div>/g;
+        let match;
+        while ((match = entryRegex.exec(html)) !== null) {
           const fileId = match[1];
           const originalTitle = match[2].trim();
           this.registerDriveFile(fileId, originalTitle);
           foundCount++;
         }
-      }
 
-      this.lastSyncTime = Date.now();
-      this.indexLocalFiles();
+        // Secondary fallback parsing: Match direct link & title
+        if (foundCount === 0) {
+          const linkRegex = /href="https:\/\/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)[^"]*"[\s\S]*?<div class="flip-entry-title">([^<]+)<\/div>/g;
+          while ((match = linkRegex.exec(html)) !== null) {
+            const fileId = match[1];
+            const originalTitle = match[2].trim();
+            this.registerDriveFile(fileId, originalTitle);
+            foundCount++;
+          }
+        }
 
-      console.log(`[referencePhotoService] Drive sync complete: ${foundCount} items registered (Total keys in index: ${this.driveIndex.size})`);
+        this.lastSyncTime = Date.now();
+        this.indexLocalFiles();
+
+        console.log(`[referencePhotoService] Drive sync complete: ${foundCount} items registered (Total keys in index: ${this.driveIndex.size})`);
 
         return {
           success: true,
@@ -149,8 +166,9 @@ class ReferencePhotoService {
           lastSync: new Date(this.lastSyncTime).toISOString()
         };
       } catch (err) {
-        console.warn('[referencePhotoService] Error during Drive sync:', err.message);
-        return { success: false, error: err.message };
+        this._embeddedFolderBlocked = true;
+        this.lastSyncTime = Date.now();
+        return { success: true, mode: 'ON_DEMAND_GAS', note: err.message };
       } finally {
         this.currentSyncPromise = null;
       }

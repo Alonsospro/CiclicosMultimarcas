@@ -35,8 +35,9 @@ window.JustificationsView = {
   },
 
   setupListeners() {
-    // Center filter for justifications
+    // Center & Status filters for justifications
     document.getElementById('filter-just-center')?.addEventListener('change', () => this.loadJustifications());
+    document.getElementById('filter-just-status')?.addEventListener('change', () => this.loadJustifications());
 
     // Justification photo upload with immediate Google Drive sync
     const photoZone = document.getElementById('zone-just-photo');
@@ -53,10 +54,6 @@ window.JustificationsView = {
       const inventoryId = document.getElementById('just-modal-inv-id')?.value;
       const sku = document.getElementById('just-modal-sku-input')?.value;
       const task = this.tasks?.find(t => t.inventoryId === inventoryId);
-      const itemId = document.getElementById('just-modal-item-id')?.value;
-      const isSecondJust = !!(this.currentIsSecondJustification || document.getElementById('just-modal-is-second-just')?.value === 'true');
-      const uploadContext = this._uploadContext = Symbol('photo');
-      this._uploadingPhoto = true;
 
       const center = task ? task.center : (window.Auth.currentUser?.center || '1120');
       const dateStr = new Date().toISOString().split('T')[0];
@@ -71,6 +68,7 @@ window.JustificationsView = {
         // Client-side quick compression to ensure instant upload without exceeding quotas
         const file = await this.compressImage(rawFile);
 
+        const isSecondJust = !!(this.currentIsSecondJustification || document.getElementById('just-modal-is-second-just')?.value === 'true');
 
         const res = await window.API.uploadPhoto(file, {
           category: 'justificaciones',
@@ -79,15 +77,12 @@ window.JustificationsView = {
           center: center,
           date: dateStr,
           inventoryId: inventoryId || '',
-          itemId,
           type: task?.type || 'CICLICO',
           prefix: isSecondJust ? 'JS2' : '',
           isJustification2: isSecondJust,
           round: isSecondJust ? 2 : 1
         });
 
-        if (this._uploadContext !== uploadContext || document.getElementById('just-modal-item-id')?.value !== itemId || document.getElementById('just-modal-inv-id')?.value !== inventoryId) return;
-        if (!res.photo?.driveSaved || !res.photo.driveFileId) throw new Error('Drive no confirmó la foto.');
         if (res.photo && (res.photo.driveUrl || res.photo.url)) {
           const driveUrl = res.photo.driveUrl || res.photo.url;
           const driveFileId = res.photo.driveFileId || '';
@@ -125,14 +120,11 @@ window.JustificationsView = {
           window.Toast.success(isSecondJust ? `Foto de 2da justificación (${uploadedFileName}) subida a Google Drive` : 'Foto subida y guardada inmediatamente en Google Drive');
         }
       } catch (err) {
-        if (this._uploadContext !== uploadContext) return;
         if (statusDiv) {
           statusDiv.style.display = 'block';
           statusDiv.innerHTML = `<span style="color: var(--danger);"><i class="fa-solid fa-circle-exclamation"></i> Error: ${err.message}</span>`;
         }
         window.Toast.danger(err.message || 'Error al subir foto de respaldo a Google Drive');
-      } finally {
-        if (this._uploadContext === uploadContext) this._uploadingPhoto = false;
       }
     });
 
@@ -430,15 +422,23 @@ window.JustificationsView = {
 
       const selectedCenter = centerSelect ? centerSelect.value : 'TODOS';
       const center = (selectedCenter && selectedCenter !== 'TODOS') ? selectedCenter : undefined;
-      const res = await window.API.getJustifications(center);
+      const statusSelect = document.getElementById('filter-just-status');
+      const selectedStatus = statusSelect ? statusSelect.value : 'ALL';
+
+      const res = await window.API.getJustifications(center, {
+        status: selectedStatus,
+        includeFinalized: selectedStatus === 'ALL' || selectedStatus === 'REVISADO'
+      });
       this.tasks = (res.tasks || []).map(task => {
-        const filteredItems = this.filterValidJustificationItems(task.items || []);
-        const pendingCount = filteredItems.filter(it => !it.isJustified && it.corroborationStatus !== 'CUADRA').length;
+        const allItems = task.items || [];
+        const pendingCount = allItems.filter(it => !it.isJustified && it.corroborationStatus !== 'CUADRA' && it.corroborationStatus !== 'JUSTIFICADO').length;
+        const justifiedCount = allItems.filter(it => it.isJustified || it.corroborationStatus === 'CUADRA' || it.corroborationStatus === 'JUSTIFICADO').length;
         return {
           ...task,
-          items: filteredItems,
-          totalDiscrepancies: filteredItems.length,
-          pendingJustificationsCount: pendingCount
+          items: allItems,
+          totalDiscrepancies: allItems.length,
+          pendingJustificationsCount: pendingCount,
+          justifiedItemsCount: justifiedCount
         };
       });
 
@@ -969,14 +969,14 @@ window.JustificationsView = {
                   </thead>
                   <tbody>
                     ${(() => {
-                      const itemsToDisplay = (task.items || []).filter(hasItemDiscrepancy);
+                      const itemsToDisplay = task.items || [];
                       if (itemsToDisplay.length === 0) {
                         return `
                           <tr>
                             <td colspan="18" style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted);">
                               <i class="fa-solid fa-circle-check" style="color: #10b981; font-size: 2rem; margin-bottom: 0.5rem; display: block;"></i>
-                              <strong style="color: var(--text-main);">Sin diferencias pendientes</strong>
-                              <p style="margin: 0.25rem 0 0; font-size: 0.85rem;">Todos los ítems de este inventario cuadran o han sido justificados.</p>
+                              <strong style="color: var(--text-main);">Sin diferencias registradas</strong>
+                              <p style="margin: 0.25rem 0 0; font-size: 0.85rem;">Todos los ítems de este inventario cuadran con el sistema.</p>
                             </td>
                           </tr>
                         `;
@@ -1246,25 +1246,30 @@ window.JustificationsView = {
 
       if (!container._listenersAttached) {
         container._listenersAttached = true;
-        let isSyncing = false;
+        let activeDriver = null;
+        let releaseDriverTimer = null;
 
-        const syncScroll = (source, targets) => {
-          if (isSyncing) return;
-          isSyncing = true;
+        const handleScroll = (source, targets) => {
+          // If another scroll element is already driving the scroll, discard to avoid feedback loop
+          if (activeDriver && activeDriver !== source) return;
+
+          activeDriver = source;
+          if (releaseDriverTimer) clearTimeout(releaseDriverTimer);
+          releaseDriverTimer = setTimeout(() => {
+            activeDriver = null;
+          }, 60);
+
           const left = source.scrollLeft;
           targets.forEach(t => {
-            if (t && t !== source) {
+            if (t && t !== source && Math.abs(t.scrollLeft - left) >= 1) {
               t.scrollLeft = left;
             }
           });
-          requestAnimationFrame(() => {
-            isSyncing = false;
-          });
         };
 
-        topTrack.addEventListener('scroll', () => syncScroll(topTrack, [tableResp, bottomTrack]));
-        bottomTrack.addEventListener('scroll', () => syncScroll(bottomTrack, [tableResp, topTrack]));
-        tableResp.addEventListener('scroll', () => syncScroll(tableResp, [topTrack, bottomTrack]));
+        topTrack.addEventListener('scroll', () => handleScroll(topTrack, [tableResp, bottomTrack]), { passive: true });
+        bottomTrack.addEventListener('scroll', () => handleScroll(bottomTrack, [tableResp, topTrack]), { passive: true });
+        tableResp.addEventListener('scroll', () => handleScroll(tableResp, [topTrack, bottomTrack]), { passive: true });
       }
     });
   },
@@ -1324,8 +1329,6 @@ window.JustificationsView = {
   },
 
   openJustifyModalAtIndex(inventoryId, index) {
-    this._uploadContext = null;
-    this._uploadingPhoto = false;
     const task = this.tasks.find(t => t.inventoryId === inventoryId);
     if (!task || !task.items || task.items.length === 0) return;
 
@@ -1727,7 +1730,6 @@ window.JustificationsView = {
   },
 
   async saveCurrentModalJustification(advanceNext = false) {
-    if (this._uploadingPhoto) { window.Toast.warning('Espere la confirmación de la foto antes de guardar.'); return; }
     const inventoryId = document.getElementById('just-modal-inv-id').value;
     const sku = document.getElementById('just-modal-sku-input').value;
     const almacen = document.getElementById('just-modal-almacen-input')?.value || '';

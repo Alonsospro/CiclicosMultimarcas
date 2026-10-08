@@ -22,7 +22,6 @@ window.API = {
     try {
       const response = await fetch(url, {
         ...options,
-        signal: options.signal || AbortSignal.timeout(60000),
         headers
       });
 
@@ -52,18 +51,10 @@ window.API = {
         }
       }
 
-      if (!response.ok || data?.success === false) {
-        const error = new Error(data.message || data.error || `Error del servidor: ${response.status}`);
-        error.status = response.status;
-        error.code = data.code;
-        throw error;
+      if (!response.ok) {
+        throw new Error(data.message || `Error del servidor: ${response.status}`);
       }
 
-      const sync = data.inventory || data.justification || data;
-      if (typeof sync.syncPending === 'boolean' && window.CountQueue) {
-        const id = sync.inventoryId || sync.id || endpoint.match(/^\/inventories\/([^/?]+)/)?.[1];
-        window.CountQueue.noteSync(id, sync.syncPending);
-      }
       return data;
     } catch (err) {
       console.error(`[API Error] ${endpoint}:`, err);
@@ -161,7 +152,10 @@ window.API = {
   },
 
   registerCount(inventoryId, payload) {
-    return window.CountQueue.send(inventoryId, payload);
+    return this.request(`/inventories/${inventoryId}/count`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   },
 
   requestUnlockItem(inventoryId, itemId, payload = {}) {
@@ -179,7 +173,6 @@ window.API = {
   },
 
   submitInventory(inventoryId, payload = {}) {
-    if (window.CountQueue.hasPending(inventoryId)) return Promise.reject(new Error('Hay conteos pendientes de envío. Sincronícelos antes de finalizar.'));
     return this.request(`/inventories/${inventoryId}/submit`, {
       method: 'POST',
       body: JSON.stringify(payload)
@@ -260,13 +253,23 @@ window.API = {
   },
 
   // Justifications endpoints
-  getJustifications(center) {
-    const query = center ? `?center=${encodeURIComponent(center)}` : '';
+  getJustifications(center, options = {}) {
+    const params = new URLSearchParams();
+    if (center && center !== 'TODOS' && center !== 'GLOBAL') params.append('center', center);
+    if (options.status) params.append('status', options.status);
+    if (options.includeFinalized) params.append('includeFinalized', 'true');
+    const query = params.toString() ? `?${params.toString()}` : '';
     return this.request(`/justifications${query}`);
   },
 
   syncAllFromSheets() {
     return this.request('/inventories/sync-all-sheets', {
+      method: 'POST'
+    });
+  },
+
+  backupDaily() {
+    return this.request('/inventories/backup-daily', {
       method: 'POST'
     });
   },

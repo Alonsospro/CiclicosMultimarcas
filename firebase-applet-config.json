@@ -1,12 +1,12 @@
 {
-  "projectId": "natural-option-nf6jr",
-  "appId": "1:245867048445:web:5a983e4564adc274e5fd94",
-  "apiKey": "AIzaSyColsTkKBD13e8babnHMAHNNnsaQtmnrOs",
-  "authDomain": "natural-option-nf6jr.firebaseapp.com",
+  "projectId": "nibol-inventarios",
+  "appId": "1:313357037863:web:b426eba584243ed6e93902",
+  "apiKey": "AIzaSyDjlIe4a6yH8XkXTo1xRYMjhKqW8jTtlNs",
+  "authDomain": "nibol-inventarios.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-ciclicosmultimar-0f054624-3840-432e-853b-cc01cefb0b2e",
-  "storageBucket": "natural-option-nf6jr.firebasestorage.app",
-  "messagingSenderId": "245867048445",
+  "storageBucket": "nibol-inventarios.firebasestorage.app",
+  "messagingSenderId": "313357037863",
   "measurementId": "",
-  "oAuthClientId": "245867048445-erco23jkbrmkshlai5116aphthj0nnu1.apps.googleusercontent.com",
+  "oAuthClientId": "313357037863-6obrb8ei8ha17449g36cev5m9ne9acs9.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

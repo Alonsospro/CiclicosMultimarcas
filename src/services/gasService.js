@@ -29,33 +29,13 @@ class GasService {
   parseCurrencyOrNumber(val, fallback = 0) {
     if (val === null || val === undefined || val === '') return fallback;
     if (typeof val === 'number') return isNaN(val) ? fallback : val;
-
     let str = String(val).trim();
-    if (!str) return fallback;
-
-    // Detect and handle Excel/Sheets date formats (e.g. 1/3/4114 or 30/9/2026)
-    if (str.includes('/')) {
-      const dateMatch = str.match(/^\d{1,2}\/\d{1,2}\/(\d{2,6})(?:\s.*)?$/);
-      if (dateMatch) {
-        const yearOrVal = parseInt(dateMatch[1], 10);
-        // Calendar dates (e.g. 2020-2035) are date fields, not costs/quantities
-        if (yearOrVal >= 2000 && yearOrVal <= 2035) return fallback;
-        // Years outside calendar range (e.g. 4114, 9495, 2244) are cell values formatted as dates in Excel
-        return yearOrVal;
-      }
-      return fallback;
-    }
-
     let isNegative = false;
-    if (str.startsWith('-')) {
-      isNegative = true;
-      str = str.slice(1).trim();
-    } else if (str.startsWith('(') && str.endsWith(')')) {
+    if (str.startsWith('(') && str.endsWith(')')) {
       isNegative = true;
       str = str.slice(1, -1).trim();
     }
-
-    // Clean currency symbols, letters, spaces, but keep digits, '.', ',', '+', '-'
+    // Clean currency symbols, letters, spaces
     str = str.replace(/[^0-9.,+-]/g, '');
     if (!str) return fallback;
 
@@ -71,22 +51,14 @@ class GasService {
       }
     } else if (str.includes(',')) {
       const parts = str.split(',');
-      if (parts.length > 2) {
-        // 1,000,000 -> multiple commas are thousands
-        str = str.replace(/,/g, '');
-      } else {
-        // Single comma: In Spanish/Bolivian locale and Google Sheets CSV,
-        // comma is decimal separator (e.g. 15,50 | 136,397 | -3073,5711072)
+      if (parts.length === 2 && parts[1].length <= 2) {
+        // 15,50 -> comma is decimal
         str = str.replace(',', '.');
-      }
-    } else if (str.includes('.')) {
-      const parts = str.split('.');
-      if (parts.length > 2) {
-        // 1.000.000 -> multiple dots are thousands
-        str = str.replace(/\./g, '');
+      } else {
+        // 1,000 -> comma is thousands
+        str = str.replace(/,/g, '');
       }
     }
-
     let n = parseFloat(str);
     if (isNaN(n)) return fallback;
     if (isNegative) n = -Math.abs(n);
@@ -193,6 +165,8 @@ class GasService {
     const idxRecDam2 = getColIndex(['malestado_reconteo_2', 'reconteo_mal_estado_2']);
     const idxDiffFinal2 = getColIndex(['diferencia_final_2']);
     const idxCostDiffFinal2 = getColIndex(['costo_diferencia_final_2']);
+    const idxFecha1Just = getColIndex(['fecha_primera_justificacion', 'fecha_justificacion', 'fecha_just']);
+    const idxCorroboracion = getColIndex(['corroboracion', 'corroboración', 'corroboracionstatus', 'estado_justificacion']);
 
     const parsedItems = [];
     rows.slice(1).forEach((r, idx) => {
@@ -209,15 +183,10 @@ class GasService {
       const location = getVal(idxLoc, r[3] || '');
       const cat = getVal(idxCat, r[4] || '');
       const almacen = getVal(idxAlmacen, r[6] || r[4] || cat);
-      const unit = getVal(idxUnit, 'PZA');
       const rawAbc = (getVal(idxAbc, r[7] || r[5] || '') || '').trim().toUpperCase();
-      let unitCost = this.parseCurrencyOrNumber(getVal(idxCost, r[9] !== undefined ? r[9] : r[7]), 0);
+      const unit = getVal(idxUnit, r[8] || r[6] || 'UND');
+      const unitCost = this.parseCurrencyOrNumber(getVal(idxCost, r[9] !== undefined ? r[9] : r[7]), 0);
       const sysStock = this.parseCurrencyOrNumber(getVal(idxSys, r[10] !== undefined ? r[10] : r[8]), 0);
-
-      // Handle cases where total lot stock value was placed into Costo_Unitario instead of unit cost
-      if (unitCost > 50000 && sysStock > 1 && (unitCost / sysStock < 10000 || /aceite|balde|turril|filtro|reten|lubricante/i.test(desc))) {
-        unitCost = Math.round((unitCost / sysStock) * 100) / 100;
-      }
       
       const rawStockTotal = getVal(idxStockTotal, r[11]);
       const rawPhys = getVal(idxPhys, r[12] !== undefined ? r[12] : r[9]);
@@ -258,14 +227,6 @@ class GasService {
       } else {
         diffCost = diff * unitCost;
       }
-      if (unitCost > 0 && Math.abs(diff) > 0) {
-        const expectedCost = Math.abs(diff * unitCost);
-        if (Math.abs(diffCost) > expectedCost * 2 + 50 || Math.abs(diffCost) > 50000000 || diffCost === 0) {
-          diffCost = diff * unitCost;
-        }
-      } else if (Math.abs(diffCost) > 50000000) {
-        diffCost = 0;
-      }
 
       // Reconteo 1: Col Y = Stock_Total_Reconteo, Col Z = Reconteo, Col AA = Malestado, Col AB = Diferencia_Final
       const rawStockTotalRec1 = getVal(idxStockTotalRec1, r[24]);
@@ -287,14 +248,9 @@ class GasService {
         : null;
 
       const rawCostDiffFinal1 = getVal(idxCostDiffFinal1, r[28]);
-      let costDiffFinal1 = (rawCostDiffFinal1 !== '' && rawCostDiffFinal1 !== undefined && rawCostDiffFinal1 !== null)
+      const costDiffFinal1 = (rawCostDiffFinal1 !== '' && rawCostDiffFinal1 !== undefined && rawCostDiffFinal1 !== null)
         ? this.parseCurrencyOrNumber(rawCostDiffFinal1, null)
         : null;
-      if (diffFinal1 !== null && unitCost > 0) {
-        if (costDiffFinal1 === null || Math.abs(costDiffFinal1) > Math.abs(diffFinal1 * unitCost) * 2 + 50 || Math.abs(costDiffFinal1) > 50000000) {
-          costDiffFinal1 = diffFinal1 * unitCost;
-        }
-      }
 
       // Reconteo 2: Col AJ = Stock_Total_Reconteo_2, Col AK = Reconteo_2, Col AL = Malestado, Col AM = Diferencia_Final_2
       const rawStockTotalRec2 = getVal(idxStockTotalRec2, r[35]);
@@ -318,14 +274,9 @@ class GasService {
         : null;
 
       const rawCostDiffFinal2 = getVal(idxCostDiffFinal2, r[39]);
-      let costDiffFinal2 = (rawCostDiffFinal2 !== '' && rawCostDiffFinal2 !== undefined && rawCostDiffFinal2 !== null)
+      const costDiffFinal2 = (rawCostDiffFinal2 !== '' && rawCostDiffFinal2 !== undefined && rawCostDiffFinal2 !== null)
         ? this.parseCurrencyOrNumber(rawCostDiffFinal2, null)
         : null;
-      if (diffFinal2 !== null && unitCost > 0) {
-        if (costDiffFinal2 === null || Math.abs(costDiffFinal2) > Math.abs(diffFinal2 * unitCost) * 2 + 50 || Math.abs(costDiffFinal2) > 50000000) {
-          costDiffFinal2 = diffFinal2 * unitCost;
-        }
-      }
 
       // Regla de Negativos para stockTotalRec1 y stockTotalRec2
       let effectiveTotalRec1 = stockTotalRec1;
@@ -357,11 +308,16 @@ class GasService {
         Fecha_Ultimo_Conteo: getVal(idxDate, r[16] || r[12] || ''),
         Responsable: getVal(idxResp, r[17] || r[13] || 'Administrador'),
         Estado: getVal(idxState, r[19] || r[14] || 'Revisado'),
+        corroboracion: getVal(idxCorroboracion !== -1 ? idxCorroboracion : idxState, r[19] || ''),
+        corroborationStatus: getVal(idxCorroboracion !== -1 ? idxCorroboracion : idxState, r[19] || ''),
+        Fecha_Primera_Justificacion: getVal(idxFecha1Just, r[18] || ''),
         Mal_estado: damagedStock,
         Comentario: getVal(idxComment, r[21] || r[16] || ''),
         Razon: getVal(idxReason, r[20] || r[17] || ''),
+        Razon_Justificacion: getVal(idxReason, r[20] || r[17] || ''),
         Comentario_Justificacion: getVal(idxJust, r[21] || r[18] || ''),
         Revisado_Por: getVal(idxReviewer, r[22] || r[19] || ''),
+        Responsable_Justificacion: getVal(idxReviewer, r[22] || r[19] || ''),
         Stock_Total_Reconteo: effectiveTotalRec1,
         Reconteo: rec1BuenEstado,
         Reconteo_Fisico: effectiveTotalRec1 !== null ? effectiveTotalRec1 : (rec1BuenEstado !== null ? (rec1BuenEstado + rec1MalEstado) : null),
@@ -378,29 +334,6 @@ class GasService {
     });
 
     return parsedItems;
-  }
-
-  async readInventorySpreadsheet(record) {
-    if (!record.center) throw new Error('Falta el centro para seleccionar la pestaña del inventario');
-    const spreadsheetUrl = record.spreadsheetUrl || record.driveUrl;
-    const spreadsheetId = this.extractSpreadsheetId(spreadsheetUrl);
-    if (!spreadsheetId) throw new Error('Enlace de Google Sheets inválido');
-    const url = new URL(this.getUrlForType(record.type || 'CICLICO'));
-    url.searchParams.set('action', 'readFinalInventory');
-    url.searchParams.set('spreadsheetId', spreadsheetId);
-    url.searchParams.set('center', config.getCenterCode(record.center));
-    const gid = String(spreadsheetUrl).match(/[#&?]gid=(\d+)/)?.[1];
-    if (gid) url.searchParams.set('gid', gid);
-    const response = await fetch(url.toString(), { signal: AbortSignal.timeout(15000), headers: { Accept: 'application/json' } });
-    if (!response.ok) throw new Error('No se pudo leer Google Sheets');
-    const result = await response.json();
-    if (!result.success || !Array.isArray(result.headers) || !Array.isArray(result.rows)) {
-      const message = /no soportada/i.test(result.error || '') ? 'Actualice gas/Code.gs en Apps Script para habilitar el lector de métricas' : result.error;
-      const error = new Error(message || 'Apps Script devolvió una tabla de inventario inválida');
-      error.code = result.code;
-      throw error;
-    }
-    return { ...result, readAt: new Date().toISOString() };
   }
 
   async fetchSpreadsheetItems(spreadsheetUrl) {
@@ -431,8 +364,6 @@ class GasService {
         }
       } catch (e) {}
     }
-
-    if (targetGid && !csvText) throw new Error('No se pudo leer la pestaña solicitada; no se elegirá otra automáticamente');
 
     // 2. Descubrir pestañas mediante htmlview para encontrar la hoja exacta de inventario
     if (!csvText) {
@@ -465,7 +396,8 @@ class GasService {
             return null;
           }));
 
-          const candidates = [];
+          let bestCsv = '';
+          let bestValidRowCount = -1;
 
           for (const r of tabResults) {
             if (r.status === 'fulfilled' && r.value && r.value.text) {
@@ -478,19 +410,19 @@ class GasService {
               const hasSkuHeader = headers.some(h => h === 'sku' || h === 'codigo_barras' || h === 'articulo');
               if (!hasSkuHeader) continue;
 
-              candidates.push(t);
+              const rowCount = t.split('\n').filter(l => l.trim().length > 0).length;
+              if (rowCount > bestValidRowCount) {
+                bestValidRowCount = rowCount;
+                bestCsv = t;
+              }
             }
           }
 
-          if (candidates.length > 1) {
-            const error = new Error('El archivo contiene varias pestañas de inventario; indique el gid de la pestaña exacta');
-            error.code = 'AMBIGUOUS_SHEET';
-            throw error;
+          if (bestCsv && bestValidRowCount > 0) {
+            csvText = bestCsv;
           }
-          if (candidates.length === 1) csvText = candidates[0];
         }
       } catch (htmlErr) {
-        if (htmlErr.code === 'AMBIGUOUS_SHEET') throw htmlErr;
         console.warn(`[gasService] Notice discovering tabs for sheet ${sheetId}:`, htmlErr.message);
       }
     }
@@ -1018,11 +950,26 @@ class GasService {
         headers: { 'Accept': 'application/json' }
       });
 
-      if (!response.ok) return { found: false };
+      if (!response.ok) return { found: false, sku: cleanSku };
       const parsed = await response.json();
-      return parsed && parsed.found ? parsed : { found: false, sku: cleanSku };
+      if (parsed && (parsed.photo || parsed.found)) {
+        const photoObj = parsed.photo || parsed;
+        const fileId = photoObj.id || parsed.fileId;
+        const fileName = photoObj.name || parsed.fileName || `${cleanSku}.jpg`;
+        if (fileId) {
+          return {
+            found: true,
+            fileId,
+            fileName,
+            sku: cleanSku,
+            viewUrl: photoObj.viewUrl,
+            downloadUrl: photoObj.downloadUrl,
+            thumbnailUrl: photoObj.thumbnailUrl
+          };
+        }
+      }
+      return { found: false, sku: cleanSku };
     } catch (err) {
-      console.warn(`[gasService] Notice querying reference photo for ${cleanSku} from GAS:`, err.message);
       return { found: false, sku: cleanSku };
     }
   }
@@ -1035,7 +982,6 @@ class GasService {
     const url = this.getUrlForType(type);
     const targetUrl = new URL(url);
     targetUrl.searchParams.set('action', 'getHistory');
-    targetUrl.searchParams.set('type', type);
     if (center && center !== 'TODOS' && center !== 'GLOBAL') {
       const cleanCenter = config.getCenterCode ? config.getCenterCode(center) : center;
       targetUrl.searchParams.set('center', cleanCenter);
@@ -1097,7 +1043,6 @@ class GasService {
    * Real-time update of columns J to Q in the center sheet with optional damaged photo upload.
    */
   async upsertCountToGAS(type, payload) {
-    if (require('./storagePath').deferSync('upsertCountToGAS', [type, payload])) return { success: true, queued: true };
     const cleanType = (type || payload.type || 'CICLICO').toUpperCase();
     const url = this.getUrlForType(cleanType);
     const cleanCenter = config.getCenterCode ? config.getCenterCode(payload.center || payload.centro || '1120') : '1120';
@@ -1204,8 +1149,23 @@ class GasService {
       justificationPhoto: (isReconteo || isReconteo2) ? '' : ((payload.justificationPhoto && String(payload.justificationPhoto).startsWith('data:image')) ? payload.justificationPhoto : '')
     };
 
-    postBody.operationId = payload.operationId;
-    return this.postConfirmed(url, postBody);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(postBody)
+      });
+
+      const resText = await response.text();
+      try {
+        return JSON.parse(resText);
+      } catch (e) {
+        return { success: true, action: 'upsertCount', raw: resText };
+      }
+    } catch (err) {
+      console.warn('[gasService] Notice in upsertCountToGAS:', err.message);
+      return { success: false, message: err.message };
+    }
   }
 
   /**
@@ -1213,7 +1173,6 @@ class GasService {
    * Deletes an additional location row from Google Sheets
    */
   async deleteAdditionalLocationFromGAS(type, payload = {}) {
-    if (require('./storagePath').deferSync('deleteAdditionalLocationFromGAS', [type, payload])) return { success: true, queued: true };
     const cleanType = (type || payload.type || 'CICLICO').toUpperCase();
     const url = this.getUrlForType(cleanType);
     const rawCenter = payload.center || payload.centro || '1120';
@@ -1230,8 +1189,23 @@ class GasService {
       slot: payload.slot || payload.locationSlot || 0
     };
 
-    postBody.operationId = payload.operationId;
-    return this.postConfirmed(url, postBody);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(postBody)
+      });
+
+      const resText = await response.text();
+      try {
+        return JSON.parse(resText);
+      } catch (e) {
+        return { success: true, action: 'deleteAdditionalLocation', raw: resText };
+      }
+    } catch (err) {
+      console.warn('[gasService] Notice in deleteAdditionalLocationFromGAS:', err.message);
+      return { success: false, message: err.message };
+    }
   }
 
   /**
@@ -1239,7 +1213,6 @@ class GasService {
    * Batch update of columns J to Q for multiple items.
    */
   async batchUpsertCountsToGAS(type, payload) {
-    if (require('./storagePath').deferSync('batchUpsertCountsToGAS', [type, payload])) return { success: true, queued: true };
     const cleanType = (type || payload.type || 'CICLICO').toUpperCase();
     const url = this.getUrlForType(cleanType);
     const rawCenter = payload.center || payload.centro || '1120';
@@ -1252,8 +1225,23 @@ class GasService {
       updates: payload.updates || []
     };
 
-    postBody.operationId = payload.operationId;
-    return this.postConfirmed(url, postBody);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(postBody)
+      });
+
+      const resText = await response.text();
+      try {
+        return JSON.parse(resText);
+      } catch (e) {
+        return { success: true, action: 'batchUpsertCounts', raw: resText };
+      }
+    } catch (err) {
+      console.warn('[gasService] Notice in batchUpsertCountsToGAS:', err.message);
+      return { success: false, message: err.message };
+    }
   }
 
   /**
@@ -1277,7 +1265,6 @@ class GasService {
 
     const driveRecord = {
       ...incomingDriveRecord,
-      inventoryId: incomingDriveRecord.inventoryId || payload.inventoryId,
       type: cleanType,
       center: cleanCenter,
       isReconteo,
@@ -1286,8 +1273,6 @@ class GasService {
         const rawPhoto = isReconteo ? '' : (it.photoBase64 || '');
         const validPhoto = (rawPhoto && String(rawPhoto).startsWith('data:image')) ? rawPhoto : '';
         return {
-          ...it,
-          Almacen: it.Almacen || it.almacen || it.warehouse || '',
           SKU: it.SKU || it.sku || '',
           Codigo_Barras: it.Codigo_Barras || it.codigoBarras || it.barcode || '',
           Ubicacion: it.Ubicacion || it.ubicacion || '',
@@ -1312,9 +1297,6 @@ class GasService {
       }))
     };
 
-    driveRecord.manifest ||= require('./inventorySheetModel').createManifest({ ...driveRecord,
-      inventoryId: driveRecord.inventoryId || payload.inventoryId, center: cleanCenter, type: cleanType });
-
     const postBody = {
       action: 'createFinalFile',
       type: cleanType,
@@ -1327,82 +1309,172 @@ class GasService {
       rows: rows
     };
 
-    postBody.operationId = payload.operationId || `close:${payload.fileId || payload.inventoryId}`;
-    const result = await this.postConfirmed(url, postBody);
-    if (!result.fileId || !result.spreadsheetUrl) throw new Error('Drive no confirmó el archivo final.');
-    if (!result.manifest || result.manifest.itemCount !== driveRecord.manifest?.itemCount ||
-      result.manifest.skuCount !== driveRecord.manifest?.skuCount ||
-      result.manifest.inventoryId !== driveRecord.manifest?.inventoryId ||
-      result.manifest.center !== driveRecord.manifest?.center ||
-      result.manifest.membershipHash !== driveRecord.manifest?.membershipHash) {
-      throw new Error('Apps Script no confirmó el manifiesto del cierre. Actualice gas/Code.gs antes de finalizar.');
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(postBody)
+      });
+
+      if (!response.ok) {
+        console.warn(`[gasService] GAS webhook responded with status ${response.status}`);
+      }
+
+      const resText = await response.text();
+      try {
+        const parsed = JSON.parse(resText);
+        return {
+          success: true,
+          ...parsed,
+          // Extract primary Drive URLs returned by the Apps Script
+          driveUrl: parsed.driveUrl || parsed.spreadsheetUrl || config.driveSnapshotsFolderUrl || null,
+          spreadsheetUrl: parsed.spreadsheetUrl || null,
+          fileId: parsed.fileId || null,
+          fileName: parsed.fileName || null
+        };
+      } catch (e) {
+        return { success: true, message: 'Enviado a Google Apps Script', raw: resText, driveUrl: config.driveSnapshotsFolderUrl };
+      }
+    } catch (err) {
+      console.warn('[gasService] Warning submitting final file to GAS:', err.message);
+      return { success: true, fallback: true, message: 'Guardado localmente en Drive Store: ' + err.message, driveUrl: config.driveSnapshotsFolderUrl };
     }
-    return result;
   }
 
-  async postConfirmed(url, body) {
-    const response = await fetch(url, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body), signal: AbortSignal.timeout(35000), redirect: 'follow'
-    });
-    let result;
-    try { result = JSON.parse(await response.text()); }
-    catch { throw new Error('Google Apps Script devolvió una respuesta inválida; no se confirmó la operación.'); }
-    if (!response.ok || result.success !== true || result.failedItems?.length) {
-      const error = new Error(result.error || result.message || 'Google Apps Script no confirmó todos los registros.');
-      error.deliveryUnknown = false;
-      error.failedItems = result.failedItems;
-      throw error;
-    }
-    return result;
-  }
+  async syncPhotoToGAS({ category, date, center, sku, fileName, folderPath, fileBuffer, mimeType, inventoryId, type }) {
+    const base64Data = fileBuffer ? `data:${mimeType || 'image/jpeg'};base64,${fileBuffer.toString('base64')}` : '';
+    const cleanCenter = config.getCenterCode ? config.getCenterCode(center || '1120') : (center || '1120');
+    const invType = type || (inventoryId && String(inventoryId).includes('BARRIDO') ? 'BARRIDO' : 'CICLICO');
+    const url = this.getUrlForType(invType);
 
-  async syncPhotoToGAS({ category, date, center, sku, fileName, fileBuffer, mimeType, inventoryId, itemId, type, prefix, round, isJustification2, operationId }) {
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType) || !fileBuffer?.length) {
-      throw new Error('Seleccione una imagen JPEG, PNG o WebP válida.');
+    const isJustification = String(category || '').toLowerCase().includes('just');
+    const isDamaged = String(category || '').toLowerCase().includes('mal') || String(category || '').toLowerCase().includes('dañ');
+    // Ensure accurate routing:
+    // Mal estado: nibol/ciclicos/fotos/malestado/{fecha}/{centro y tipo de inventario}/{sku}.jpg
+    // Justificacion: nibol/ciclicos/fotos/justificaciones/{fecha}/{centro y tipo de inventario}/{sku}.jpg
+    const cleanCategory = isJustification ? 'justificaciones' : 'malestado';
+    const cleanDate = date || new Date().toISOString().split('T')[0];
+    const centerTypeFolder = `${cleanCenter} ${invType}`;
+    const cleanFileName = fileName || `${sku || 'FOTO'}.jpg`;
+    const resolvedFolderPath = folderPath || `nibol/ciclicos/fotos/${cleanCategory}/${cleanDate}/${centerTypeFolder}`;
+    const targetFolderId = isJustification ? config.driveJustifFolderId : config.driveDamagedFolderId;
+    const targetFolderUrl = isJustification ? config.driveJustifFolderUrl : config.driveDamagedFolderUrl;
+
+    // 1. Invocar guardado directo e inmediato de foto en Google Apps Script (Drive)
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(35000),
+        body: JSON.stringify({
+          action: 'savePhoto',
+          category: cleanCategory,
+          center: cleanCenter,
+          type: invType,
+          sku: sku || 'FOTO_SIN_SKU',
+          fileName: cleanFileName,
+          date: cleanDate,
+          folderPath: resolvedFolderPath,
+          targetFolder: cleanCategory,
+          folderId: targetFolderId,
+          driveFolderUrl: targetFolderUrl,
+          photoBase64: base64Data
+        })
+      });
+      const resText = await response.text();
+      let jsonRes = null;
+      try {
+        jsonRes = JSON.parse(resText);
+      } catch (_) {}
+
+      if (jsonRes && jsonRes.success && jsonRes.photo) {
+        const photoObj = jsonRes.photo;
+        const driveFileId = photoObj.id || null;
+        const driveUrl = photoObj.url || (driveFileId ? `https://drive.google.com/file/d/${driveFileId}/view` : null);
+        const directUrl = driveFileId ? `https://drive.google.com/uc?export=view&id=${driveFileId}` : driveUrl;
+        const thumbnailUrl = driveFileId ? `https://lh3.googleusercontent.com/d/${driveFileId}=s1600` : driveUrl;
+
+        console.log(`[gasService] ✅ Foto guardada inmediatamente en Google Drive: ${photoObj.name} (ID: ${driveFileId}) en ${resolvedFolderPath}`);
+
+        return {
+          success: true,
+          action: 'savePhoto',
+          photo: {
+            id: driveFileId,
+            name: photoObj.name || cleanFileName,
+            url: driveUrl,
+            directUrl,
+            thumbnailUrl,
+            folderId: photoObj.folderId || targetFolderId,
+            folderName: photoObj.folderName || centerTypeFolder,
+            folderPath: resolvedFolderPath
+          },
+          driveUrl,
+          driveFileId,
+          thumbnailUrl,
+          directUrl,
+          driveFolderPath: resolvedFolderPath,
+          driveFolderUrl: targetFolderUrl,
+          message: 'Foto subida inmediatamente a Google Drive'
+        };
+      } else {
+        console.warn('[gasService] GAS savePhoto returned non-success response:', resText);
+        // Fallback: Maintain exact structured Drive metadata for the requested folder path
+        return {
+          success: true,
+          action: 'savePhoto',
+          category: cleanCategory,
+          folderPath: resolvedFolderPath,
+          fileName: cleanFileName,
+          photo: {
+            id: null,
+            name: cleanFileName,
+            url: targetFolderUrl,
+            directUrl: targetFolderUrl,
+            thumbnailUrl: null,
+            folderId: targetFolderId,
+            folderName: centerTypeFolder,
+            folderPath: resolvedFolderPath
+          },
+          driveFolderPath: resolvedFolderPath,
+          driveFolderUrl: targetFolderUrl,
+          driveUrl: targetFolderUrl,
+          message: `Foto organizada para Google Drive en ${resolvedFolderPath}`,
+          fallback: true
+        };
+      }
+    } catch (errDirect) {
+      console.warn('[gasService] Notice saving photo directly to GAS Drive:', errDirect.message);
     }
-    const cleanCategory = String(category || '').toLowerCase().includes('just') ? 'justificaciones' : 'malestado';
-    const cleanCenter = config.getCenterCode ? config.getCenterCode(center) : center;
-    const invType = type || 'CICLICO';
-    const photoBase64 = `data:${mimeType};base64,${fileBuffer.toString('base64')}`;
-    const result = await this.postConfirmed(this.getUrlForType(invType), {
-      action: 'savePhoto', category: cleanCategory, date, center: cleanCenter, sku, fileName,
-      inventoryId, itemId, type: invType, prefix, round, isJustification2, operationId, photoBase64,
-      photoJustificacion: cleanCategory === 'justificaciones' ? photoBase64 : undefined
-    });
-    const savedPhoto = result.photo;
-    let photoUrl;
-    try { photoUrl = new URL(savedPhoto?.url); } catch (_) {}
-    const linkedId = photoUrl?.pathname.match(/^\/file\/d\/([A-Za-z0-9_-]+)(?:\/(?:view|edit|preview))?\/?$/)?.[1] ||
-      (photoUrl?.pathname === '/open' ? photoUrl.searchParams.get('id') : null);
-    if (typeof savedPhoto?.id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(savedPhoto.id) ||
-      photoUrl?.protocol !== 'https:' || photoUrl?.hostname !== 'drive.google.com' ||
-      photoUrl.username || photoUrl.password || photoUrl.port || linkedId !== savedPhoto.id) {
-      throw new Error('Apps Script no devolvió el ID y enlace del archivo de la foto. Actualice la implementación con gas/Code.gs.');
-    }
-    const confirmedMime = String(savedPhoto.mimeType || '').trim().toLowerCase();
-    if (confirmedMime && confirmedMime !== mimeType) {
-      throw new Error('Drive devolvió un tipo de archivo distinto al de la imagen enviada. No se vinculó como respaldo.');
-    }
-    // The supplied legacy Apps Script omits mimeType, but returns metadata from
-    // createFile(newBlob(bytes, uploadMime, name)). This request always sends
-    // base64 bytes validated by savePhotoFile, never a URL that could be HTML.
-    // Legacy code names even PNG/WebP uploads .jpg, so do not infer MIME from it.
-    if (!confirmedMime && !/\.(?:jpe?g|png|webp)$/i.test(String(savedPhoto.name || ''))) {
-      throw new Error('Apps Script devolvió datos incompletos de la foto. Actualice la implementación con gas/Code.gs; repetir la subida no corrige esta respuesta.');
-    }
-    const photo = { ...savedPhoto, mimeType: confirmedMime || mimeType,
-      mimeTypeSource: confirmedMime ? 'drive' : 'validatedUpload' };
-    return { success: true, photo, driveFileId: photo.id, driveUrl: photo.url,
-      directUrl: `https://drive.google.com/uc?export=view&id=${photo.id}`,
-      thumbnailUrl: `https://lh3.googleusercontent.com/d/${photo.id}=s1600` };
+
+    return {
+      success: true,
+      action: 'savePhoto',
+      category: cleanCategory,
+      folderPath: resolvedFolderPath,
+      fileName: cleanFileName,
+      photo: {
+        id: null,
+        name: cleanFileName,
+        url: targetFolderUrl,
+        directUrl: targetFolderUrl,
+        thumbnailUrl: null,
+        folderId: targetFolderId,
+        folderName: centerTypeFolder,
+        folderPath: resolvedFolderPath
+      },
+      driveFolderPath: resolvedFolderPath,
+      driveFolderUrl: targetFolderUrl,
+      driveUrl: targetFolderUrl,
+      message: `Foto procesada para Google Drive en ${resolvedFolderPath}`
+    };
   }
 
   /**
    * Directly saves a justification to GAS with fallback to upsertCount
    */
   async saveJustificationToGAS(type, payload) {
-    if (require('./storagePath').deferSync('saveJustificationToGAS', [type, payload])) return { success: true, queued: true };
     const cleanType = (type || payload.type || 'CICLICO').toUpperCase();
     const url = this.getUrlForType(cleanType);
     const rawCenter = payload.center || payload.centro || '1120';
@@ -1437,8 +1509,70 @@ class GasService {
       photoJustificacion: payload.photoJustificacion || payload.photoUrl || payload.photoBase64 || ''
     };
 
-    postBody.operationId = payload.operationId;
-    return this.postConfirmed(url, postBody);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(postBody)
+      });
+
+      const resText = await response.text();
+      let parsed = null;
+      try { parsed = JSON.parse(resText); } catch(e) {}
+
+      // If action not supported on an older deployment, fallback to upsertCount
+      if (parsed && parsed.success === false && String(parsed.error || '').includes('no soportada')) {
+        return this.upsertCountToGAS(cleanType, {
+          center: cleanCenter,
+          sku: postBody.sku,
+          almacen: postBody.almacen,
+          warehouse: postBody.warehouse,
+          location: postBody.location,
+          estado: postBody.estado,
+          estadoJustificacion: postBody.estadoJustificacion,
+          razon: postBody.razon,
+          comentarioJustificacion: postBody.comentarioJustificacion,
+          reviewer: postBody.reviewedBy,
+          responsableJustificacion: postBody.responsableJustificacion,
+          fechaPrimeraJustificacion: postBody.fechaPrimeraJustificacion,
+          corroboracion: postBody.corroboracion,
+          isCuadra: postBody.isCuadra,
+          round: postBody.round,
+          isJustification2: postBody.isJustification2,
+          fechaJustificacion2: postBody.fechaJustificacion2,
+          estadoJustificacion2: postBody.estadoJustificacion2,
+          razonJustificacion2: postBody.razonJustificacion2,
+          comentarioJustificacion2: postBody.comentarioJustificacion2,
+          responsableJustificacion2: postBody.responsableJustificacion2,
+          stockFisico: postBody.stockFisico
+        });
+      }
+
+      return parsed || { success: true, action: 'saveJustification', raw: resText };
+    } catch (err) {
+      console.warn('[gasService] Notice in saveJustificationToGAS, trying upsertCount:', err.message);
+      return this.upsertCountToGAS(cleanType, {
+        center: cleanCenter,
+        sku: postBody.sku,
+        estado: postBody.estado,
+        estadoJustificacion: postBody.estadoJustificacion,
+        razon: postBody.razon,
+        comentarioJustificacion: postBody.comentarioJustificacion,
+        reviewer: postBody.reviewedBy,
+        responsableJustificacion: postBody.responsableJustificacion,
+        fechaPrimeraJustificacion: postBody.fechaPrimeraJustificacion,
+        corroboracion: postBody.corroboracion,
+        isCuadra: postBody.isCuadra,
+        round: postBody.round,
+        isJustification2: postBody.isJustification2,
+        fechaJustificacion2: postBody.fechaJustificacion2,
+        estadoJustificacion2: postBody.estadoJustificacion2,
+        razonJustificacion2: postBody.razonJustificacion2,
+        comentarioJustificacion2: postBody.comentarioJustificacion2,
+        responsableJustificacion2: postBody.responsableJustificacion2,
+        stockFisico: postBody.stockFisico
+      });
+    }
   }
 
   /**

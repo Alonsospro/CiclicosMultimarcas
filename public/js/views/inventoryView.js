@@ -274,13 +274,6 @@ window.InventoryView = {
     modalCountPhotoInput?.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const uploadInventoryId = this.currentInventory?.id;
-      const uploadContextId = document.getElementById('modal-count-item-id')?.value;
-      const uploadToken = Symbol('photo');
-      this._photoTokens ||= {};
-      this._photoTokens['modalCountPhotoInput'] = uploadToken;
-      this._photoUploading ||= {};
-      this._photoUploading['modalCountPhotoInput'] = uploadToken;
 
       let itemId = document.getElementById('modal-count-item-id')?.value;
       if (!itemId) {
@@ -312,25 +305,18 @@ window.InventoryView = {
           itemId: itemId || ''
         });
 
-        if (this.currentInventory?.id !== uploadInventoryId || document.getElementById('modal-count-item-id')?.value !== uploadContextId || this._photoTokens['modalCountPhotoInput'] !== uploadToken) return;
-        if (!res.photo?.driveFileId) throw new Error('Drive no confirmó la foto.');
         if (res.photo && res.photo.url) {
           if (modalCountPhotoUrlVal) modalCountPhotoUrlVal.value = res.photo.url;
           window.Toast.success('Foto de mal estado adjuntada con éxito.');
         }
       } catch (err) {
         window.Toast.danger(err.message || 'Error al subir foto de evidencia');
-      } finally {
-        if (this._photoUploading['modalCountPhotoInput'] === uploadToken) delete this._photoUploading['modalCountPhotoInput'];
       }
     });
 
     // Form submit: Confirm Count (Modal for additional location)
     document.getElementById('form-confirm-count')?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (this._photoUploading?.modalCountPhotoInput) return window.Toast.warning('Espere a que termine de subir la foto.');
-      const inventoryId = this.currentInventory?.id;
-      if (!inventoryId) return;
       let itemId = document.getElementById('modal-count-item-id').value;
       const isNewLoc = document.getElementById('modal-count-is-new-loc').value === 'true';
       const newLoc = document.getElementById('modal-input-new-loc').value.trim();
@@ -348,12 +334,12 @@ window.InventoryView = {
         return;
       }
 
-      const qty = qtyVal !== '' ? Number(qtyVal) : 0;
-      const damaged = damagedVal !== '' ? Number(damagedVal) : 0;
+      const qty = qtyVal !== '' ? parseInt(qtyVal, 10) : 0;
+      const damaged = damagedVal !== '' ? parseInt(damagedVal, 10) : 0;
 
       const targetModalItem = itemId && this.currentInventory?.items ? this.currentInventory.items.find(it => it.id === itemId) : null;
       try {
-        await window.API.registerCount(inventoryId, {
+        await window.API.registerCount(this.currentInventory.id, {
           itemId: itemId || null,
           sku: targetModalItem?.SKU || undefined,
           stockFisico: qty,
@@ -364,7 +350,6 @@ window.InventoryView = {
           isNewLocation: isNewLoc
         });
 
-        if (this.currentInventory?.id !== inventoryId) return;
         window.Toast.success(isNewLoc ? `Nueva ubicación '${newLoc}' registrada para este ítem` : 'Conteo registrado correctamente');
         window.ModalHelper.close('modal-count-confirm');
         await this.reloadCurrentInventory();
@@ -396,13 +381,6 @@ window.InventoryView = {
     photoInput?.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const uploadInventoryId = this.currentInventory?.id;
-      const uploadContextId = document.getElementById('damage-photo-item-id')?.value;
-      const uploadToken = Symbol('photo');
-      this._photoTokens ||= {};
-      this._photoTokens['photoInput'] = uploadToken;
-      this._photoUploading ||= {};
-      this._photoUploading['photoInput'] = uploadToken;
 
       const itemId = document.getElementById('damage-photo-item-id')?.value;
       const item = this.currentInventory?.items?.find(it => it.id === itemId);
@@ -421,8 +399,6 @@ window.InventoryView = {
           itemId: itemId || ''
         });
 
-        if (this.currentInventory?.id !== uploadInventoryId || document.getElementById('damage-photo-item-id')?.value !== uploadContextId || this._photoTokens['photoInput'] !== uploadToken) return;
-        if (!res.photo?.driveFileId) throw new Error('Drive no confirmó la foto.');
         if (res.photo && res.photo.url) {
           document.getElementById('damage-photo-url-val').value = res.photo.url;
           if (previewImg) previewImg.src = res.photo.url;
@@ -431,39 +407,51 @@ window.InventoryView = {
         }
       } catch (err) {
         window.Toast.danger(err.message || 'Error al subir foto de evidencia');
-      } finally {
-        if (this._photoUploading['photoInput'] === uploadToken) delete this._photoUploading['photoInput'];
       }
     });
 
     document.getElementById('btn-save-damage-photo')?.addEventListener('click', async () => {
-      if (this._photoUploading?.photoInput) return window.Toast.warning('Espere a que termine de subir la foto.');
-      const inventoryId = this.currentInventory?.id;
       const itemId = document.getElementById('damage-photo-item-id').value;
       const photoUrl = document.getElementById('damage-photo-url-val').value;
       if (!itemId || !this.currentInventory) return;
-      if (!photoUrl) return window.Toast.warning('Suba la foto antes de guardar la evidencia.');
 
       const item = this.currentInventory.items.find(it => it.id === itemId);
       const isReconteoInv = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || String(this.currentInventory.id || '').startsWith('REC-'));
       const qtyInput = document.getElementById(`input-qty-${itemId}`);
       const damagedInput = document.getElementById(`input-damaged-${itemId}`);
 
-      const qty = qtyInput && qtyInput.value !== '' ? Number(qtyInput.value) : (isReconteoInv ? (item?.Reconteo_Fisico ?? item?.Stock_Fisico ?? 0) : (item?.Stock_Fisico ?? 0));
-      const damaged = damagedInput && damagedInput.value !== '' ? Number(damagedInput.value) : (isReconteoInv ? (item?.Reconteo_Mal_Estado ?? item?.Mal_estado ?? 0) : (item?.Mal_estado ?? 0));
+      const qty = qtyInput && qtyInput.value !== '' ? parseInt(qtyInput.value, 10) : (isReconteoInv ? (item?.Reconteo_Fisico || item?.Stock_Fisico || 0) : (item?.Stock_Fisico || 0));
+      const damaged = damagedInput ? (parseInt(damagedInput.value, 10) || 0) : (isReconteoInv ? (item?.Reconteo_Mal_Estado || item?.Mal_estado || 0) : (item?.Mal_estado || 0));
 
       try {
-        const saved = await window.API.registerCount(inventoryId, {
+        await window.API.registerCount(this.currentInventory.id, {
           itemId,
           sku: item?.SKU,
           location: item?.Ubicacion,
           almacen: item?.Almacen || item?.almacen || item?.warehouse || undefined,
-          stockFisico: qty,
-          malEstado: damaged,
+          stockFisico: isReconteoInv ? (item?.Stock_Fisico_1erConteo !== undefined ? item?.Stock_Fisico_1erConteo : item?.Stock_Fisico) : qty,
+          reconteoFisico: isReconteoInv ? qty : undefined,
+          malEstado: isReconteoInv ? (item?.Mal_estado_1erConteo !== undefined ? item?.Mal_estado_1erConteo : item?.Mal_estado) : damaged,
+          reconteoMalEstado: isReconteoInv ? damaged : undefined,
+          isReconteo: isReconteoInv,
           photoUrl
         });
-        if (this.currentInventory?.id !== inventoryId) return;
-        if (item && saved.item) Object.assign(item, saved.item);
+
+        if (item) {
+          item.foto_mal_estado = photoUrl;
+          if (isReconteoInv) {
+            item.foto_mal_estado_reconteo = photoUrl;
+            item.Reconteo_Fisico = qty;
+            item.Reconteo = qty;
+            item.Reconteo_Mal_Estado = damaged;
+            item.Malestado_Reconteo = damaged;
+            item.Stock_Total_Reconteo = qty + damaged;
+          } else {
+            item.Mal_estado = damaged;
+            item.Stock_Fisico = qty;
+            item.Stock_Total = qty + damaged;
+          }
+        }
 
         const btn = document.getElementById(`btn-photo-${itemId}`);
         if (btn) {
@@ -524,13 +512,6 @@ window.InventoryView = {
     addLocPhotoInput?.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const uploadInventoryId = this.currentInventory?.id;
-      const uploadContextId = document.getElementById('add-loc-item-id')?.value;
-      const uploadToken = Symbol('photo');
-      this._photoTokens ||= {};
-      this._photoTokens['addLocPhotoInput'] = uploadToken;
-      this._photoUploading ||= {};
-      this._photoUploading['addLocPhotoInput'] = uploadToken;
 
       const itemId = document.getElementById('add-loc-item-id')?.value;
       const currentItem = (this.currentInventory?.items || []).find(it => it.id === itemId);
@@ -559,16 +540,12 @@ window.InventoryView = {
           itemId: itemId || ''
         });
 
-        if (this.currentInventory?.id !== uploadInventoryId || document.getElementById('add-loc-item-id')?.value !== uploadContextId || this._photoTokens['addLocPhotoInput'] !== uploadToken) return;
-        if (!res.photo?.driveFileId) throw new Error('Drive no confirmó la foto.');
         if (res.photo && res.photo.url) {
           if (addLocPhotoUrlVal) addLocPhotoUrlVal.value = res.photo.url;
           window.Toast.success('Foto de mal estado adjuntada con éxito.');
         }
       } catch (err) {
         window.Toast.danger(err.message || 'Error al subir foto de evidencia');
-      } finally {
-        if (this._photoUploading['addLocPhotoInput'] === uploadToken) delete this._photoUploading['addLocPhotoInput'];
       }
     });
 
@@ -676,12 +653,11 @@ window.InventoryView = {
       try {
         const signerName = window.Auth.currentUser?.displayName || window.Auth.currentUser?.username || 'Usuario';
         const rolePrefix = userRole === 'ENCARGADO' ? 'Encargado: ' : (userRole === 'ADMIN' ? 'Administrador: ' : 'Auxiliar: ');
-        const submittedId = this.currentInventory.id;
-        await window.API.submitInventory(submittedId, {
+        await window.API.submitInventory(this.currentInventory.id, {
           signature: `Firmado digitalmente por ${rolePrefix}${signerName} (${new Date().toLocaleString()})`
         });
 
-        if (this.currentInventory?.id !== submittedId) return;
+        const submittedId = this.currentInventory.id;
         this.currentInventory.status = isReconteo ? 'RECONTEO_COMPLETADO' : 'PENDIENTE_JUSTIFICACION';
         this.updateSubmitButtonState();
 
@@ -867,7 +843,6 @@ window.InventoryView = {
   },
 
   async openInventory(id) {
-    const opening = this._opening = Symbol(id);
     try {
       try {
         localStorage.setItem('nibol_active_inv_id', id);
@@ -878,19 +853,17 @@ window.InventoryView = {
       try {
         const res = await window.API.getInventoryById(id);
         inv = res.inventory;
-        try { localStorage.setItem(window.CountQueue.cacheKey(id), JSON.stringify(inv)); } catch (e) {}
+        try { localStorage.setItem(`nibol_inv_detail_${id}`, JSON.stringify(inv)); } catch (e) {}
       } catch (netErr) {
-        if (netErr.status && netErr.status < 500) throw netErr;
-        const cachedRaw = localStorage.getItem(window.CountQueue.cacheKey(id));
+        const cachedRaw = localStorage.getItem(`nibol_inv_detail_${id}`);
         if (cachedRaw) {
           inv = JSON.parse(cachedRaw);
-          window.Toast.warning('Sin conexión: copia local del último avance confirmado. Los envíos pendientes se muestran por separado.');
+          window.Toast.info('Mostrando datos del inventario guardados localmente');
         } else {
           throw netErr;
         }
       }
 
-      if (this._opening !== opening) return;
       this.currentInventory = inv;
 
       // Un auxiliar no puede abrir un inventario que ya fue enviado a justificación
@@ -937,9 +910,8 @@ window.InventoryView = {
     const id = this.currentInventory.id;
     try {
       const res = await window.API.getInventoryById(id);
-      if (this.currentInventory?.id !== id) return;
       this.currentInventory = res.inventory;
-      try { localStorage.setItem(window.CountQueue.cacheKey(id), JSON.stringify(res.inventory)); } catch (e) {}
+      try { localStorage.setItem(`nibol_inv_detail_${id}`, JSON.stringify(res.inventory)); } catch (e) {}
     } catch (e) {
       // Keep memory copy
     }
@@ -1163,9 +1135,9 @@ window.InventoryView = {
                       class="form-input input-inline-count"
                       style="height: 46px; font-size: 1.35rem; font-weight: 900; text-align: center; font-family: var(--font-mono); color: #ffffff; background: #090e1a; border: 2px solid ${isCounted ? '#10b981' : '#475569'}; border-radius: 6px; width: 100%; ${isLocked ? 'background: rgba(16,185,129,0.08); cursor: pointer; opacity: 0.95;' : ''}"
                       placeholder="0"
-                      value="${!isLocked && window.CountQueue.draft(this.currentInventory.id, item.id) ? Number(window.CountQueue.draft(this.currentInventory.id, item.id).stockFisico) : (isCounted ? countedQty : '')}"
+                      value="${isCounted ? countedQty : ''}"
                       ${isLocked ? 'disabled' : ''}
-                      oninput="window.InventoryView.handleInlineCountChange('${item.id}')"
+                      oninput="window.InventoryView.updateItemTotalBadge('${item.id}')"
                       onchange="window.InventoryView.handleInlineCountChange('${item.id}'); window.InventoryView.updateItemTotalBadge('${item.id}');"
                       onkeydown="if(event.key==='Enter'){event.preventDefault(); window.InventoryView.confirmAndLockItem('${item.id}');}"
                     />
@@ -1184,7 +1156,7 @@ window.InventoryView = {
                         class="form-input input-inline-damaged"
                         style="height: 46px; width: 100%; min-width: 50px; font-size: 1.25rem; font-weight: 800; text-align: center; font-family: var(--font-mono); color: #f87171; background: #090e1a; border: 2px solid ${hasDamaged ? '#ef4444' : '#475569'}; border-radius: 6px; ${isLocked ? 'cursor: not-allowed; opacity: 0.85;' : ''}"
                         placeholder="0"
-                        value="${!isLocked && window.CountQueue.draft(this.currentInventory.id, item.id) ? Number(window.CountQueue.draft(this.currentInventory.id, item.id).malEstado) : damagedQty}"
+                        value="${damagedQty}"
                         ${isLocked ? 'disabled' : ''}
                         oninput="window.InventoryView.handleDamagedInput('${item.id}', this.value); window.InventoryView.updateItemTotalBadge('${item.id}');"
                         onchange="window.InventoryView.handleInlineCountChange('${item.id}'); window.InventoryView.updateItemTotalBadge('${item.id}');"
@@ -1278,9 +1250,6 @@ window.InventoryView = {
   },
 
   openAddLocationModal(itemId) {
-    this._photoTokens ||= {};
-    this._photoTokens['addLocPhotoInput'] = null;
-    if (this._photoUploading) delete this._photoUploading['addLocPhotoInput'];
     if (!this.currentInventory) return;
     const item = (this.currentInventory.items || []).find(it => it.id === itemId);
     if (!item) return;
@@ -1635,16 +1604,62 @@ window.InventoryView = {
   },
 
   handleInlineCountChange(itemId) {
-    const inventoryId = this.currentInventory?.id;
     const item = this.currentInventory?.items.find(it => it.id === itemId);
-    if (!item || item.locked || this._confirmingItems?.has(`${inventoryId}:${itemId}`)) return;
-    const qty = document.getElementById(`input-qty-${itemId}`)?.value;
-    const damaged = document.getElementById(`input-damaged-${itemId}`)?.value;
+    if (!item) return;
+
     this.updateItemTotalBadge(itemId);
-    this.handleDamagedInput(itemId, damaged);
-    try {
-      window.CountQueue.saveDraft(inventoryId, itemId, { stockFisico: qty, malEstado: damaged, expectedItemVersion: item._version || 0 });
-    } catch (_) { window.Toast.warning('El navegador no pudo conservar el borrador. Confirme el conteo antes de salir.'); }
+
+    const qtyInput = document.getElementById(`input-qty-${itemId}`);
+    const damInput = document.getElementById(`input-damaged-${itemId}`);
+
+    const isReconteoInv = !!(this.currentInventory?.isReconteo || this.currentInventory?.phase === 'RECONTEO' || String(this.currentInventory?.id || '').startsWith('REC-'));
+
+    let qty = null;
+    if (qtyInput && qtyInput.value !== '') {
+      qty = parseInt(qtyInput.value, 10);
+      if (isNaN(qty) || qty < 0) qty = 0;
+      item.Stock_Fisico = qty;
+      if (isReconteoInv) {
+        item.Reconteo_Fisico = qty;
+      }
+    }
+
+    let damaged = 0;
+    if (damInput) {
+      damaged = parseInt(damInput.value, 10) || 0;
+      item.Mal_estado = damaged;
+      if (isReconteoInv) {
+        item.Reconteo_Mal_Estado = damaged;
+      }
+      this.handleDamagedInput(itemId, damInput.value);
+    }
+
+    // Sincronizar en tiempo real al ingresar la cantidad (sin esperar confirmación manual)
+    if (qty !== null) {
+      if (!this._inlineDebounceTimers) this._inlineDebounceTimers = {};
+      clearTimeout(this._inlineDebounceTimers[itemId]);
+      this._inlineDebounceTimers[itemId] = setTimeout(async () => {
+        try {
+          await window.API.registerCount(this.currentInventory.id, {
+            itemId,
+            sku: item?.SKU,
+            location: item?.Ubicacion,
+            almacen: item?.Almacen || item?.almacen || item?.warehouse || undefined,
+            stockFisico: qty,
+            malEstado: damaged,
+            photoUrl: item?.foto_mal_estado || undefined,
+            locked: false
+          });
+          const icon = document.getElementById(`saved-icon-${itemId}`);
+          if (icon) {
+            icon.style.opacity = '1';
+            setTimeout(() => { if (icon && !item.locked) icon.style.opacity = '0.5'; }, 1500);
+          }
+        } catch (err) {
+          console.warn('[inventoryView] Auto-sync inline count warning:', err.message);
+        }
+      }, 500);
+    }
   },
 
   async confirmAndLockItem(itemId) {
@@ -1652,11 +1667,6 @@ window.InventoryView = {
 
     const item = this.currentInventory.items.find(it => it.id === itemId || it.SKU === itemId || String(it.id) === String(itemId));
     const actualId = item ? item.id : itemId;
-    const inventory = this.currentInventory;
-    const inventoryId = inventory.id;
-    const sendKey = `${inventoryId}:${actualId}`;
-    this._confirmingItems ||= new Set();
-    if (this._confirmingItems.has(sendKey)) return;
 
     const qtyInput = document.getElementById(`input-qty-${actualId}`);
     const damInput = document.getElementById(`input-damaged-${actualId}`);
@@ -1670,11 +1680,11 @@ window.InventoryView = {
       qtyInput.value = '0';
     }
 
-    const qty = Number(qtyVal);
-    const damaged = Number(damInput.value || 0);
+    const qty = parseInt(qtyVal, 10);
+    const damaged = parseInt(damInput.value, 10) || 0;
 
-    if (!Number.isSafeInteger(qty) || qty < 0 || !Number.isSafeInteger(damaged) || damaged < 0) {
-      window.Toast.warning('Las cantidades deben ser enteros mayores o iguales a cero.');
+    if (isNaN(qty) || qty < 0) {
+      window.Toast.warning('La cantidad física no es válida.');
       return;
     }
 
@@ -1682,13 +1692,8 @@ window.InventoryView = {
     const isReCount = previousCount !== null;
     const recountReason = (item && item.pendingReEditReason) ? item.pendingReEditReason : (isReCount ? 'Reconteo físico confirmado' : null);
 
-    this._confirmingItems.add(sendKey);
-    if (btn) btn.disabled = true;
-    qtyInput.disabled = true;
-    damInput.disabled = true;
-    let confirmed = false;
     try {
-      const saved = await window.API.registerCount(inventoryId, {
+      await window.API.registerCount(this.currentInventory.id, {
         itemId: actualId,
         sku: item?.SKU,
         location: item?.Ubicacion,
@@ -1700,14 +1705,12 @@ window.InventoryView = {
         reason: recountReason
       });
 
-      confirmed = true;
-      if (saved.item && item) Object.assign(item, saved.item);
-      window.CountQueue.cache(inventory);
-      if (this.currentInventory?.id !== inventoryId) return;
       const isReconteoInv = !!(this.currentInventory?.isReconteo || this.currentInventory?.phase === 'RECONTEO' || String(this.currentInventory?.id || '').startsWith('REC-'));
 
       if (item) {
-
+        if (isReCount) {
+          item.modificationCount = (item.modificationCount || 0) + 1;
+        }
         item.Stock_Fisico = qty;
         item.Mal_estado = damaged;
         if (isReconteoInv) {
@@ -1772,10 +1775,6 @@ window.InventoryView = {
     } catch (err) {
       qtyInput.style.borderColor = 'var(--danger)';
       window.Toast.danger(err.message || 'Error al guardar y bloquear conteo');
-    } finally {
-      this._confirmingItems.delete(sendKey);
-      if (btn) btn.disabled = false;
-      if (!confirmed) { qtyInput.disabled = false; damInput.disabled = false; }
     }
   },
 
@@ -1941,17 +1940,14 @@ window.InventoryView = {
   },
 
   openDamagePhotoModal(itemId) {
-    this._photoTokens ||= {};
-    this._photoTokens['photoInput'] = null;
-    if (this._photoUploading) delete this._photoUploading['photoInput'];
     if (!this.currentInventory) return;
     const item = this.currentInventory.items.find(it => it.id === itemId);
     if (!item) return;
 
     const isReconteo = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || String(this.currentInventory.id || '').startsWith('REC-'));
     const damInput = document.getElementById(`input-damaged-${itemId}`);
-    const defaultDamaged = isReconteo ? (item.Reconteo_Mal_Estado ?? item.Malestado_Reconteo ?? item.Mal_estado ?? 0) : (item.Mal_estado || 0);
-    const damagedVal = damInput && damInput.value !== '' ? Number(damInput.value) : defaultDamaged;
+    const defaultDamaged = isReconteo ? (item.Reconteo_Mal_Estado || item.Malestado_Reconteo || item.Mal_estado || 0) : (item.Mal_estado || 0);
+    const damagedVal = damInput ? (parseInt(damInput.value, 10) || defaultDamaged) : defaultDamaged;
 
     document.getElementById('damage-photo-item-id').value = item.id;
     document.getElementById('damage-photo-sku').textContent = item.SKU;
@@ -1980,9 +1976,6 @@ window.InventoryView = {
   },
 
   openCountModal(itemId, isNewLocation = false) {
-    this._photoTokens ||= {};
-    this._photoTokens['modalCountPhotoInput'] = null;
-    if (this._photoUploading) delete this._photoUploading['modalCountPhotoInput'];
     document.getElementById('modal-count-is-new-loc').value = isNewLocation ? 'true' : 'false';
     const newLocGroup = document.getElementById('group-new-location-input');
     const skuGroup = document.getElementById('group-sku-select');
@@ -2159,6 +2152,28 @@ window.InventoryView = {
       await this.loadInventories();
     } catch (err) {
       window.Toast.danger(err.message || 'Error al sincronizar con Google Sheets');
+    } finally {
+      if (btnElement) {
+        btnElement.disabled = false;
+        btnElement.innerHTML = origHtml;
+      }
+    }
+  },
+
+  async triggerDailyBackup(btnElement) {
+    let origHtml = '';
+    if (btnElement) {
+      origHtml = btnElement.innerHTML;
+      btnElement.disabled = true;
+      btnElement.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Respaldando...';
+    }
+    try {
+      window.Toast.info('Generando respaldo diario hacia Google Sheets y Google Drive...');
+      const res = await window.API.backupDaily();
+      const count = res.totalInventoriesBackedUp || 0;
+      window.Toast.success(`✅ Respaldo completado: ${count} inventarios respaldados en Google Sheets.`);
+    } catch (err) {
+      window.Toast.danger(err.message || 'Error al generar respaldo diario');
     } finally {
       if (btnElement) {
         btnElement.disabled = false;

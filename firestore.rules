@@ -1,41 +1,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} { 
-      allow read, write: if false; 
-    }
-
-    function incoming() { return request.resource.data; }
-    function existing() { return resource.data; }
-
-    function isValidId(id) { 
-      return id is string && id.size() <= 200 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
-    }
-
-    function isValidAppFile(data) {
-      return data.keys().hasAll(['path', 'dir', 'fileName', 'content', 'secret', 'updatedAt'])
-        && data.keys().size() == 6
-        && data.path is string && data.path.size() <= 500
-        && data.dir is string && data.dir.size() <= 500
-        && data.fileName is string && data.fileName.size() <= 255
-        && data.content is string && data.content.size() <= 10485760
-        && data.secret is string && data.secret.size() <= 100
-        && data.updatedAt is number;
-    }
-
     match /app_files/{fileId} {
-      // The secret token acts as the authentication boundary for the backend
-      allow read: if resource.data.secret == 'NIBOL_BACKEND_SECRET_987654321';
-      
-      allow create: if isValidId(fileId) 
-                    && isValidAppFile(incoming())
-                    && incoming().secret == 'NIBOL_BACKEND_SECRET_987654321';
-                    
-      allow update: if isValidId(fileId)
-                    && isValidAppFile(incoming())
-                    && incoming().secret == 'NIBOL_BACKEND_SECRET_987654321'
-                    && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'updatedAt']);
-                    
+      allow read: if resource != null && resource.data.secret == 'NIBOL_BACKEND_SECRET_987654321';
+      allow write: if request.resource != null && request.resource.data.secret == 'NIBOL_BACKEND_SECRET_987654321';
       allow delete: if resource == null || resource.data.secret == 'NIBOL_BACKEND_SECRET_987654321';
     }
   }

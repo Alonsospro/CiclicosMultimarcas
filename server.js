@@ -67,27 +67,32 @@ app.use((err, req, res, next) => {
 if (require.main === module) {
   const PORT = config.port || 3000;
   
-  // Initialize local memory store from persistent storage
+  // Hydrate data from Firebase before listening
   const firebaseSyncService = require('./src/services/firebaseSyncService');
   const dailyBackupService = require('./src/services/dailyBackupService');
 
   firebaseSyncService.hydrateMemoryStore(storagePath.memoryStore, storagePath.cacheTimestamps, storagePath.dirListings, storagePath)
-    .then(() => {
+    .then(async () => {
+      // Ensure all existing local inventories, justifications, and users are safely in Firestore
+      firebaseSyncService.syncAllDiskFilesToFirestore(storagePath).catch(e => {
+        console.warn('[server] Notice syncing local files to Firestore:', e.message);
+      });
+
       app.listen(PORT, '0.0.0.0', () => {
         console.log(`====================================================`);
         console.log(`🚀 SERVIDOR NIBOL INVENTARIOS ACTIVO EN PUERTO ${PORT}`);
         console.log(`🌐 URL: http://0.0.0.0:${PORT}`);
         console.log(`🔒 Entorno: ${config.nodeEnv}`);
-        console.log(`📊 Modo de Datos: CONEXIÓN DIRECTA GOOGLE APPS SCRIPT / DRIVE`);
-        console.log(`💾 Almacenamiento Local: DISCO PERSISTENTE / CACHÉ ACTIVO`);
+        console.log(`☁️ Firebase Persistence: ACTIVATED`);
         console.log(`====================================================`);
         dailyBackupService.startScheduler();
       });
     })
     .catch(err => {
-      console.error('Error inicializando memoria local:', err);
+      console.error('Failed to initialize Firebase persistence:', err);
+      // Fallback to starting anyway if Firestore is unreachable
       app.listen(PORT, '0.0.0.0', () => {
-        console.log(`🚀 SERVIDOR NIBOL INVENTARIOS INICIADO.`);
+        console.log(`🚀 SERVIDOR NIBOL INVENTARIOS INICIADO SIN PERSISTENCIA CLOUD.`);
         dailyBackupService.startScheduler();
       });
     });
