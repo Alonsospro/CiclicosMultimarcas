@@ -142,7 +142,7 @@ test('a failed refresh blocks the old snapshot until a successful reload', async
   assert.equal(f.reports.length, 0);
 });
 
-test('printable report includes escaped filter context, ERU and discrepancy data', () => {
+test('printable report includes escaped filter context and aggregate results without item listings', () => {
   const f = fixture(), area = { innerHTML: '' };
   f.elements.set('report-printable-area', area);
   vm.runInContext(reportCode, f.context);
@@ -153,7 +153,8 @@ test('printable report includes escaped filter context, ERU and discrepancy data
   assert.match(area.innerHTML, /2026-10-08/);
   assert.match(area.innerHTML, /BARRIDO/);
   assert.match(area.innerHTML, /90\.00%/);
-  assert.match(area.innerHTML, /SKU-1/);
+  assert.doesNotMatch(area.innerHTML, /SKU-1/);
+  assert.match(area.innerHTML, /RESUMEN OPERATIVO DE CONCILIACIÓN/);
   assert.match(area.innerHTML, /&lt;script&gt;/);
   assert.doesNotMatch(area.innerHTML, /<script>/);
 });

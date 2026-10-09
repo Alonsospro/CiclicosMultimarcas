@@ -126,7 +126,7 @@ class DailyBackupService {
   /**
    * Inicia el temporizador de respaldo recurrente (cada 24 horas a las 23:30)
    */
-  startScheduler() {
+  startScheduler(runExclusive = work => work()) {
     if (this.intervalId) {
       clearInterval(this.intervalId);
     }
@@ -134,7 +134,7 @@ class DailyBackupService {
     // Ejecutar cada 12 horas para máxima seguridad
     const TWELVE_HOURS = 12 * 60 * 60 * 1000;
     this.intervalId = setInterval(() => {
-      this.runDailyBackup({ triggeredBy: 'SCHEDULED_TIMER' }).catch(err => {
+      runExclusive(() => this.runDailyBackup({ triggeredBy: 'SCHEDULED_TIMER' })).catch(err => {
         console.error('[dailyBackupService] Error en respaldo programado:', err.message);
       });
     }, TWELVE_HOURS);
