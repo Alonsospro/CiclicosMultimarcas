@@ -13,6 +13,7 @@ class FirebaseSyncService {
     this.collectionName = 'app_files';
     this.quotaExhaustedUntil = null;
     this.debounceTimers = new Map();
+    this.inFlightWrites = new Set();
   }
 
   // Hash/encode the path to create a safe Firestore document ID
@@ -185,19 +186,29 @@ class FirebaseSyncService {
       }
     };
 
+    const runSync = () => {
+      const pending = performSync();
+      this.inFlightWrites.add(pending);
+      pending.then(
+        () => this.inFlightWrites.delete(pending),
+        () => this.inFlightWrites.delete(pending)
+      );
+      return pending;
+    };
+
     if (immediate) {
       if (this.debounceTimers.has(docId)) {
         clearTimeout(this.debounceTimers.get(docId));
         this.debounceTimers.delete(docId);
       }
-      return performSync();
+      return runSync();
     }
 
     // Debounce rapid continuous saves for the same file by 350ms
     if (this.debounceTimers.has(docId)) {
       clearTimeout(this.debounceTimers.get(docId));
     }
-    this.debounceTimers.set(docId, setTimeout(performSync, 350));
+    this.debounceTimers.set(docId, setTimeout(runSync, 350));
   }
 
   async syncAllDiskFilesToFirestore(storagePathInstance) {
@@ -290,43 +301,54 @@ class FirebaseSyncService {
     try {
       this.debounceTimers.forEach(t => clearTimeout(t));
       this.debounceTimers.clear();
-      console.log('[firebaseSync] Clearing test data in Firestore (keepUsers=' + keepUsers + ')...');
+
+      // Let already-started writes finish before reading the collection to delete.
+      while (this.inFlightWrites.size > 0) {
+        await Promise.allSettled(Array.from(this.inFlightWrites));
+      }
+
+      console.log('[firebaseSync] Clearing application data in Firestore (keepUsers=' + keepUsers + ')...');
       const q = query(collection(db, this.collectionName), where('secret', '==', SECRET));
       const snapshot = await getDocs(q);
-      
+
       const chunks = [];
       let currentBatch = writeBatch(db);
-      let count = 0;
-      
+      let pendingInBatch = 0;
+      let deletedCount = 0;
+      let preservedUsersCount = 0;
+
       snapshot.forEach((document) => {
         const data = document.data();
         const fName = (data && data.fileName) ? String(data.fileName).toLowerCase() : '';
         const p = (data && data.path) ? String(data.path).toLowerCase() : '';
         if (keepUsers && (fName === 'users.json' || p.endsWith('users.json') || p === 'users.json')) {
-          return; // preserve users.json
+          preservedUsersCount++;
+          return;
         }
         currentBatch.delete(document.ref);
-        count++;
-        if (count === 500) {
+        pendingInBatch++;
+        deletedCount++;
+        if (pendingInBatch === 500) {
           chunks.push(currentBatch);
           currentBatch = writeBatch(db);
-          count = 0;
+          pendingInBatch = 0;
         }
       });
-      
-      if (count > 0) {
-        chunks.push(currentBatch);
-      }
-      
+
+      if (pendingInBatch > 0) chunks.push(currentBatch);
+
       for (const batch of chunks) {
         await batch.commit();
       }
-      console.log('[firebaseSync] Cleared Firestore test data successfully.');
+
+      console.log('[firebaseSync] Firestore clear completed. Deleted ' + deletedCount + ' documents; preserved ' + preservedUsersCount + ' user documents.');
+      return { deletedCount, preservedUsersCount };
     } catch (err) {
       if (err.message && (err.message.includes('RESOURCE_EXHAUSTED') || err.message.includes('quota') || err.message.includes('Quota'))) {
         this.quotaExhaustedUntil = Date.now() + (30 * 60 * 1000);
       }
-      console.warn('[firebaseSync] Notice clearing Firestore data:', err.message);
+      console.error('[firebaseSync] Failed to clear Firestore data:', err.message);
+      throw new Error('No se pudo confirmar el borrado en Firestore. La limpieza no se completó; revisa los registros del servidor e inténtalo nuevamente.');
     }
   }
 }
