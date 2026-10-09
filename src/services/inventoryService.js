@@ -2122,7 +2122,7 @@ class InventoryService {
       throw new Error('Solo los administradores pueden reiniciar el sistema a 0');
     }
 
-    await storagePath.clearAllData(true);
+    const clearResult = await storagePath.clearAllData(true);
 
     auditService.logDeletion({
       inventoryId: 'ALL_SYSTEM_DATA',
@@ -2131,7 +2131,12 @@ class InventoryService {
       reason: 'Limpieza total de historiales y pruebas a 0'
     });
 
-    return { success: true, message: 'Todos los inventarios, historiales y archivos de prueba han sido eliminados. El sistema quedó completamente en 0.' };
+    return {
+      success: true,
+      firestoreDeletedDocuments: clearResult.firestore.deletedCount,
+      preservedUserDocuments: clearResult.firestore.preservedUsersCount,
+      message: `Limpieza completada. Se eliminaron ${clearResult.firestore.deletedCount} documentos de Firestore; se conservaron ${clearResult.firestore.preservedUsersCount} documentos de usuarios.`
+    };
   }
 
   async searchProductForBarrido({ barcodeOrSku, center }) {

@@ -74,9 +74,7 @@ if (require.main === module) {
   firebaseSyncService.hydrateMemoryStore(storagePath.memoryStore, storagePath.cacheTimestamps, storagePath.dirListings, storagePath)
     .then(async () => {
       // Ensure all existing local inventories, justifications, and users are safely in Firestore
-      firebaseSyncService.syncAllDiskFilesToFirestore(storagePath).catch(e => {
-        console.warn('[server] Notice syncing local files to Firestore:', e.message);
-      });
+      await firebaseSyncService.syncAllDiskFilesToFirestore(storagePath);
 
       app.listen(PORT, '0.0.0.0', () => {
         console.log(`====================================================`);

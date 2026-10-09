@@ -336,7 +336,7 @@ class StoragePath {
       }
     } catch (_) {}
 
-    await firebaseSyncService.clearAllInFirestore(keepUsers);
+    const firestoreResult = await firebaseSyncService.clearAllInFirestore(keepUsers);
 
     const targetDirs = [
       this.getInventoriesDirectory(),
@@ -378,7 +378,7 @@ class StoragePath {
     if (keepUsers && usersData) {
       this.writeJson(usersPath, usersData);
     }
-    return true;
+    return { firestore: firestoreResult };
   }
 }
 
