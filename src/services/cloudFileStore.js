@@ -58,6 +58,11 @@ class CloudFileStore {
       }
       this.files = files;
       this.state = after;
+      const retired = documents.filter(document => document.data.path && this._getCanonicalRelPath(document.data.path) !== 'users.json' && Number(document.data.generation || 0) < after.generation);
+      if (retired.length) {
+        try { await this.adapter.removeOld(retired.map(document => document.id)); }
+        catch (error) { console.error('[firebaseSync] Retired file cleanup pending:', error.code || error.message); }
+      }
       return true;
     }
     throw this.conflict();
@@ -109,6 +114,7 @@ class CloudFileStore {
     const expected = { ...this.state };
     const operations = [...this.pending.values()];
     if (operations.length > 450) throw Object.assign(new Error('La operación contiene demasiados archivos. Divide la operación en lotes menores.'), { status: 413 });
+    if (operations.reduce((bytes, operation) => bytes + Buffer.byteLength(operation.content || '', 'utf8'), 0) > 8000000) throw Object.assign(new Error('La operación excede el tamaño admitido. Divide el guardado en lotes menores.'), { status: 413 });
     const mutations = operations.flatMap(operation => {
       if (operation.type === 'delete') {
         const id = this._getSafeId(operation.relative);

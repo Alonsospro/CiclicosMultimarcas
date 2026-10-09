@@ -74,6 +74,18 @@ test('oversized writes are rejected before being queued', async () => {
   assert.equal(store.pending.size, 0);
 });
 
+test('an individual deletion keeps legacy duplicates hidden until explicitly recreated', async () => {
+  const f = fixture(), cloud = f.store(); await cloud.refresh();
+  cloud.syncToFirestore('inventories/one.json', '', '', { count: 1 }); await cloud.flush();
+  cloud.deleteFromFirestore('inventories/one.json'); await cloud.flush();
+  f.docs.set('legacy-duplicate', { path: '/app/data/inventories/one.json', content: '{"count":99}' });
+  const reader = f.store(); await reader.refresh();
+  assert.equal(reader.files.has('inventories/one.json'), false);
+  reader.syncToFirestore('inventories/one.json', '', '', { count: 2 }); await reader.flush();
+  const restarted = f.store(); await restarted.refresh();
+  assert.equal(restarted.files.get('inventories/one.json').value.count, 2);
+});
+
 test('API waits for persistence and refuses a false success on a failed commit', async t => {
   const express = require('express');
   const middleware = require('../src/services/persistenceMiddleware');
