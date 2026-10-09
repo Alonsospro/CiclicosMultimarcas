@@ -16,6 +16,16 @@ app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 // Serve static frontend assets
 app.use(express.static(path.join(__dirname, 'public')));
 
+const cloud = require('./src/services/firebaseSyncService');
+const persistence = require('./src/services/persistenceMiddleware')(storagePath, cloud);
+app.get('/api/health', async (req, res) => {
+  try {
+    await cloud.adapter.readControl();
+    res.json({ status: 'online', storage: 'firestore', databaseId: cloud.databaseId, version: '2.0.0', revision: process.env.K_REVISION || 'local', timestamp: new Date().toISOString() });
+  } catch (_) { res.status(503).json({ status: 'unavailable', storage: 'firestore', version: '2.0.0' }); }
+});
+app.use('/api', persistence);
+
 // API Routes
 app.use('/api/auth', require('./src/routes/authRoutes'));
 app.use('/api/inventories', require('./src/routes/inventoryRoutes'));
@@ -25,19 +35,6 @@ app.use('/api/history', require('./src/routes/historyRoutes'));
 app.use('/api/dashboard', require('./src/routes/dashboardRoutes'));
 app.use('/api/photos', require('./src/routes/photoRoutes'));
 app.use('/api/logos', require('./src/routes/logoRoutes'));
-
-// Health check route
-app.get('/api/health', (req, res) => {
-  const isVercel = !!process.env.VERCEL;
-  res.json({
-    status: 'online',
-    appName: 'NIBOL Inventarios Cíclicos, Barrido, Semanales y Mensuales',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-    storage: isVercel ? 'ephemeral' : 'persistent',
-    warning: isVercel ? 'Entorno Vercel detectado: los datos almacenados en disco (inventarios, fotos, historial) son efímeros y se perderán entre deploys. Se recomienda usar un servidor persistente (VPS) para producción.' : null
-  });
-});
 
 // Single Page Application (SPA) fallback
 app.use((req, res, next) => {
@@ -63,37 +60,13 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start Server
+// HTTP starts promptly for Cloud Run; API readiness is verified against Firestore on every request.
 if (require.main === module) {
   const PORT = config.port || 3000;
-  
-  // Hydrate data from Firebase before listening
-  const firebaseSyncService = require('./src/services/firebaseSyncService');
-  const dailyBackupService = require('./src/services/dailyBackupService');
-
-  firebaseSyncService.hydrateMemoryStore(storagePath.memoryStore, storagePath.cacheTimestamps, storagePath.dirListings, storagePath)
-    .then(async () => {
-      // Ensure all existing local inventories, justifications, and users are safely in Firestore
-      await firebaseSyncService.syncAllDiskFilesToFirestore(storagePath);
-
-      app.listen(PORT, '0.0.0.0', () => {
-        console.log(`====================================================`);
-        console.log(`🚀 SERVIDOR NIBOL INVENTARIOS ACTIVO EN PUERTO ${PORT}`);
-        console.log(`🌐 URL: http://0.0.0.0:${PORT}`);
-        console.log(`🔒 Entorno: ${config.nodeEnv}`);
-        console.log(`☁️ Firebase Persistence: ACTIVATED`);
-        console.log(`====================================================`);
-        dailyBackupService.startScheduler();
-      });
-    })
-    .catch(err => {
-      console.error('Failed to initialize Firebase persistence:', err);
-      // Fallback to starting anyway if Firestore is unreachable
-      app.listen(PORT, '0.0.0.0', () => {
-        console.log(`🚀 SERVIDOR NIBOL INVENTARIOS INICIADO SIN PERSISTENCIA CLOUD.`);
-        dailyBackupService.startScheduler();
-      });
-    });
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log('[server] Listening; authoritative database:', cloud.databaseId);
+    const backups = require('./src/services/dailyBackupService');
+    backups.startScheduler(work => persistence.runExclusive(work));
+  });
 }
-
 module.exports = app;

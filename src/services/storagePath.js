@@ -68,30 +68,6 @@ class StoragePath {
       }
     });
 
-    // Copy packaged initial users and seed files from read-only package to baseDir if different
-    if (this.baseDir !== this.initialDataDir && this.initialDataDir && fs.existsSync(this.initialDataDir)) {
-      try {
-        const copySeedDir = (src, dest) => {
-          if (!fs.existsSync(src)) return;
-          if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
-          const entries = fs.readdirSync(src, { withFileTypes: true });
-          for (const entry of entries) {
-            // NEVER copy residual inventories or justifications from initialDataDir
-            if (entry.name === 'inventories' || entry.name === 'justifications') continue;
-            const srcPath = path.join(src, entry.name);
-            const destPath = path.join(dest, entry.name);
-            if (entry.isDirectory()) {
-              copySeedDir(srcPath, destPath);
-            } else if (!fs.existsSync(destPath)) {
-              fs.copyFileSync(srcPath, destPath);
-            }
-          }
-        };
-        copySeedDir(this.initialDataDir, this.baseDir);
-      } catch (e) {
-        console.warn('[storagePath] Seed copy notice:', e.message);
-      }
-    }
   }
 
   resolveFilePath(relPath) {
@@ -151,69 +127,36 @@ class StoragePath {
     return path.join(this.baseDir, 'trash');
   }
 
-  getUsersFilePath() {
-    const tmpPath = path.join(this.baseDir, 'users.json');
-    if (fs.existsSync(tmpPath)) return tmpPath;
-    if (this.initialDataDir) {
-      const initPath = path.join(this.initialDataDir, 'users.json');
-      if (fs.existsSync(initPath)) return initPath;
+  getUsersFilePath() { return path.join(this.baseDir, 'users.json'); }
+
+  async refreshFromCloud(force = false) {
+    const changed = await firebaseSyncService.refresh(force);
+    if (changed || force) {
+      this.clearMemory();
+      for (const [relative, file] of firebaseSyncService.files) {
+        const filePath = this.resolveFilePath(relative);
+        this.memoryStore.set(this.normalizeKey(filePath), file.value);
+        const dirKey = this.normalizeKey(path.dirname(filePath));
+        if (!this.dirListings.has(dirKey)) this.dirListings.set(dirKey, new Set());
+        this.dirListings.get(dirKey).add(path.basename(filePath));
+      }
     }
-    return tmpPath;
   }
 
   readJson(filePath, defaultValue = null) {
     const key = this.normalizeKey(filePath);
-    if (this.memoryStore.has(key)) {
-      const cachedAt = this.cacheTimestamps.get(key) || 0;
-      if (Date.now() - cachedAt < this.CACHE_TTL_MS) {
-        return JSON.parse(JSON.stringify(this.memoryStore.get(key)));
-      }
-      // If TTL expired, try to refresh from disk if a newer file exists
-      try {
-        if (fs.existsSync(filePath)) {
-          const raw = fs.readFileSync(filePath, 'utf8');
-          const parsed = JSON.parse(raw);
-          this.memoryStore.set(key, parsed);
-          this.cacheTimestamps.set(key, Date.now());
-          return JSON.parse(JSON.stringify(parsed));
-        }
-      } catch (e) {
-        // Disk read failed, retain memory copy safely
-      }
-      // CRITICAL FIX: NEVER delete from memoryStore if disk file doesn't exist!
-      // In serverless / ephemeral containers, memoryStore is the source of truth if disk is unavailable.
-      this.cacheTimestamps.set(key, Date.now());
-      return JSON.parse(JSON.stringify(this.memoryStore.get(key)));
+    if (firebaseSyncService.isManaged(this.getRelativePath(filePath))) {
+      return this.memoryStore.has(key) ? JSON.parse(JSON.stringify(this.memoryStore.get(key))) : defaultValue;
     }
-    try {
-      if (fs.existsSync(filePath)) {
-        const raw = fs.readFileSync(filePath, 'utf8');
-        const parsed = JSON.parse(raw);
-        this.memoryStore.set(key, parsed);
-        this.cacheTimestamps.set(key, Date.now());
-        return JSON.parse(JSON.stringify(parsed));
-      }
-      // Fallback check in initialDataDir if running in Vercel
-      if (this.initialDataDir && filePath.startsWith(this.baseDir)) {
-        const relative = path.relative(this.baseDir, filePath);
-        const fallbackPath = path.join(this.initialDataDir, relative);
-        if (fs.existsSync(fallbackPath)) {
-          const raw = fs.readFileSync(fallbackPath, 'utf8');
-          const parsed = JSON.parse(raw);
-          this.memoryStore.set(key, parsed);
-          this.cacheTimestamps.set(key, Date.now());
-          return JSON.parse(JSON.stringify(parsed));
-        }
-      }
-    } catch (err) {
-      console.warn(`[storagePath] Note reading JSON from ${filePath}:`, err.message);
-    }
-    return defaultValue;
+    try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+    catch (_) { return defaultValue; }
   }
 
   writeJson(filePath, data) {
     const key = this.normalizeKey(filePath);
     const cloned = JSON.parse(JSON.stringify(data));
+    const relPath = this.getRelativePath(filePath);
+    firebaseSyncService.syncToFirestore(relPath, path.dirname(relPath).replace(/\\/g, '/'), path.basename(filePath), cloned);
     this.memoryStore.set(key, cloned);
     this.cacheTimestamps.set(key, Date.now());
 
@@ -242,16 +185,15 @@ class StoragePath {
       // In read-only cloud/serverless environments, file is safely cached in memory
     }
     
-    // Async Firebase persistence using relative canonical keys
-    const relPath = this.getRelativePath(filePath);
-    const relDir = path.dirname(relPath).replace(/\\/g, '/');
-    firebaseSyncService.syncToFirestore(relPath, relDir, fileName, cloned);
-    
     return true;
   }
 
   listFiles(dirPath) {
     const dirKey = this.normalizeKey(dirPath);
+    const relativeDir = this.getRelativePath(dirPath);
+    if (!relativeDir.startsWith('backups') && !relativeDir.startsWith('photos') && !relativeDir.startsWith('fotosreferencias')) {
+      return Array.from(this.dirListings.get(dirKey) || []);
+    }
     const fileMap = new Map();
 
     // 1. Files from disk (case-preserving, deduplicated)
@@ -293,6 +235,7 @@ class StoragePath {
   }
 
   deleteFile(filePath) {
+    firebaseSyncService.deleteFromFirestore(this.getRelativePath(filePath));
     const key = this.normalizeKey(filePath);
     this.memoryStore.delete(key);
     this.cacheTimestamps.delete(key);
@@ -316,68 +259,12 @@ class StoragePath {
       }
     } catch (e) {}
     
-    // Async Firebase deletion using relative and fallback paths
-    const relPath = this.getRelativePath(filePath);
-    firebaseSyncService.deleteFromFirestore(relPath, filePath);
-    
     return true;
   }
 
   async clearAllData(keepUsers = true) {
-    this.memoryStore.clear();
-    this.cacheTimestamps.clear();
-    this.dirListings.clear();
-
-    let usersData = null;
-    const usersPath = this.getUsersFilePath();
-    try {
-      if (fs.existsSync(usersPath)) {
-        usersData = JSON.parse(fs.readFileSync(usersPath, 'utf8'));
-      }
-    } catch (_) {}
-
     const firestoreResult = await firebaseSyncService.clearAllInFirestore(keepUsers);
-
-    const targetDirs = [
-      this.getInventoriesDirectory(),
-      this.getHistoryDirectory(),
-      this.getAuditDirectory(),
-      this.getJustificationsDirectory(),
-      this.getPhotosDirectory(),
-      this.getTrashDirectory()
-    ];
-
-    targetDirs.forEach(dir => {
-      try {
-        if (fs.existsSync(dir)) {
-          const files = fs.readdirSync(dir);
-          files.forEach(f => {
-            try {
-              const full = path.join(dir, f);
-              if (fs.statSync(full).isFile()) {
-                fs.unlinkSync(full);
-              }
-            } catch (_) {}
-          });
-        }
-      } catch (_) {}
-    });
-
-    // Also remove snapshots and backups
-    try {
-      const snapFile = path.join(this.baseDir, 'deleted_snapshots.json');
-      if (fs.existsSync(snapFile)) fs.unlinkSync(snapFile);
-      const backupDir = path.join(this.baseDir, 'backups');
-      if (fs.existsSync(backupDir)) {
-        fs.rmSync(backupDir, { recursive: true, force: true });
-      }
-    } catch (_) {}
-
-    this.ensureDirs();
-
-    if (keepUsers && usersData) {
-      this.writeJson(usersPath, usersData);
-    }
+    await this.refreshFromCloud(true);
     return { firestore: firestoreResult };
   }
 }

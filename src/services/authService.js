@@ -151,7 +151,7 @@ class AuthService {
   constructor() {
     this.usersFile = storagePath.getUsersFilePath();
     this.usersCache = null;
-    this.initUsers();
+    // Users are loaded from Firestore after request readiness is established.
   }
 
   initUsers() {
@@ -335,15 +335,9 @@ class AuthService {
   }
 
   getUsersList() {
-    if (this.usersCache && this.usersCache.length > 0) {
-      return this.usersCache;
-    }
-    const fromDisk = storagePath.readJson(this.usersFile, []);
-    if (Array.isArray(fromDisk) && fromDisk.length > 0) {
-      this.usersCache = fromDisk;
-      return this.usersCache;
-    }
-    return this.seedDefaultUsers(false);
+    const users = storagePath.readJson(this.usersFile, null);
+    if (!Array.isArray(users) || !users.length) throw Object.assign(new Error('No se pudo cargar la lista de usuarios de Firestore.'), { status: 503 });
+    return users;
   }
 
   saveUsersList(users) {
