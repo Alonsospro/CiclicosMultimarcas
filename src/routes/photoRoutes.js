@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
+const parsePhotoUpload = require('../middlewares/photoUploadMiddleware');
 const path = require('path');
 const fs = require('fs');
 const config = require('../config');
@@ -8,14 +8,8 @@ const storagePath = require('../services/storagePath');
 const driveService = require('../services/driveService');
 const { authenticate } = require('../middlewares/authMiddleware');
 
-const storage = multer.memoryStorage();
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 } // 10MB max
-});
-
 // POST /api/photos/upload
-router.post('/upload', authenticate, upload.single('photo'), async (req, res) => {
+router.post('/upload', authenticate, parsePhotoUpload, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No se envió ningún archivo de imagen' });

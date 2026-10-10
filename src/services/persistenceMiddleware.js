@@ -16,11 +16,19 @@ function createPersistenceMiddleware(storage, cloud) {
     await storage.refreshFromCloud(true);
   }
   const middleware = (req, res, next) => {
+    const queuedAt = Date.now();
+    const disconnected = () => req.aborted || res.destroyed;
     exclusive(async () => {
+      // A proxy timeout or cancelled upload can close a request while it waits.
+      // Never start its route later: it may upload evidence or change Sheets.
+      if (disconnected()) return;
+      res.setHeader('X-Queue-Wait-Ms', String(Date.now() - queuedAt));
       try { await prepare(); }
       catch (error) {
+        if (disconnected()) return;
         return res.status(error.status || 503).json({ success: false, code: error.code || 'PERSISTENCE_UNAVAILABLE', message: 'No se pudo verificar Firestore. Intenta nuevamente.', detail: error.status ? error.message : undefined });
       }
+      if (disconnected()) return;
       await new Promise(resolve => {
         const originalSend = res.send.bind(res);
         let responding = false;
@@ -48,7 +56,7 @@ function createPersistenceMiddleware(storage, cloud) {
       });
     }).catch(error => {
       console.error('[persistence] Request failed:', error.code || error.message);
-      if (!res.headersSent && !res.destroyed) res.status(503).json({ success: false, message: 'Conexión con Firestore no disponible.' });
+      if (!res.headersSent && !disconnected()) res.status(503).json({ success: false, message: 'Conexión con Firestore no disponible.' });
     });
   };
   middleware.runExclusive = work => exclusive(async () => {
