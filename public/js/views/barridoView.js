@@ -184,7 +184,9 @@ window.BarridoView = {
       reader.readAsDataURL(file);
 
       const center = this.getSelectedCenter();
-      const sku = this.currentScannedProduct?.item?.SKU || this.currentScannedProduct?.SKU || document.getElementById('barrido-input-code')?.value || '';
+      const product = this.currentScannedProduct?.item || this.currentScannedProduct;
+      const sku = product?.SKU || document.getElementById('barrido-input-code')?.value || '';
+      const almacen = product?.Almacen || product?.almacen || product?.warehouse || '';
       const dateStr = new Date().toISOString().split('T')[0];
 
       try {
@@ -193,6 +195,7 @@ window.BarridoView = {
           category: 'malestado',
           photoType: 'malestado',
           sku,
+          almacen,
           center,
           date: dateStr,
           type: 'BARRIDO'
@@ -240,7 +243,9 @@ window.BarridoView = {
       reader.readAsDataURL(file);
 
       const center = this.getSelectedCenter();
-      const sku = this.currentScannedProduct?.item?.SKU || this.currentScannedProduct?.SKU || document.getElementById('barrido-input-code')?.value || '';
+      const product = this.currentScannedProduct?.item || this.currentScannedProduct;
+      const sku = product?.SKU || document.getElementById('barrido-input-code')?.value || '';
+      const almacen = product?.Almacen || product?.almacen || product?.warehouse || '';
       const dateStr = new Date().toISOString().split('T')[0];
 
       try {
@@ -249,6 +254,7 @@ window.BarridoView = {
           category: 'justificaciones',
           photoType: 'justificaciones',
           sku,
+          almacen,
           center,
           date: dateStr,
           type: 'BARRIDO'

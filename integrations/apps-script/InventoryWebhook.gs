@@ -644,9 +644,12 @@ function savePhotoIfAny_(p,center,type,sku,category){
     :['fotos',category,tag,String(center)+' '+String(type||'CICLICO')];
   pathSegments.forEach(seg=>{folder=getOrCreateFolder_(folder,seg);});
   const ext=match[1]==='image/png'?'.png':match[1]==='image/webp'?'.webp':'.jpg';
-  const digest=hash_(JSON.stringify([p.inventoryId||'',p.itemId||sku,p.almacen||p.warehouse||'',p.location||p.ubicacion||'',p.round||(p.isJustification2?2:1),value]));
-  const name=String(sku||'SKU').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,60)+'_'+digest+ext;
-  const existing=folder.getFilesByName(name),file=existing.hasNext()?existing.next():folder.createFile(Utilities.newBlob(bytes,match[1],name));
+  const cleanPhotoNamePart=value=>String(value||'').trim().replace(/[\\/:*?"<>|]/g,'_').slice(0,100);
+  const cleanSku=cleanPhotoNamePart(sku)||'SKU';
+  const cleanWarehouse=cleanPhotoNamePart(p.almacen||p.warehouse)||'ALMACEN';
+  const name=(category==='justificaciones'?'JUST-':'')+cleanSku+'-'+cleanWarehouse+ext;
+  // Drive permits duplicate names; preserve each distinct evidence image.
+  const file=folder.createFile(Utilities.newBlob(bytes,match[1],name));
   if(property_('PHOTO_LINK_SHARING')==='true')file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW);
   return {id:file.getId(),name:file.getName(),url:file.getUrl(),mimeType:file.getMimeType(),folderId:folder.getId(),folderName:folder.getName()};
 }

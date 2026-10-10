@@ -55,6 +55,21 @@ class InventoryService {
     return inv;
   }
 
+  nextInventoryId(type, center) {
+    const cleanType = String(type || '').trim().toUpperCase();
+    const centerObj = config.findCenter(center);
+    const centerCode = String(centerObj ? centerObj.code : center).trim().toUpperCase();
+    const prefix = `INV-${cleanType}-${centerCode}-`;
+    let maxSequence = 0;
+    for (const file of this.getAllInventoryFiles()) {
+      const id = path.basename(file, '.json');
+      if (!id.startsWith(prefix)) continue;
+      const suffix = id.slice(prefix.length);
+      if (/^\d+$/.test(suffix)) maxSequence = Math.max(maxSequence, Number(suffix));
+    }
+    return `${prefix}${maxSequence + 1}`;
+  }
+
   async getInventories(user, filterCenter = null, filterType = null) {
     let files = this.getAllInventoryFiles();
 
@@ -368,7 +383,7 @@ class InventoryService {
 
     const centerObj = config.findCenter(targetCenter);
     const centerCode = centerObj ? centerObj.code : targetCenter;
-    const invId = `INV-${cleanType}-${centerCode}-${Date.now().toString(36).toUpperCase()}`;
+    const invId = this.nextInventoryId(cleanType, centerCode);
 
     const newInventory = {
       id: invId,
@@ -410,8 +425,13 @@ class InventoryService {
     }))];
     const results=[];
     for(const center of codes){
-      const id='BULK-'+cleanType+'-'+center+'-'+targetDate;
-      const existing=this.getInventoryRaw(id);
+      const legacyId='BULK-'+cleanType+'-'+center+'-'+targetDate;
+      const findExisting=()=>this.getInventoryRaw(legacyId) || this.getAllInventoryFiles()
+        .map(file=>storagePath.readJson(path.join(this.invDir,file),null))
+        .find(inv=>inv && (inv.bulkCreateDate===targetDate ||
+          (String(inv.id).startsWith('BULK-'+cleanType+'-'+center+'-') && String(inv.inventoryDate||'')===targetDate)) &&
+          String(inv.type).toUpperCase()===cleanType && config.isSameCenter(inv.center,center));
+      const existing=findExisting();
       if(existing){results.push({center,status:'existing',inventory:existing});continue;}
       try{
         const fetched=await gasService.fetchProductsFromScript(cleanType,center);
@@ -420,16 +440,19 @@ class InventoryService {
         const identities=items.map(contract.member);
         if(new Set(identities).size!==identities.length)throw new Error('La hoja contiene SKU/almacén/ubicación duplicados.');
         // The sheet is the source list. Keep master fields, start a new count without inherited reviews.
-        const prepared=items.map((item,index)=>{
-          const master=Object.fromEntries(contract.columns.slice(0,11).map(key=>[key,item[key]??'']));
-          if(!master.SKU||!master.Almacen)throw new Error('Fila sin SKU o almacén');
-          return {...master,id:id+'-'+index,Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null,Mal_estado:0,Estado:'Pendiente',locked:false};
+        items.forEach(item=>{
+          if(!item.SKU||!item.Almacen)throw new Error('Fila sin SKU o almacén');
         });
-        // Recheck after the network wait; stable ids make a repeated request reuse the same inventory.
-        const raced=this.getInventoryRaw(id);
+        // Recheck after fetching from Sheets in case another request created it.
+        const raced=findExisting();
         if(raced){results.push({center,status:'existing',inventory:raced});continue;}
+        const id=this.nextInventoryId(cleanType,center);
+        const prepared=items.map((item,index)=>({
+          ...Object.fromEntries(contract.columns.slice(0,11).map(key=>[key,item[key]??''])),
+          id:id+'-'+index,Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null,Mal_estado:0,Estado:'Pendiente',locked:false
+        }));
         const inventory={id,name:cleanType+'-'+center+'-'+targetDate,type:cleanType,center,status:'EN_PROGRESO',
-          inventoryDate:targetDate,createdAt:new Date().toISOString(),createdBy:user.username,assignedAuxiliars:[],items:prepared};
+          inventoryDate:targetDate,bulkCreateDate:targetDate,createdAt:new Date().toISOString(),createdBy:user.username,assignedAuxiliars:[],items:prepared};
         this.saveInventory(inventory);
         results.push({center,status:'created',inventory});
       }catch(e){results.push({center,status:'failed',error:e.message});}

@@ -428,7 +428,8 @@ window.InventoryView = {
           date: invDate,
           type: this.currentInventory ? (this.currentInventory.type || 'CICLICO') : 'CICLICO',
           inventoryId: this.currentInventory ? this.currentInventory.id : '',
-          itemId: itemId || ''
+          itemId: itemId || '',
+          almacen: item?.Almacen || item?.almacen || item?.warehouse || ''
         });
 
         if (res.photo && res.photo.url) {
@@ -522,7 +523,8 @@ window.InventoryView = {
           date: invDate,
           type: this.currentInventory ? (this.currentInventory.type || 'CICLICO') : 'CICLICO',
           inventoryId: this.currentInventory ? this.currentInventory.id : '',
-          itemId: itemId || ''
+          itemId: itemId || '',
+          almacen: item?.Almacen || item?.almacen || item?.warehouse || ''
         });
 
         if (res.photo && res.photo.url) {
@@ -663,7 +665,8 @@ window.InventoryView = {
           date: invDate,
           type: this.currentInventory ? (this.currentInventory.type || 'CICLICO') : 'CICLICO',
           inventoryId: this.currentInventory ? this.currentInventory.id : '',
-          itemId: itemId || ''
+          itemId: itemId || '',
+          almacen: currentItem?.Almacen || currentItem?.almacen || currentItem?.warehouse || ''
         });
 
         if (res.photo && res.photo.url) {

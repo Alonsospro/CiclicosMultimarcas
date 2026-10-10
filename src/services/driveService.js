@@ -66,11 +66,9 @@ class DriveService {
   }
 
   formatJustificationName(type, sku, center, warehouse) {
-    const cleanType = (type || 'CICLICO').toUpperCase();
     const cleanSku = (sku || 'SKU').toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
-    const cleanCenter = (center || 'WARNES').toUpperCase();
-    const cleanWarehouse = warehouse ? `-${String(warehouse).toUpperCase().replace(/[^A-Z0-9_-]/g, '_')}` : '';
-    return `JUST-${cleanType}-${cleanSku}-${cleanCenter}${cleanWarehouse}`;
+    const cleanWarehouse = String(warehouse || 'ALMACEN').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
+    return `JUST-${cleanSku}-${cleanWarehouse}`;
   }
 
   getDriveFolderPath(type, center) {
@@ -109,51 +107,24 @@ class DriveService {
 
   /**
    * Generates exact Google Drive path and filename:
-   * Mal Estado: nibol/ciclicos/fotos/malestado/{fecha}/{centro y tipo de inventario}/{sku}.jpg
-   * Justificaciones: nibol/ciclicos/fotos/justificaciones/{fecha}/{centro y tipo de inventario}/{sku}.jpg
+   * Mal Estado: nibol/ciclicos/fotos/malestado/{fecha}/{centro y tipo de inventario}/{sku}-{almacen}.jpg
+   * Justificaciones: nibol/ciclicos/fotos/justificaciones/{fecha}/{centro y tipo de inventario}/JUST-{sku}-{almacen}.jpg
    */
-  getPhotoDriveDetails({ category = 'malestado', sku = 'SKU', center = '1120', date = new Date(), ext = '.jpg', type = 'CICLICO', isJustification2 = false, prefix = '' }) {
+  getPhotoDriveDetails({ category = 'malestado', sku = 'SKU', warehouse = 'ALMACEN', center = '1120', date = new Date(), ext = '.jpg', type = 'CICLICO' }) {
     const cleanCategory = String(category).toLowerCase().includes('just') ? 'justificaciones' : 'malestado';
     const dateStr = this.formatDate(date);
     const centerName = this.getCenterName(center);
     const cleanSku = this.sanitizeFilename(sku);
+    const cleanWarehouse = this.sanitizeFilename(warehouse || 'ALMACEN');
     const fileExt = ext.startsWith('.') ? ext : `.${ext}`;
-
-    const isSecondJust = isJustification2 === true || isJustification2 === 'true' || prefix === 'JS2' || String(prefix || '').toUpperCase() === 'JS2';
-    let filePrefix = '';
-    if (isSecondJust) {
-      filePrefix = 'JS2_';
-    } else if (prefix && String(prefix).trim()) {
-      const p = String(prefix).trim().replace(/[_\-]+$/, '');
-      filePrefix = `${p}_`;
-    }
-
-    // Evitar duplicar el prefijo si cleanSku ya lo contiene
-    let finalSku = cleanSku;
-    if (filePrefix && finalSku.toUpperCase().startsWith(filePrefix.toUpperCase())) {
-      filePrefix = '';
-    }
-
-    const fileName = `${filePrefix}${finalSku}${fileExt}`;
+    const fileName = `${cleanCategory === 'justificaciones' ? 'JUST-' : ''}${cleanSku}-${cleanWarehouse}${fileExt}`;
     const cleanType = String(type || 'CICLICO').toUpperCase().trim();
     const centerTypeFolder = `${centerName} ${cleanType}`;
-
     const folderPath = `nibol/ciclicos/fotos/${cleanCategory}/${dateStr}/${centerTypeFolder}`;
     const logicalPath = `${folderPath}/${fileName}`;
 
-    return {
-      category: cleanCategory,
-      date: dateStr,
-      centerName,
-      type: cleanType,
-      centerTypeFolder,
-      cleanSku,
-      fileName,
-      folderPath,
-      logicalPath,
-      filePrefix,
-      isJustification2: isSecondJust
-    };
+    return { category: cleanCategory, date: dateStr, centerName, type: cleanType, centerTypeFolder,
+      cleanSku, cleanWarehouse, fileName, folderPath, logicalPath };
   }
 
   getPhotoAsDataUri(identifier) {
@@ -217,10 +188,11 @@ class DriveService {
 
     let sku = metadata.sku || '';
     let center = metadata.center || '';
+    let warehouse = metadata.almacen || metadata.warehouse || '';
     let date = metadata.date || new Date();
 
     // If inventoryId provided and center/date/sku missing, look up inventory
-    if (metadata.inventoryId && (!sku || !center)) {
+    if (metadata.inventoryId && (!sku || !center || !warehouse)) {
       try {
         const inventoryService = require('./inventoryService');
         const inv = inventoryService.getInventoryRaw(metadata.inventoryId);
@@ -229,7 +201,10 @@ class DriveService {
           if (!metadata.date && inv.createdAt) date = inv.createdAt;
           if (metadata.itemId && !sku) {
             const item = inv.items?.find(it => it.id === metadata.itemId);
-            if (item) sku = item.SKU;
+            if (item) {
+              sku = item.SKU;
+              if (!warehouse) warehouse = item.Almacen || item.almacen || item.warehouse || '';
+            }
           }
         }
       } catch (e) {
@@ -241,24 +216,16 @@ class DriveService {
     if (!center) center = '1120';
     const invType = metadata.type || (metadata.inventoryId && String(metadata.inventoryId).includes('BARRIDO') ? 'BARRIDO' : 'CICLICO');
 
-    const isJustification2 = metadata.isJustification2 === true ||
-      metadata.isJustification2 === 'true' ||
-      metadata.round === 2 ||
-      metadata.round === '2' ||
-      metadata.prefix === 'JS2' ||
-      String(metadata.prefix || '').toUpperCase() === 'JS2';
-
-    const prefix = metadata.prefix || (isJustification2 ? 'JS2' : '');
+    const isJustification2 = metadata.isJustification2 === true || metadata.isJustification2 === 'true' || metadata.round === 2 || metadata.round === '2' || metadata.prefix === 'JS2' || String(metadata.prefix || '').toUpperCase() === 'JS2';
 
     const details = this.getPhotoDriveDetails({
       category,
       sku,
+      warehouse,
       center,
       date,
       ext,
-      type: invType,
-      isJustification2,
-      prefix
+      type: invType
     });
 
     // 1. Generate unique photo ID for URL mapping & backward compatibility
@@ -290,7 +257,7 @@ class DriveService {
         inventoryId: metadata.inventoryId || null,
         isJustification2,
         prefix,
-        itemId:metadata.itemId, round:metadata.round||(isJustification2?2:1), almacen:metadata.almacen, location:metadata.location
+        itemId:metadata.itemId, round:metadata.round||(isJustification2?2:1), almacen:details.cleanWarehouse, location:metadata.location
       });
     } catch (err) {
       throw err;

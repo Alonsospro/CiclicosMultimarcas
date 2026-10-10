@@ -364,6 +364,7 @@ window.API = {
     if (metadata.date) formData.append('date', metadata.date);
     if (metadata.inventoryId) formData.append('inventoryId', metadata.inventoryId);
     if (metadata.itemId) formData.append('itemId', metadata.itemId);
+    if (metadata.almacen || metadata.warehouse) formData.append('almacen', metadata.almacen || metadata.warehouse);
     if (metadata.type) formData.append('type', metadata.type);
     if (metadata.prefix) formData.append('prefix', metadata.prefix);
     if (metadata.isJustification2 !== undefined) formData.append('isJustification2', metadata.isJustification2);
