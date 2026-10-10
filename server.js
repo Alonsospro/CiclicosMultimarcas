@@ -24,6 +24,7 @@ app.get('/api/health', async (req, res) => {
     res.json({ status: 'online', storage: 'firestore', databaseId: cloud.databaseId, version: '2.0.0', revision: process.env.K_REVISION || 'local', timestamp: new Date().toISOString() });
   } catch (_) { res.status(503).json({ status: 'unavailable', storage: 'firestore', version: '2.0.0' }); }
 });
+app.post('/api/photos/upload', require('./src/middlewares/photoUploadMiddleware'));
 app.use('/api', persistence);
 
 // API Routes
