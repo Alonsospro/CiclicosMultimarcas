@@ -112,6 +112,35 @@ test('closure fails on a remote error and adopts the real Drive id on success',a
   assert.equal(result.fileId,'real-google-id');assert.equal(captured.driveRecord.items[0].Almacen,'A');
   assert.equal(captured.driveRecord.items[0].Reconteo_2,9);assert.equal(saved.length,1);
 });
+test('photo uploads reach Google for damaged evidence and both justification rounds',async()=>{
+  const calls=[];
+  const drive=isolated('src/services/driveService.js',{
+    './inventoryContract':contract,
+    '../config':{findCenter:()=>({name:'Centro 1340'})},
+    './storagePath':{getHistoryDirectory:()=>'/history',getPhotosDirectory:()=>'/photos'},
+    './gasService':{syncPhotoToGAS:async payload=>{
+      calls.push(payload);
+      return {photo:{id:'photo-'+calls.length,url:'https://example.test/photo/'+calls.length}};
+    }}
+  },{process:{env:{VERCEL:'1'}}});
+  for(const [category,round,expected] of [
+    ['malestado',1,'SKU-1-R008.jpg'],
+    ['justificaciones',1,'JUST-SKU-1-R008.jpg'],
+    ['justificaciones',2,'JUST-SKU-1-R008.jpg']
+  ]){
+    const result=await drive.savePhotoFile(Buffer.from('photo'),'photo.jpg','image/jpeg',{
+      category,round,sku:'SKU-1',almacen:'R008',center:'1340',type:'CICLICO',
+      prefix:round===2?'JS2':'',inventoryId:'INV-CICLICO-1340-1',itemId:'ITEM-1'
+    });
+    const sent=calls[calls.length-1];
+    assert.equal(sent.category,category);assert.equal(sent.round,round);
+    assert.equal(sent.almacen,'R008');assert.equal(sent.fileName,expected);
+    assert.equal(result.driveFileName,expected);assert.equal(result.driveSaved,true);
+    assert.equal(result.driveFileId,'photo-'+calls.length);
+  }
+  assert.equal(calls.length,3);
+});
+
 test('Apps Script and Node share exactly the same quantity contract',()=>{
   const server=fs.readFileSync(path.join(root,'src/services/inventoryContract.js'),'utf8').replace("if (typeof module !== 'undefined') module.exports = InventoryContract;",'');
   const gas=fs.readFileSync(path.join(root,'integrations/apps-script/InventoryWebhook.gs'),'utf8');

@@ -256,7 +256,6 @@ class DriveService {
         mimeType,
         inventoryId: metadata.inventoryId || null,
         isJustification2,
-        prefix,
         itemId:metadata.itemId, round:metadata.round||(isJustification2?2:1), almacen:details.cleanWarehouse, location:metadata.location
       });
     } catch (err) {
