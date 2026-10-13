@@ -68,6 +68,32 @@ class CloudFileStore {
     throw this.conflict();
   }
 
+  // Read a stable, confirmed snapshot without touching the writer state or
+  // waiting behind a pending write. This is used by read-only dashboard calls.
+  async readConfirmedSnapshot() {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const before = this.stateOf(await this.adapter.readControl());
+      const documents = await this.adapter.readAll();
+      const after = this.stateOf(await this.adapter.readControl());
+      if (before.revision !== after.revision || before.generation !== after.generation) continue;
+      const files = new Map();
+      const deletedPaths = new Set(documents.filter(document => document.data.deleted && Number(document.data.generation || 0) === after.generation).map(document => this._getCanonicalRelPath(document.data.path)));
+      for (const document of documents) {
+        const data = document.data;
+        if (!data.path || !data.content) continue;
+        const relative = this._getCanonicalRelPath(data.path);
+        if (!this.isManaged(relative) || deletedPaths.has(relative)) continue;
+        if (relative !== 'users.json' && Number(data.generation || 0) !== after.generation) continue;
+        const existing = files.get(relative);
+        if (!existing || document.id === this._getSafeId(relative, after.generation)) {
+          files.set(relative, { value: JSON.parse(data.content), id: document.id });
+        }
+      }
+      return { state: after, files };
+    }
+    throw this.conflict();
+  }
+
   conflict() {
     return Object.assign(new Error('Los datos cambiaron en otra sesión. Actualiza la vista y vuelve a intentar.'), { status: 409, code: 'STALE_DATA' });
   }

@@ -18,6 +18,23 @@ function createPersistenceMiddleware(storage, cloud) {
   const middleware = (req, res, next) => {
     const queuedAt = Date.now();
     const disconnected = () => req.aborted || res.destroyed;
+    const isFastRead = req.method === 'GET' && (
+      req.path === '/inventories' || req.path.startsWith('/inventories/') ||
+      req.path === '/auth/me' || req.path === '/centers'
+    );
+    if (isFastRead) {
+      (async () => {
+        try {
+          const snapshot = await cloud.readConfirmedSnapshot();
+          res.setHeader('X-Queue-Wait-Ms', '0');
+          res.setHeader('X-Read-Snapshot', `${snapshot.state.generation}:${snapshot.state.revision}`);
+          storage.withReadSnapshot(snapshot, () => next());
+        } catch (error) {
+          if (!disconnected()) res.status(error.status || 503).json({ success: false, code: error.code || 'PERSISTENCE_UNAVAILABLE', message: 'No se pudo leer el estado confirmado de Firestore.' });
+        }
+      })();
+      return;
+    }
     exclusive(async () => {
       // A proxy timeout or cancelled upload can close a request while it waits.
       // Never start its route later: it may upload evidence or change Sheets.

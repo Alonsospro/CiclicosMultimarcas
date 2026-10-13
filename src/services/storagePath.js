@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('../config');
 const firebaseSyncService = require('./firebaseSyncService');
+const { AsyncLocalStorage } = require('async_hooks');
 
 class StoragePath {
   constructor() {
@@ -27,6 +28,7 @@ class StoragePath {
     this.memoryStore = new Map();
     this.cacheTimestamps = new Map(); // Track when each entry was cached
     this.dirListings = new Map();
+    this.readContext = new AsyncLocalStorage();
     this.CACHE_TTL_MS = 60 * 1000; // 60 seconds refresh window
     this.ensureDirs();
   }
@@ -145,6 +147,11 @@ class StoragePath {
 
   readJson(filePath, defaultValue = null) {
     const key = this.normalizeKey(filePath);
+    const context = this.readContext.getStore();
+    if (context && firebaseSyncService.isManaged(this.getRelativePath(filePath))) {
+      const entry = context.files.get(this.getRelativePath(filePath));
+      return entry ? JSON.parse(JSON.stringify(entry.value)) : defaultValue;
+    }
     if (firebaseSyncService.isManaged(this.getRelativePath(filePath))) {
       return this.memoryStore.has(key) ? JSON.parse(JSON.stringify(this.memoryStore.get(key))) : defaultValue;
     }
@@ -191,6 +198,13 @@ class StoragePath {
   listFiles(dirPath) {
     const dirKey = this.normalizeKey(dirPath);
     const relativeDir = this.getRelativePath(dirPath);
+    const context = this.readContext.getStore();
+    if (context && !relativeDir.startsWith('backups') && !relativeDir.startsWith('photos') && !relativeDir.startsWith('fotosreferencias')) {
+      const prefix = relativeDir.replace(/\\/g, '/').replace(/\/$/, '') + '/';
+      return [...context.files.keys()]
+        .filter(relative => relative.startsWith(prefix) && !relative.slice(prefix.length).includes('/'))
+        .map(relative => relative.slice(prefix.length));
+    }
     if (!relativeDir.startsWith('backups') && !relativeDir.startsWith('photos') && !relativeDir.startsWith('fotosreferencias')) {
       return Array.from(this.dirListings.get(dirKey) || []);
     }
@@ -232,6 +246,10 @@ class StoragePath {
     }
 
     return Array.from(fileMap.values());
+  }
+
+  withReadSnapshot(snapshot, work) {
+    return this.readContext.run(snapshot, work);
   }
 
   deleteFile(filePath) {
