@@ -27,6 +27,13 @@ window.MetricsReportModal = {
         this.downloadPDF();
       };
     }
+    const btnDetailedPdf = document.getElementById('btn-report-download-detailed-pdf');
+    if (btnDetailedPdf) {
+      btnDetailedPdf.onclick = (e) => {
+        e.preventDefault();
+        this.downloadDetailedPDF();
+      };
+    }
 
     // Botón de Imprimir nativo en modal
     const btnNativePrint = document.getElementById('btn-report-native-print');
@@ -251,6 +258,69 @@ window.MetricsReportModal = {
       <article class="rep-executive-panel"><h2>RESULTADO DEL INVENTARIO</h2><div class="rep-executive-donut-layout"><div class="rep-executive-donut" role="img" aria-label="${exactRatio.toFixed(1)} por ciento de registros conformes al cierre" style="--report-exact-share:${exactRatio}%"><div><strong>${finalEri.toFixed(1)}%</strong><span>CONFORME</span></div></div><div class="rep-executive-legend"><div><span class="rep-executive-dot is-exact"></span><span>Registros conformes</span><strong>${exactRecordsFinal.toLocaleString('es-BO')}</strong></div><div><span class="rep-executive-dot is-pending"></span><span>Registros pendientes</span><strong>${finalDiscrepancies.toLocaleString('es-BO')}</strong></div><div><span class="rep-executive-dot is-location"></span><span>Exactitud de ubicación · ERU</span><strong>${locationsEri.toFixed(2)}%</strong></div></div></div></article></section>
       <section class="rep-executive-trends"><article class="rep-executive-panel"><h2>COMPARATIVO DE EXACTITUD · ERI</h2>${[['Existencias', initialEri, finalEri], ['SKU', initialSkuEri, finalSkuEri], ['Monetario', initialMoneyEri, finalMoneyEri]].map(([label, first, last]) => `<div class="rep-executive-eri-row"><span>${escape(label)}</span><div class="rep-executive-eri-bars"><div><small>Inicial ${percent(first)}</small><i><b style="width:${percentValue(first)}%"></b></i></div><div><small>Final ${percent(last)}</small><i class="is-final"><b style="width:${percentValue(last)}%"></b></i></div></div><strong class="rep-executive-eri-delta">${(last - first >= 0 ? '+' : '')}${(last - first).toFixed(2)} pts</strong></div>`).join('')}</article><article class="rep-executive-panel rep-executive-financial-panel"><h2>IMPACTO ECONÓMICO AGREGADO · Bs.</h2><div class="rep-executive-financial-bar"><span>Primer conteo</span><i><b style="width:${initialImpactWidth}%"></b></i><strong>${money(initialImpact)}</strong></div><div class="rep-executive-financial-bar is-final"><span>Cierre final</span><i><b style="width:${finalImpactWidth}%"></b></i><strong>${money(finalImpact)}</strong></div><p class="rep-executive-target ${finalEri >= 95 ? 'is-met' : 'is-below'}">${escape(targetMessage)}</p>${damagedCost > 0 ? `<small class="rep-executive-damaged">Averías registradas: Bs. ${money(damagedCost)}</small>` : ''}</article></section>
       <footer class="rep-executive-footer"><span>NIBOL · Informe de resultados de inventario</span><span>Generado ${escape(generatedAt)}</span></footer>`;
+  },
+
+  buildDetailedReportDOM(inv, metrics) {
+    const container = document.getElementById('report-printable-area');
+    if (!container) return;
+    const summary = metrics.summary || {};
+    const rows = Array.isArray(metrics.discrepanciesList) ? metrics.discrepanciesList : [];
+    const filters = metrics.filters || {};
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    const n = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+    const money = value => n(value).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const qty = value => n(value).toLocaleString('es-BO', { maximumFractionDigits: 2 });
+    const status = item => item.estaSubsanado ? 'SUBSANADO' : (item.esDiscrepanciaFinal ? 'PENDIENTE AJUSTE' : (n(item.diferencia) === 0 ? 'CUADRADO' : 'OBSERVADO'));
+    const total = rows.reduce((sum, item) => sum + n(item.costoDiferencia), 0);
+    const generatedAt = new Date().toLocaleString('es-BO', { dateStyle: 'medium', timeStyle: 'short' });
+    const center = filters.center || inv.center || 'Todos los centros';
+    const title = esc(inv.name || inv.id || 'Inventario');
+    const bodyRows = rows.length ? rows.map(item => `
+      <tr>
+        <td>${esc(item.sku || '')}</td><td>${esc(item.descripcion || 'REPUESTO')}</td>
+        <td>${esc(item.center || center)}</td><td>${esc(item.almacen || '')}</td>
+        <td>${esc(item.ubicacion || '')}</td><td>${esc(item.abc || '')}</td>
+        <td class="num">${qty(item.stockSistema)}</td><td class="num">${qty(item.stockFisico)}</td>
+        <td class="num ${n(item.diferencia) < 0 ? 'negative' : n(item.diferencia) > 0 ? 'positive' : ''}">${qty(item.diferencia)}</td>
+        <td class="num">Bs ${money(item.costoUnitario)}</td><td class="num">Bs ${money(item.costoDiferencia)}</td>
+        <td>${status(item)}</td><td>${esc(item.responsable || '')}</td>
+      </tr>`).join('') : `<tr><td colspan="14" class="empty">No se registraron discrepancias para los filtros seleccionados.</td></tr>`;
+    container.innerHTML = `
+      <style>
+        .detail-report{font-family:Inter,Arial,sans-serif;color:#172033;font-size:9px}.detail-report h1{margin:0;background:#1e3a8a;color:#fff;padding:10px 12px;font-size:16px}.detail-report .meta{background:#e8eef8;padding:8px 12px;border-bottom:2px solid #1e3a8a}.detail-report .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}.detail-report .kpi{border:1px solid #cbd5e1;padding:7px;text-align:center}.detail-report .kpi strong{display:block;font-size:15px;color:#1e40af}.detail-report h2{font-size:11px;background:#7f1d1d;color:#fff;padding:6px 8px;margin:12px 0 0}.detail-report table{border-collapse:collapse;width:100%;table-layout:fixed}.detail-report th{background:#dbe5f1;color:#172033;font-size:8px}.detail-report td,.detail-report th{border:1px solid #b8c4d4;padding:4px 3px;vertical-align:middle;word-break:break-word}.detail-report .num{text-align:right}.detail-report .negative{color:#b91c1c;font-weight:700}.detail-report .positive{color:#047857;font-weight:700}.detail-report .empty{text-align:center;padding:16px}.detail-report .footer{margin-top:10px;color:#475569;font-size:8px}
+      </style>
+      <div class="detail-report">
+        <h1>INFORME DETALLADO • CONTROL DE INVENTARIO CÍCLICO</h1>
+        <div class="meta"><strong>${title}</strong><br>Centro: ${esc(center)} &nbsp;|&nbsp; Tipo: ${esc(filters.type || inv.type || 'CICLICO')} &nbsp;|&nbsp; Período: ${esc(filters.period || 'TODO')} &nbsp;|&nbsp; Generado: ${esc(generatedAt)}</div>
+        <div class="kpis">
+          <div class="kpi">Registros auditados<strong>${qty(summary.totalItemsAudited || 0)}</strong></div>
+          <div class="kpi">Discrepancias<strong>${qty(rows.length)}</strong></div>
+          <div class="kpi">Exactitud final<strong>${n(summary.eriItemFinal ?? summary.eriPercent).toFixed(2)}%</strong></div>
+          <div class="kpi">Impacto neto<strong>Bs ${money(total)}</strong></div>
+        </div>
+        <h2>DETALLE DE RESULTADOS Y AJUSTES</h2>
+        <table><thead><tr><th>SKU</th><th>Descripción</th><th>Centro</th><th>Almacén</th><th>Ubicación</th><th>ABC</th><th>Stock sistema</th><th>Stock físico</th><th>Diferencia</th><th>Costo unitario</th><th>Costo diferencia</th><th>Estado</th><th>Responsable</th></tr></thead><tbody>${bodyRows}</tbody></table>
+        <div class="footer">Documento generado desde las métricas consolidadas del dashboard. Los valores monetarios se expresan en bolivianos (Bs).</div>
+      </div>`;
+  },
+
+  async downloadDetailedPDF() {
+    if (!this.currentInventory || !this.currentMetrics) {
+      window.Toast?.warning('Genere primero la vista previa del informe.');
+      return;
+    }
+    const previous = document.getElementById('report-printable-area')?.innerHTML;
+    this.buildDetailedReportDOM(this.currentInventory, this.currentMetrics);
+    this.exportMode = 'detallado';
+    try { await this.downloadPDF(); }
+    finally {
+      this.exportMode = 'resumen';
+      const container = document.getElementById('report-printable-area');
+      if (container && previous !== undefined) {
+        container.innerHTML = previous;
+        this.buildReportDOM(this.currentInventory, this.currentMetrics);
+      }
+    }
   },
 
   renderReportCharts(summary, discrepancies) {
@@ -486,7 +556,7 @@ window.MetricsReportModal = {
     const center = String(inv.center || '1300').replace(/[^a-zA-Z0-9_-]/g, '_');
     const invId = String(inv.id || 'INV').replace(/[^a-zA-Z0-9_-]/g, '_');
     const dateStr = new Date().toISOString().slice(0, 10);
-    const filename = `Informe_Administrativo_Inventario_${center}_${invId}_${dateStr}.pdf`;
+    const filename = `Informe_Administrativo_Inventario_${this.exportMode === 'detallado' ? 'DETALLADO_' : ''}${center}_${invId}_${dateStr}.pdf`;
 
     // Scroll viewport to top to prevent canvas offset clippings
     const viewport = document.getElementById('report-preview-viewport');
