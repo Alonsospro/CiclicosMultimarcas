@@ -53,9 +53,9 @@ window.JustificationsView = {
 
       const inventoryId = document.getElementById('just-modal-inv-id')?.value;
       const sku = document.getElementById('just-modal-sku-input')?.value;
+      const itemId = document.getElementById('just-modal-item-id')?.value || '';
+      const almacen = document.getElementById('just-modal-almacen-input')?.value || '';
       const task = this.tasks?.find(t => t.inventoryId === inventoryId);
-      const item = task?.items?.find(it => String(it.SKU || '').trim() === String(sku || '').trim());
-      const almacen = item?.Almacen || item?.almacen || item?.warehouse || document.getElementById('just-modal-almacen-input')?.value || '';
 
       const center = task ? task.center : (window.Auth.currentUser?.center || '1120');
       const dateStr = new Date().toISOString().split('T')[0];
@@ -80,6 +80,7 @@ window.JustificationsView = {
           center: center,
           date: dateStr,
           inventoryId: inventoryId || '',
+          itemId,
           type: task?.type || 'CICLICO',
           prefix: isSecondJust ? 'JS2' : '',
           isJustification2: isSecondJust,
