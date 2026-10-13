@@ -2719,11 +2719,15 @@
 
         <div style="display: flex; align-items: center; gap: 0.5rem;">
           <button type="button" class="btn btn-primary btn-sm" id="btn-report-download-pdf" title="Exportar y descargar informe administrativo como archivo PDF oficial">
-            <i class="fa-solid fa-file-pdf"></i> Exportar a PDF
+            <i class="fa-solid fa-file-pdf"></i> PDF resumido
           </button>
           <button type="button" class="btn btn-secondary btn-sm" id="btn-report-download-detailed-pdf" title="Exportar el detalle de discrepancias y resultados por producto">
             <i class="fa-solid fa-table-list"></i> PDF detallado
           </button>
+          <select id="report-preview-mode" class="form-select" style="width:auto;max-width:180px" aria-label="Vista previa del informe">
+            <option value="resumen">Resumen ejecutivo</option>
+            <option value="detallado">Informe detallado</option>
+          </select>
           <button type="button" class="btn btn-secondary btn-sm" id="btn-report-native-print" title="Imprimir documento en impresora física o PDF de sistema">
             <i class="fa-solid fa-print"></i> Imprimir Documento
           </button>
@@ -2741,7 +2745,7 @@
       <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.25rem; border-top: 1px solid var(--border-glass); background: var(--bg-surface);">
         <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem;">
           <i class="fa-solid fa-circle-check" style="color: var(--primary);"></i>
-          <span>Indicadores, exactitud, conciliación y resultado económico agregado; sin detalle por producto.</span>
+          <span>Elija resumen ejecutivo o informe detallado para revisar y guardar los resultados.</span>
         </div>
         <button type="button" class="btn btn-secondary btn-sm" data-close-modal="modal-metrics-report">Cerrar</button>
       </div>
@@ -2866,7 +2870,9 @@
   <script src="/js/views/assignmentsView.js?v=2.2"></script>
   <script src="/js/views/justificationsView.js?v=2.2"></script>
   <script src="/js/views/historyView.js?v=2.2"></script>
-  <script src="/js/components/metricsReportModal.js?v=2.4"></script>
+  <link rel="stylesheet" href="/css/detailed-report.css?v=1.0">
+  <script src="/js/components/detailedMetricsReport.js?v=1.0"></script>
+  <script src="/js/components/metricsReportModal.js?v=2.5"></script>
   <script src="/js/components/snapshotManagerModal.js?v=2.2"></script>
   <script src="/js/views/dashboardView.js?v=2.2"></script>
   <script src="/js/views/userManagementView.js?v=2.2"></script>

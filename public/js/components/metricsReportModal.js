@@ -8,6 +8,7 @@ window.MetricsReportModal = {
   currentMetrics: null,
   reportCharts: [],
   isGenerating: false,
+  isExporting: false,
   initialized: false,
 
   init() {
@@ -22,9 +23,13 @@ window.MetricsReportModal = {
     // Botón de Descargar PDF en modal
     const btnDownloadPdf = document.getElementById('btn-report-download-pdf');
     if (btnDownloadPdf) {
-      btnDownloadPdf.onclick = (e) => {
+      btnDownloadPdf.onclick = async (e) => {
         e.preventDefault();
-        this.downloadPDF();
+        if (this.isExporting) return;
+        const previousMode = this.exportMode || 'resumen';
+        this.setReportMode('resumen');
+        try { await this.downloadPDF(); }
+        finally { this.setReportMode(previousMode); }
       };
     }
     const btnDetailedPdf = document.getElementById('btn-report-download-detailed-pdf');
@@ -34,6 +39,9 @@ window.MetricsReportModal = {
         this.downloadDetailedPDF();
       };
     }
+
+    const preview = document.getElementById('report-preview-mode');
+    if (preview) preview.onchange = () => this.setReportMode(preview.value);
 
     // Botón de Imprimir nativo en modal
     const btnNativePrint = document.getElementById('btn-report-native-print');
@@ -115,7 +123,7 @@ window.MetricsReportModal = {
     this.currentMetrics = metricsData;
 
     // Renderizar el informe en el contenedor de impresión
-    this.buildReportDOM(inventoryObj, metricsData);
+    this.setReportMode('resumen');
 
     // Abrir modal de vista previa
     window.ModalHelper?.open('modal-metrics-report');
@@ -262,84 +270,31 @@ window.MetricsReportModal = {
 
   buildDetailedReportDOM(inv, metrics) {
     const container = document.getElementById('report-printable-area');
-    if (!container) return;
-    const summary = metrics.summary || {};
-    const rows = Array.isArray(metrics.discrepanciesList) ? metrics.discrepanciesList : [];
-    const filters = metrics.filters || {};
-    const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-    const n = value => Number.isFinite(Number(value)) ? Number(value) : 0;
-    const money = value => n(value).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const qty = value => n(value).toLocaleString('es-BO', { maximumFractionDigits: 2 });
-    const status = item => item.estaSubsanado ? 'SUBSANADO' : (item.esDiscrepanciaFinal ? 'PENDIENTE AJUSTE' : (n(item.diferencia) === 0 ? 'CUADRADO' : 'OBSERVADO'));
-    const total = rows.reduce((sum, item) => sum + n(item.costoDiferencia), 0);
-    const shortages = rows.filter(item => n(item.diferencia) < 0);
-    const surpluses = rows.filter(item => n(item.diferencia) > 0);
-    const pending = rows.filter(item => item.esDiscrepanciaFinal && !item.estaSubsanado);
-    const damaged = n(summary.totalDamagedItems || summary.impactoFinanciero?.finalDamagedItems);
-    const finalAccuracy = n(summary.eriItemFinal ?? summary.eriPercent);
-    const recommendations = [];
-    if (pending.length) recommendations.push(`Priorizar la regularización de ${pending.length.toLocaleString('es-BO')} discrepancia(s) pendiente(s), documentando la causa y el ajuste contable correspondiente.`);
-    if (shortages.length) recommendations.push(`Validar físicamente los ${shortages.length.toLocaleString('es-BO')} faltante(s) y bloquear nuevos movimientos del material hasta completar la conciliación.`);
-    if (surpluses.length) recommendations.push(`Revisar los ${surpluses.length.toLocaleString('es-BO')} sobrante(s) contra documentos de ingreso, traspasos y ubicaciones alternativas.`);
-    if (damaged > 0) recommendations.push(`Segregar y respaldar con evidencia los ${damaged.toLocaleString('es-BO')} ítem(s) dañados antes de registrar bajas o garantías.`);
-    if (finalAccuracy < 95) recommendations.push('Programar un reconteo dirigido para los materiales críticos y revisar las causas de la exactitud inferior al mínimo aceptable de 95%.');
-    if (!recommendations.length) recommendations.push('Mantener el control periódico y conservar la evidencia de conteo, justificación y aprobación para la siguiente auditoría.');
-    const analysisText = pending.length || shortages.length || surpluses.length
-      ? `El análisis identifica ${shortages.length} faltante(s), ${surpluses.length} sobrante(s) y ${pending.length} ajuste(s) pendiente(s). El impacto neto registrado es Bs ${money(total)}.`
-      : 'El inventario no presenta discrepancias pendientes en los resultados disponibles; se recomienda conservar la trazabilidad documental del cierre.';
-    const generatedAt = new Date().toLocaleString('es-BO', { dateStyle: 'medium', timeStyle: 'short' });
-    const center = filters.center || inv.center || 'Todos los centros';
-    const title = esc(inv.name || inv.id || 'Inventario');
-    const bodyRows = rows.length ? rows.map(item => `
-      <tr>
-        <td>${esc(item.sku || '')}</td><td>${esc(item.descripcion || 'REPUESTO')}</td>
-        <td>${esc(item.center || center)}</td><td>${esc(item.almacen || '')}</td>
-        <td>${esc(item.ubicacion || '')}</td><td>${esc(item.abc || '')}</td>
-        <td class="num">${qty(item.stockSistema)}</td><td class="num">${qty(item.stockFisico)}</td>
-        <td class="num ${n(item.diferencia) < 0 ? 'negative' : n(item.diferencia) > 0 ? 'positive' : ''}">${qty(item.diferencia)}</td>
-        <td class="num">Bs ${money(item.costoUnitario)}</td><td class="num">Bs ${money(item.costoDiferencia)}</td>
-        <td>${status(item)}</td><td>${esc(item.responsable || '')}</td>
-      </tr>`).join('') : `<tr><td colspan="14" class="empty">No se registraron discrepancias para los filtros seleccionados.</td></tr>`;
-    container.innerHTML = `
-      <style>
-        .detail-report{font-family:Inter,Arial,sans-serif;color:#172033;font-size:9px}.detail-report h1{margin:0;background:#1e3a8a;color:#fff;padding:10px 12px;font-size:16px}.detail-report .meta{background:#e8eef8;padding:8px 12px;border-bottom:2px solid #1e3a8a}.detail-report .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}.detail-report .kpi{border:1px solid #cbd5e1;padding:7px;text-align:center}.detail-report .kpi strong{display:block;font-size:15px;color:#1e40af}.detail-report h2{font-size:11px;background:#7f1d1d;color:#fff;padding:6px 8px;margin:12px 0 0}.detail-report table{border-collapse:collapse;width:100%;table-layout:fixed}.detail-report th{background:#dbe5f1;color:#172033;font-size:8px}.detail-report td,.detail-report th{border:1px solid #b8c4d4;padding:4px 3px;vertical-align:middle;word-break:break-word}.detail-report .num{text-align:right}.detail-report .negative{color:#b91c1c;font-weight:700}.detail-report .positive{color:#047857;font-weight:700}.detail-report .empty{text-align:center;padding:16px}.detail-report .footer{margin-top:10px;color:#475569;font-size:8px}
-      </style>
-      <div class="detail-report">
-        <h1>INFORME DETALLADO • CONTROL DE INVENTARIO CÍCLICO</h1>
-        <div class="meta"><strong>${title}</strong><br>Centro: ${esc(center)} &nbsp;|&nbsp; Tipo: ${esc(filters.type || inv.type || 'CICLICO')} &nbsp;|&nbsp; Período: ${esc(filters.period || 'TODO')} &nbsp;|&nbsp; Generado: ${esc(generatedAt)}</div>
-        <div class="kpis">
-          <div class="kpi">Registros auditados<strong>${qty(summary.totalItemsAudited || 0)}</strong></div>
-          <div class="kpi">Discrepancias<strong>${qty(rows.length)}</strong></div>
-          <div class="kpi">Exactitud final<strong>${n(summary.eriItemFinal ?? summary.eriPercent).toFixed(2)}%</strong></div>
-          <div class="kpi">Impacto neto<strong>Bs ${money(total)}</strong></div>
-        </div>
-        <h2>DETALLE DE RESULTADOS Y AJUSTES</h2>
-        <table><thead><tr><th>SKU</th><th>Descripción</th><th>Centro</th><th>Almacén</th><th>Ubicación</th><th>ABC</th><th>Stock sistema</th><th>Stock físico</th><th>Diferencia</th><th>Costo unitario</th><th>Costo diferencia</th><th>Estado</th><th>Responsable</th></tr></thead><tbody>${bodyRows}</tbody></table>
-        <h2>ANÁLISIS DE RESULTADOS</h2>
-        <div style="border:1px solid #b8c4d4;padding:8px;background:#f8fafc;line-height:1.45">${esc(analysisText)} Exactitud final: <strong>${finalAccuracy.toFixed(2)}%</strong>. Total auditado: <strong>${qty(summary.totalItemsAudited || 0)}</strong> registros.</div>
-        <h2>RECOMENDACIONES OPERATIVAS</h2>
-        <ol style="margin:0;padding:8px 8px 8px 24px;border:1px solid #b8c4d4;background:#fff">${recommendations.map(item => `<li style="margin:3px 0;line-height:1.35">${esc(item)}</li>`).join('')}</ol>
-        <div class="footer">Documento generado desde las métricas consolidadas del dashboard. Los valores monetarios se expresan en bolivianos (Bs).</div>
-      </div>`;
+    if (container) container.innerHTML = window.DetailedMetricsReport.render(inv, metrics);
   },
 
   async downloadDetailedPDF() {
+    if (this.isExporting) return;
     if (!this.currentInventory || !this.currentMetrics) {
       window.Toast?.warning('Genere primero la vista previa del informe.');
       return;
     }
-    const previous = document.getElementById('report-printable-area')?.innerHTML;
-    this.buildDetailedReportDOM(this.currentInventory, this.currentMetrics);
-    this.exportMode = 'detallado';
+    const previousMode = this.exportMode || 'resumen';
+    this.setReportMode('detallado');
     try { await this.downloadPDF(); }
-    finally {
-      this.exportMode = 'resumen';
-      const container = document.getElementById('report-printable-area');
-      if (container && previous !== undefined) {
-        container.innerHTML = previous;
-        this.buildReportDOM(this.currentInventory, this.currentMetrics);
-      }
-    }
+    finally { this.setReportMode(previousMode); }
+  },
+
+  setReportMode(mode) {
+    if (this.isExporting) return;
+    this.exportMode = mode === 'detallado' ? mode : 'resumen';
+    const detailed = this.exportMode === 'detallado';
+    const container = document.getElementById('report-printable-area');
+    container?.classList?.toggle('detail-paper', detailed);
+    const select = document.getElementById('report-preview-mode');
+    if (select) select.value = this.exportMode;
+    if (detailed) this.buildDetailedReportDOM(this.currentInventory, this.currentMetrics);
+    else this.buildReportDOM(this.currentInventory, this.currentMetrics);
   },
 
   renderReportCharts(summary, discrepancies) {
@@ -556,13 +511,20 @@ window.MetricsReportModal = {
   },
 
   async downloadPDF() {
+    if (this.isExporting) return;
     const element = document.getElementById('report-printable-area');
     if (!element) {
       window.Toast?.danger('No se encontró el contenido del reporte para generar el PDF.');
       return;
     }
 
-    const btn = document.getElementById('btn-report-download-pdf');
+    this.isExporting = true;
+    const controls = ['btn-report-download-pdf', 'btn-report-download-detailed-pdf', 'report-preview-mode', 'btn-report-native-print'].map(id => document.getElementById(id)).filter(Boolean);
+    controls.forEach(control => { control.disabled = true; });
+    const detailed = this.exportMode === 'detallado';
+    const btn = document.getElementById(detailed ? 'btn-report-download-detailed-pdf' : 'btn-report-download-pdf');
+    const previousMinWidth = element.style.minWidth;
+    if (detailed) element.style.minWidth = '794px';
     const originalText = btn ? btn.innerHTML : '';
     if (btn) {
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando PDF...';
@@ -626,10 +588,10 @@ window.MetricsReportModal = {
         jsPDF: {
           unit: 'mm',
           format: 'a4',
-          orientation: 'landscape'
+          orientation: detailed ? 'portrait' : 'landscape'
         },
         pagebreak: {
-          mode: ['avoid-all', 'css', 'legacy']
+          mode: detailed ? ['css', 'legacy'] : ['avoid-all', 'css', 'legacy']
         }
       };
 
@@ -690,6 +652,9 @@ window.MetricsReportModal = {
       btn.disabled = false;
     }
 
+    controls.forEach(control => { control.disabled = false; });
+    element.style.minWidth = previousMinWidth;
+    this.isExporting = false;
     if (!downloaded) {
       window.Toast?.danger('No se pudo completar la descarga directa. Abriendo diálogo de impresión...');
       try {
@@ -715,7 +680,7 @@ window.MetricsReportModal = {
     });
 
     const imgData = canvas.toDataURL('image/jpeg', 0.95);
-    const pdf = new JsPDFClass('l', 'mm', 'a4');
+    const pdf = new JsPDFClass(this.exportMode === 'detallado' ? 'p' : 'l', 'mm', 'a4');
     const pdfWidth = pdf.internal.pageSize.getWidth();
     const pdfHeight = pdf.internal.pageSize.getHeight();
     const imgWidth = pdfWidth - 10;
