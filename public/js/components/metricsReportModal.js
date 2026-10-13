@@ -272,6 +272,21 @@ window.MetricsReportModal = {
     const qty = value => n(value).toLocaleString('es-BO', { maximumFractionDigits: 2 });
     const status = item => item.estaSubsanado ? 'SUBSANADO' : (item.esDiscrepanciaFinal ? 'PENDIENTE AJUSTE' : (n(item.diferencia) === 0 ? 'CUADRADO' : 'OBSERVADO'));
     const total = rows.reduce((sum, item) => sum + n(item.costoDiferencia), 0);
+    const shortages = rows.filter(item => n(item.diferencia) < 0);
+    const surpluses = rows.filter(item => n(item.diferencia) > 0);
+    const pending = rows.filter(item => item.esDiscrepanciaFinal && !item.estaSubsanado);
+    const damaged = n(summary.totalDamagedItems || summary.impactoFinanciero?.finalDamagedItems);
+    const finalAccuracy = n(summary.eriItemFinal ?? summary.eriPercent);
+    const recommendations = [];
+    if (pending.length) recommendations.push(`Priorizar la regularización de ${pending.length.toLocaleString('es-BO')} discrepancia(s) pendiente(s), documentando la causa y el ajuste contable correspondiente.`);
+    if (shortages.length) recommendations.push(`Validar físicamente los ${shortages.length.toLocaleString('es-BO')} faltante(s) y bloquear nuevos movimientos del material hasta completar la conciliación.`);
+    if (surpluses.length) recommendations.push(`Revisar los ${surpluses.length.toLocaleString('es-BO')} sobrante(s) contra documentos de ingreso, traspasos y ubicaciones alternativas.`);
+    if (damaged > 0) recommendations.push(`Segregar y respaldar con evidencia los ${damaged.toLocaleString('es-BO')} ítem(s) dañados antes de registrar bajas o garantías.`);
+    if (finalAccuracy < 95) recommendations.push('Programar un reconteo dirigido para los materiales críticos y revisar las causas de la exactitud inferior al mínimo aceptable de 95%.');
+    if (!recommendations.length) recommendations.push('Mantener el control periódico y conservar la evidencia de conteo, justificación y aprobación para la siguiente auditoría.');
+    const analysisText = pending.length || shortages.length || surpluses.length
+      ? `El análisis identifica ${shortages.length} faltante(s), ${surpluses.length} sobrante(s) y ${pending.length} ajuste(s) pendiente(s). El impacto neto registrado es Bs ${money(total)}.`
+      : 'El inventario no presenta discrepancias pendientes en los resultados disponibles; se recomienda conservar la trazabilidad documental del cierre.';
     const generatedAt = new Date().toLocaleString('es-BO', { dateStyle: 'medium', timeStyle: 'short' });
     const center = filters.center || inv.center || 'Todos los centros';
     const title = esc(inv.name || inv.id || 'Inventario');
@@ -300,6 +315,10 @@ window.MetricsReportModal = {
         </div>
         <h2>DETALLE DE RESULTADOS Y AJUSTES</h2>
         <table><thead><tr><th>SKU</th><th>Descripción</th><th>Centro</th><th>Almacén</th><th>Ubicación</th><th>ABC</th><th>Stock sistema</th><th>Stock físico</th><th>Diferencia</th><th>Costo unitario</th><th>Costo diferencia</th><th>Estado</th><th>Responsable</th></tr></thead><tbody>${bodyRows}</tbody></table>
+        <h2>ANÁLISIS DE RESULTADOS</h2>
+        <div style="border:1px solid #b8c4d4;padding:8px;background:#f8fafc;line-height:1.45">${esc(analysisText)} Exactitud final: <strong>${finalAccuracy.toFixed(2)}%</strong>. Total auditado: <strong>${qty(summary.totalItemsAudited || 0)}</strong> registros.</div>
+        <h2>RECOMENDACIONES OPERATIVAS</h2>
+        <ol style="margin:0;padding:8px 8px 8px 24px;border:1px solid #b8c4d4;background:#fff">${recommendations.map(item => `<li style="margin:3px 0;line-height:1.35">${esc(item)}</li>`).join('')}</ol>
         <div class="footer">Documento generado desde las métricas consolidadas del dashboard. Los valores monetarios se expresan en bolivianos (Bs).</div>
       </div>`;
   },
