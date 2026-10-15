@@ -1429,7 +1429,23 @@ class MetricsService {
       average: parseFloat((trendValues.reduce((a, b) => a + b, 0) / trendValues.length).toFixed(2))
     };
 
+    // Report names only: never send user credentials to the browser.
+    const reportUsers = storagePath.readJson(storagePath.getUsersFilePath(), []);
+    const usersForReport = Array.isArray(reportUsers) ? reportUsers : [];
+    const personName = value => {
+      const text = String(value || '').trim();
+      const matched = usersForReport.find(person => [person.username, person.displayName, person.name].some(name => name && String(name).trim().toLowerCase() === text.toLowerCase()));
+      return matched?.displayName || matched?.name || text;
+    };
+    const uniqueNames = values => [...new Set(values.filter(Boolean))];
+    const reportCenters = new Set(filtered.map(inv => config.getCenterCode(inv.center)));
+    const reportSignatories = {
+      counters: uniqueNames(filtered.flatMap(inv => (inv.items || []).filter(item => item.Fecha_Ultimo_Conteo || item.countedAt).map(item => personName(item.Responsable)))),
+      centerManagers: uniqueNames(usersForReport.filter(person => person.role === 'ENCARGADO' && reportCenters.has(config.getCenterCode(person.center))).map(person => person.displayName || person.name || person.username))
+    };
+
     return {
+      reportSignatories,
       filters: {
         type: cleanType,
         center: cleanCenter,

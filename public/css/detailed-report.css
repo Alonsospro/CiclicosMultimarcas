@@ -61,3 +61,15 @@
 #modal-metrics-report .modal-header { flex-wrap:wrap; gap:10px; }
 #modal-metrics-report .modal-header > div:last-child { flex-wrap:wrap; }
 @media print { .detail-page{padding:0;} .detail-page + .detail-page{margin-top:0;border-top:0;} .detail-header,.detail-kpis,.detail-callout,.detail-graphs,.detail-signatures,.detail-advice{break-inside:avoid;page-break-inside:avoid;} }
+
+.detail-chart-financial { height:auto; }
+.detail-signatures .detail-signature-name { display:block; min-height:28px; margin-bottom:8px; font-size:10px; font-weight:400; }
+
+.detail-conclusion { font-size:10px; padding:10px 12px; }
+.detail-conclusion p { margin-bottom:0; }
+
+.detail-table-block, .detail-content-block { display:flow-root; }
+.detail-table-block { break-inside:avoid; page-break-inside:avoid; }
+.detail-table-block h2 { margin-top:12px; }
+
+.detail-chart-distribution { height:auto; }
