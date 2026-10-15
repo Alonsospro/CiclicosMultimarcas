@@ -43,8 +43,9 @@ test('final records retain all forty columns including both rounds',()=>{
 function inventoryService(gas,allowed=true){
   const records=new Map();
   const service=isolated('src/services/inventoryService.js',{
-    './inventoryContract':contract,'../config':{centersList:[{code:'1120'},{code:'1160'}],findCenter:v=>['1120','1160'].includes(v)?{code:v}:null},
-    './storagePath':{getInventoriesDirectory:()=>'/fake',getJustificationsDirectory:()=>'/fake-just'},
+    './inventoryWorkflow':require('../src/services/inventoryWorkflow'),
+    './inventoryContract':contract,'../config':{centersList:[{code:'1120'},{code:'1160'}],findCenter:v=>['1120','1160'].includes(v)?{code:v}:null,getCenterCode:v=>v,isSameCenter:(a,b)=>a===b},
+    './storagePath':{getInventoriesDirectory:()=>'/fake',getJustificationsDirectory:()=>'/fake-just',listFiles:()=>[...records.keys()].map(id=>id+'.json'),readJson:p=>records.get(path.basename(p,'.json'))},
     './auditService':{logAction(){},logCount(){}},'./driveService':{getPhotoAsDataUri:()=>''},'./gasService':gas,'./metricsService':{},'./snapshotService':{},
     '../middlewares/authMiddleware':{isBulkInventoryCreator:()=>allowed}
   });
@@ -153,7 +154,7 @@ test('count update waits for Sheets and sends only the requested second recount'
   const {service,records}=inventoryService({upsertCountToGAS:async(type,p)=>{
     payload=p;return {success:true,item:contract.update(base,p)};
   }});
-  const inv={id:'INV',type:'CICLICO',center:'1120',phase:'RECONTEO_2',items:[{...base,id:'I'}]};
+  const inv={id:'INV',type:'CICLICO',center:'1120',status:'EN_PROGRESO',phase:'RECONTEO_2',items:[{...base,id:'I'}]};
   records.set('INV',inv);
   const result=await service.updateCount({inventoryId:'INV',itemId:'I',stockFisico:11,malEstado:2,user:{role:'ADMIN',username:'test'}});
   assert.equal(payload.isReconteo2,true);assert.equal(payload.reconteo,undefined);
@@ -162,7 +163,7 @@ test('count update waits for Sheets and sends only the requested second recount'
 });
 test('a failed count never saves a parent recount',async()=>{
   const {service,records}=inventoryService({upsertCountToGAS:async()=>{throw new Error('Sheets down');}});
-  records.set('REC-I',{id:'REC-I',type:'CICLICO',center:'1120',phase:'RECONTEO',parentInventoryId:'P',items:[{...base,id:'I'}]});
+  records.set('REC-I',{id:'REC-I',type:'CICLICO',center:'1120',status:'EN_PROGRESO',phase:'RECONTEO',parentInventoryId:'P',items:[{...base,id:'I'}]});
   records.set('P',{id:'P',items:[{...base,id:'I'}]});
   const original=service.getInventoryRaw;
   service.getInventoryRaw=id=>JSON.parse(JSON.stringify(original(id)));

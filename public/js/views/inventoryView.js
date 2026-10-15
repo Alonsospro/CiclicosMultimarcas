@@ -544,7 +544,7 @@ window.InventoryView = {
       if (!itemId || !this.currentInventory) return;
 
       const item = this.currentInventory.items.find(it => it.id === itemId);
-      const isReconteoInv = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || String(this.currentInventory.id || '').startsWith('REC-'));
+      const isReconteoInv = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || this.currentInventory.phase === 'RECONTEO_2' || String(this.currentInventory.id || '').startsWith('REC-'));
       const qtyInput = document.getElementById(`input-qty-${itemId}`);
       const damagedInput = document.getElementById(`input-damaged-${itemId}`);
 
@@ -740,7 +740,7 @@ window.InventoryView = {
     document.getElementById('btn-submit-inv-review')?.addEventListener('click', async () => {
       if (!this.currentInventory) return;
 
-      const isClosedOrSigned = this.currentInventory.status !== 'EN_PROGRESO' ||
+      const isClosedOrSigned = !['EN_PROGRESO', 'EN_RECONTEO'].includes(this.currentInventory.status) ||
         this.currentInventory.isHistory ||
         this.currentInventory.status === 'FIRMADO' ||
         this.currentInventory.status === 'PENDIENTE_JUSTIFICACION' ||
@@ -752,15 +752,8 @@ window.InventoryView = {
         return;
       }
 
-      const isReconteo = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || String(this.currentInventory.id || '').startsWith('REC-'));
-      const uncounted = (this.currentInventory.items || []).filter(it => {
-        if (isReconteo) {
-          const hasRec = it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined;
-          const hasPhys = it.Stock_Fisico !== null && it.Stock_Fisico !== undefined;
-          return !hasRec && !hasPhys;
-        }
-        return it.Stock_Fisico === null || it.Stock_Fisico === undefined;
-      });
+      const isReconteo = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || this.currentInventory.phase === 'RECONTEO_2' || String(this.currentInventory.id || '').startsWith('REC-'));
+      const uncounted = (this.currentInventory.items || []).filter(it => !this.isCurrentStageCounted(it));
       if (uncounted.length > 0) {
         window.Toast.warning(`Aún quedan ${uncounted.length} ítems pendientes de ${isReconteo ? 'reconteo' : 'conteo'}. Complete todos los ítems al 100% antes de finalizar.`);
         alert(`⚠️ Inventario Incompleto\n\nAún quedan ${uncounted.length} ítems pendientes de ${isReconteo ? 'reconteo' : 'conteo'}.\n\nPor regla de auditoría y control, el inventario debe completarse al 100% antes de poder ser firmado y finalizado.`);
@@ -1048,7 +1041,7 @@ window.InventoryView = {
 
       const recountBanner = document.getElementById('count-recount-banner');
       if (recountBanner) {
-        const isReconteo = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || String(this.currentInventory.id).startsWith('REC-'));
+        const isReconteo = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || this.currentInventory.phase === 'RECONTEO_2' || String(this.currentInventory.id).startsWith('REC-'));
         recountBanner.style.display = isReconteo ? 'inline-flex' : 'none';
       }
 
@@ -1075,12 +1068,24 @@ window.InventoryView = {
     this.updateSubmitButtonState();
   },
 
+  isCurrentStageCounted(item) {
+    const inv = this.currentInventory || {};
+    const second = inv.phase === 'RECONTEO_2' || inv.recountRound === 2;
+    const recount = second || inv.isReconteo || inv.phase === 'RECONTEO' || String(inv.id || '').startsWith('REC-');
+    const values = second ? [item.Reconteo_2, item.Stock_Total_Reconteo_2]
+      : recount ? [item.Reconteo, item.Reconteo_Fisico, item.Stock_Total_Reconteo]
+      : [item.Stock_Buen_Estado, item.Stock_Fisico, item.Stock_Total];
+    const when = second ? item.Fecha_Reconteo_2 : recount ? item.Fecha_Reconteo : item.Fecha_Ultimo_Conteo;
+    return values.some(v => v !== null && v !== undefined && String(v).trim() !== '' && typeof v !== 'boolean' && Number.isSafeInteger(Number(v)) && Number(v) >= 0)
+      && (!inv.countNotBefore || Date.parse(when) >= Date.parse(inv.countNotBefore));
+  },
+
   updateSubmitButtonState() {
     const btn = document.getElementById('btn-submit-inv-review');
     if (!btn || !this.currentInventory) return;
 
-    const isReconteo = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || String(this.currentInventory.id || '').startsWith('REC-'));
-    const isClosedOrSigned = this.currentInventory.status !== 'EN_PROGRESO' ||
+    const isReconteo = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || this.currentInventory.phase === 'RECONTEO_2' || String(this.currentInventory.id || '').startsWith('REC-'));
+    const isClosedOrSigned = !['EN_PROGRESO', 'EN_RECONTEO'].includes(this.currentInventory.status) ||
       this.currentInventory.isHistory ||
       this.currentInventory.status === 'FIRMADO' ||
       this.currentInventory.status === 'PENDIENTE_JUSTIFICACION' ||
@@ -1138,13 +1143,11 @@ window.InventoryView = {
     const organizedItems = this.getOrganizedItems(this.currentInventory.items);
     this.currentInventory.items = organizedItems;
 
-    const isReconteoInv = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || String(this.currentInventory.id || '').startsWith('REC-'));
+    const isReconteoInv = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || this.currentInventory.phase === 'RECONTEO_2' || String(this.currentInventory.id || '').startsWith('REC-'));
 
     tbody.innerHTML = organizedItems.map(item => {
-      const isCounted = isReconteoInv
-        ? ((item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined) || (item.Stock_Fisico !== null && item.Stock_Fisico !== undefined))
-        : (item.Stock_Fisico !== null && item.Stock_Fisico !== undefined);
-      const isLocked = item.locked === true || (item.locked !== false && isCounted);
+      const isCounted = this.isCurrentStageCounted(item);
+      const isLocked = !['EN_PROGRESO', 'EN_RECONTEO'].includes(this.currentInventory.status) || (isCounted && item.locked !== false);
       const rowClass = isCounted ? 'counted-row' : '';
       const countedQty = isReconteoInv && item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined
         ? item.Reconteo_Fisico
@@ -1576,12 +1579,7 @@ window.InventoryView = {
     const isReconteoInv = !!(this.currentInventory?.isReconteo || this.currentInventory?.phase === 'RECONTEO' || String(this.currentInventory?.id || '').startsWith('REC-'));
     const items = this.currentInventory?.items || [];
     const total = items.length;
-    const counted = items.filter(it => {
-      if (isReconteoInv) {
-        return (it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined) || (it.Stock_Fisico !== null && it.Stock_Fisico !== undefined);
-      }
-      return it.Stock_Fisico !== null && it.Stock_Fisico !== undefined;
-    }).length;
+    const counted = items.filter(it => this.isCurrentStageCounted(it)).length;
     const pending = total - counted;
     const percent = total > 0 ? Math.round((counted / total) * 100) : 0;
 
@@ -2100,7 +2098,7 @@ window.InventoryView = {
     const item = this.currentInventory.items.find(it => it.id === itemId);
     if (!item) return;
 
-    const isReconteo = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || String(this.currentInventory.id || '').startsWith('REC-'));
+    const isReconteo = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || this.currentInventory.phase === 'RECONTEO_2' || String(this.currentInventory.id || '').startsWith('REC-'));
     const damInput = document.getElementById(`input-damaged-${itemId}`);
     const defaultDamaged = isReconteo ? (item.Reconteo_Mal_Estado || item.Malestado_Reconteo || item.Mal_estado || 0) : (item.Mal_estado || 0);
     const damagedVal = damInput ? (parseInt(damInput.value, 10) || defaultDamaged) : defaultDamaged;

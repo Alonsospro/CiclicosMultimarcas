@@ -1,4 +1,5 @@
 const contract = require('./inventoryContract');
+const workflow = require('./inventoryWorkflow');
 const {createHash,randomUUID}=require('crypto');
 const fs = require('fs');
 const path = require('path');
@@ -125,13 +126,7 @@ class InventoryService {
         }
 
         const isReconteoInv = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
-        const isItemCounted = (it) => {
-          if (!it) return false;
-          if (isReconteoInv) {
-            return (it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined) || (it.Stock_Fisico !== null && it.Stock_Fisico !== undefined);
-          }
-          return it.Stock_Fisico !== null && it.Stock_Fisico !== undefined;
-        };
+        const isItemCounted = it => !!it && workflow.hasCount(it, workflow.countStage(inv), inv.countNotBefore);
 
         // Generate summary stats for list view
         let totalItems = inv.items.length;
@@ -563,6 +558,11 @@ class InventoryService {
       throw new Error(`No tiene permisos para modificar inventarios del centro ${inv.center}`);
     }
 
+    if (workflow.isFinalized(inv) || !['EN_PROGRESO', 'EN_RECONTEO'].includes(inv.status) ||
+        (inv.status === 'EN_RECONTEO' && !workflow.countStage(inv))) {
+      throw new Error('Conteo bloqueado: utilice la etapa activa o reabra el inventario antes de modificar cantidades.');
+    }
+
     // Normalizar Categoria: Debe ser 'repuesto' y nunca el tipo de inventario (BARRIDO, CICLICO, etc.)
     const cleanCategoria = (categoria && !['BARRIDO', 'CICLICO', 'GENERAL', 'EXPRESS'].includes(String(categoria).toUpperCase().trim()))
       ? categoria
@@ -592,6 +592,10 @@ class InventoryService {
       targetItem=matches[0]||null;
     }
     let previousQty = targetItem ? targetItem.Stock_Fisico : null;
+    const stageMembers = workflow.recountKeys(inv);
+    if (targetItem && workflow.countStage(inv) && stageMembers.size && !stageMembers.has(contract.member(targetItem))) {
+      throw new Error('Este ítem no pertenece a la lista de reconteo habilitada.');
+    }
 
     if (isExplicitNewLocation) {
       // MULTIPLE LOCATIONS: Add additional location to the existing item (up to 2: Col E & Col F)
@@ -1059,21 +1063,24 @@ class InventoryService {
       throw new Error('No se puede finalizar un inventario sin ítems.');
     }
 
-    const isReconteoMode = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
-    const uncounted = inv.items.filter(it => {
-      if (isReconteoMode) {
-        const hasRec = it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined;
-        const hasPhys = it.Stock_Fisico !== null && it.Stock_Fisico !== undefined;
-        return !hasRec && !hasPhys;
-      }
-      return it.Stock_Fisico === null || it.Stock_Fisico === undefined;
-    });
+    if (workflow.isFinalized(inv) || !['EN_PROGRESO', 'EN_RECONTEO'].includes(inv.status)) {
+      throw new Error('Esta etapa ya fue firmada; reabra el inventario para modificarla.');
+    }
+    if (inv.status === 'EN_RECONTEO' && !workflow.countStage(inv)) {
+      throw new Error('Finalice y firme desde el inventario de reconteo asignado.');
+    }
+    const stage = workflow.countStage(inv);
+    const isReconteoMode = stage > 0;
+    const members = workflow.recountKeys(inv);
+    const stageItems = stage && members.size ? inv.items.filter(it => members.has(contract.member(it))) : inv.items;
+    const uncounted = stageItems.filter(it => !workflow.hasCount(it, stage, inv.countNotBefore));
     if (uncounted.length > 0) {
       throw new Error(`No se puede finalizar el inventario: aún quedan ${uncounted.length} ítems pendientes de conteo. El inventario debe completarse al 100%.`);
     }
 
     if (isReconteoMode) {
       inv.status = 'RECONTEO_COMPLETADO';
+      inv.recountSubmittedAt = new Date().toISOString();
       inv.submittedAt = new Date().toISOString();
       inv.submittedBy = user.username;
       inv.signature = signature || 'Firma digital operativa';
@@ -1085,6 +1092,8 @@ class InventoryService {
           const parentInv = this.getInventoryRaw(inv.parentInventoryId);
           if (parentInv) {
             parentInv.status = 'RECONTEO_COMPLETADO';
+            parentInv.recountSubmittedAt = inv.submittedAt;
+            parentInv.recountItemKeys = inv.items.map(contract.member);
             parentInv.items.forEach(pItem => {
               const recItem=inv.items.find(r=>contract.member(r)===contract.member(pItem));
               if(recItem)Object.assign(pItem,contract.normalize(recItem),{id:pItem.id,Estado_Reconteo:'Recontado'});
@@ -1093,6 +1102,18 @@ class InventoryService {
           }
         } catch (e) {
           console.warn('[inventoryService] Notice updating parent inventory status:', e.message);
+        }
+      } else if (inv.recountInventoryId) {
+        const child = this.getInventoryRaw(inv.recountInventoryId);
+        if (child) {
+          child.status = 'RECONTEO_COMPLETADO';
+          child.submittedAt = inv.submittedAt;
+          child.submittedBy = inv.submittedBy;
+          child.items.forEach(item => {
+            const confirmed = inv.items.find(it => contract.member(it) === contract.member(item));
+            if (confirmed) Object.assign(item, contract.normalize(confirmed), {id:item.id});
+          });
+          this.saveInventory(child);
         }
       }
 
@@ -1131,11 +1152,14 @@ class InventoryService {
       (!p.location||contract.identity(it.Ubicacion)===contract.identity(p.location)));
     if(candidates.length!==1)throw new Error('Ítem ambiguo o inexistente; indique almacén y ubicación');
     const item=candidates[0],round=Number(p.round||(p.isJustification2?2:1)),reviewer=p.user.displayName||p.user.username;
+    const context=this.getReviewPlan(inv);
+    workflow.assertJustification(inv,item,round,context,p.justification);
     const payload={action:'saveJustification',center:inv.center,inventoryId:inv.id,itemId:item.id,sku:item.SKU,
       almacen:item.Almacen,location:item.Ubicacion,round,isJustification2:round===2,
       corroboracion:contract.status(p),razon:p.reasonType,comentarioJustificacion:p.justification,reviewedBy:reviewer,
       originalStockSistema:item.Stock_Sistema_Original??item.Stock_Sistema,fecha:new Date().toISOString(),
-      photoJustificacion:p.driveUrl||p.photoUrl||''};
+      photoJustificacion:p.driveUrl||p.photoUrl||'',
+      workflow:{version:1,status:inv.status,round,countStage:round===1?0:(inv.hasRecount2||inv.recountRound===2?2:1)}};
     const result=await gasService.saveJustificationToGAS(inv.type,payload);
     if(!result.item)throw new Error('Apps Script no devolvió la fila confirmada');
     Object.assign(item,contract.normalize(result.item),{Stock_Sistema_Original:payload.originalStockSistema,
@@ -1159,7 +1183,9 @@ class InventoryService {
     }
     auditService.logJustification({inventoryId:inv.id,sku:item.SKU,justification:p.justification,photoUrl:record.photoUrl,
       user:p.user.username,reviewerName:reviewer,center:inv.center,diffQty:item.Diferencia,diffCost:item.Costo_Diferencia});
-    return {...record,item};
+    const updatedPlan=this.getReviewPlan(inv);
+    return {...record,item,reviewItem:updatedPlan.items.find(it=>contract.member(it)===contract.member(item)),
+      reviewState:{canClose:updatedPlan.canClose,canEnableRecount:updatedPlan.canEnableRecount}};
   }
 
   async corroborateItem(p) {
@@ -1167,8 +1193,11 @@ class InventoryService {
     const item=inv?.items?.find(it=>(p.itemId?it.id===p.itemId:contract.identity(it.SKU)===contract.identity(p.sku))&&
       (!p.almacen||contract.identity(it.Almacen)===contract.identity(p.almacen))&&(!p.location||contract.identity(it.Ubicacion)===contract.identity(p.location)));
     if(!item)throw new Error('Ítem inexistente');
-    const result=await this.saveJustification({...p,round:1,corroboracion:p.status,
-      reasonType:item.Razon||'AJUSTE_INVENTARIO',justification:item.Comentario_Justificacion||'',photoUrl:item.foto_justificacion});
+    const entry=this.getReviewPlan(inv).items.find(it=>contract.member(it)===contract.member(item));
+    const round=entry?.justificationRound||1;
+    const previous=workflow.review(item,round);
+    const result=await this.saveJustification({...p,round,corroboracion:p.status,
+      reasonType:previous.reasonType||'AJUSTE_INVENTARIO',justification:previous.justification||'',photoUrl:previous.photoUrl});
     return {success:true,sku:p.sku,status:result.corroboracion,justification:result};
   }
 
@@ -1180,25 +1209,22 @@ class InventoryService {
     const inv = this.getInventoryRaw(inventoryId);
     if (!inv) throw new Error('Inventario no encontrado');
 
+    if (!this.canModifyInventory(inv, user)) throw new Error('Inventario fuera de su centro');
+    const reviewPlan = this.getReviewPlan(inv);
+    if (!reviewPlan.canEnableRecount) throw new Error('Complete las primeras justificaciones antes de habilitar el reconteo.');
+    const itemsToRecount = reviewPlan.noCuadra.map(entry => inv.items.find(it => contract.member(it) === contract.member(entry)));
+    if (Array.isArray(skusToRecount) && skusToRecount.length) {
+      const requested = new Set(skusToRecount.map(contract.identity));
+      if (itemsToRecount.some(it => !requested.has(contract.identity(it.SKU))) ||
+          [...requested].some(sku => !itemsToRecount.some(it => contract.identity(it.SKU) === sku))) {
+        throw new Error('El reconteo debe incluir todos y únicamente los ítems justificados como NO CUADRA.');
+      }
+    }
+
     const reviewerName = user.displayName || user.username;
     inv.reviewedBy = reviewerName;
     inv.recountEnabledBy = reviewerName;
     inv.recountEnabledAt = new Date().toISOString();
-
-    // Identify items requiring recount:
-    // Only items with differences that were either marked NO_CUADRA or not marked CUADRA
-    let itemsToRecount = [];
-    if (Array.isArray(skusToRecount) && skusToRecount.length > 0) {
-      itemsToRecount = inv.items.filter(it => skusToRecount.includes(it.SKU));
-    } else {
-      itemsToRecount = inv.items.filter(it => {
-        const corr = String(it.corroboracion || it.corroborationStatus || it.Estado || '').toUpperCase().trim();
-        const isCuadra = corr === 'CUADRA' || corr === 'JUSTIFICADO';
-        const isNoCuadra = corr === 'NO_CUADRA' || corr === 'NO CUADRA' || corr === 'A_RECONTEO';
-        const hasDiff = Math.abs(Number(it.Costo_Diferencia ?? it.costoDiferencia ?? 0)) > 0.001 || (Number(it.Diferencia) || 0) !== 0 || (Number(it.Mal_estado) || 0) > 0;
-        return isNoCuadra || (hasDiff && !isCuadra);
-      });
-    }
 
     if (itemsToRecount.length === 0) {
       throw new Error('No hay ítems con diferencias pendientes de reconteo (o todos fueron marcados como "Cuadra")');
@@ -1212,18 +1238,26 @@ class InventoryService {
 
     inv.hasRecount = true;
     inv.status = 'EN_RECONTEO';
+    inv.recountInventoryId = `REC-${inv.id}`;
+    inv.recountItemKeys = itemsToRecount.map(contract.member);
+    inv.secondReviewNotBefore = inv.recountEnabledAt;
     this.saveInventory(inv);
 
     // Create the specialized Reconteo inventory assigned to the SAME counter(s)
     const recountId = `REC-${inv.id}`;
     const recountItems = itemsToRecount.map((it, idx) => ({
-      ...it,
+      ...inv.items.find(original => contract.member(original) === contract.member(it)),
       id: `REC-${it.id || idx}-${Date.now().toString(36)}`,
       Stock_Fisico_1erConteo: it.Stock_Fisico,
       Mal_estado_1erConteo: it.Mal_estado,
       Diferencia_1erConteo: it.Diferencia,
       Stock_Fisico: null,
+      Stock_Buen_Estado: null,
+      Stock_Total: null,
       Mal_estado: 0,
+      Reconteo: null,
+      Stock_Total_Reconteo: null,
+      Fecha_Reconteo: null,
       Reconteo_Fisico: null,
       Reconteo_Mal_Estado: 0,
       Revisado_Por: reviewerName,
@@ -1247,6 +1281,7 @@ class InventoryService {
       recountEnabledBy: reviewerName,
       createdAt: new Date().toISOString(),
       items: recountItems,
+      countNotBefore: inv.recountEnabledAt,
       reviewedBy: reviewerName
     };
 
@@ -1285,244 +1320,39 @@ class InventoryService {
     }
   }
 
+  getReviewPlan(inv) {
+    const child = (inv.recountInventoryId || inv.hasRecount) ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null;
+    const records = [...this.getJustificationsForInventory(inv.id),
+      ...(child ? this.getJustificationsForInventory(child.id) : [])];
+    return workflow.plan(inv, child, records);
+  }
+
   getPendingJustifications(user, centerFilter = null, options = {}) {
-    if (user.role !== 'ADMIN' && user.role !== 'ENCARGADO' && !user.isSuperadmin) {
+    if (user.role !== 'ADMIN' && user.role !== 'ENCARGADO' && !user.isSuperadmin)
       throw new Error('No tiene permisos para acceder a las justificaciones');
-    }
-
-    const includeFinalized = options.includeFinalized === true || options.status === 'ALL' || options.status === 'REVISADO';
-    const files = this.getAllInventoryFiles();
+    const includeFinalized = options.includeFinalized === true || ['ALL', 'REVISADO'].includes(options.status);
     const tasks = [];
-
-    files.forEach(f => {
-      const inv = storagePath.readJson(path.join(this.invDir, f), null);
-      if (!inv) return;
-      if (centerFilter && centerFilter !== 'TODOS' && centerFilter !== 'GLOBAL' && inv.center !== centerFilter) return;
-      
-      // Enforce center assignment for ENCARGADO
-      if (user.role === 'ENCARGADO' && inv.center !== user.center) return;
-
-      // Helper: Determina si un ítem tiene discrepancia (Columna P > 0 o < 0, diferencia física != 0 o daño)
-      const isItemDiscrepant = (it) => {
-        // Excluir si ya fue corroborado o cerrado como CUADRA
-        const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-        if (corr === 'CUADRA' || it.isCuadra === true) return false;
-
-        const sys = Number(it.Stock_Sistema ?? it.stockSistema ?? 0);
-        const physCount = (it.Stock_Buen_Estado !== null && it.Stock_Buen_Estado !== undefined && String(it.Stock_Buen_Estado).trim() !== '')
-          ? Number(it.Stock_Buen_Estado)
-          : ((it.Stock_Fisico !== null && it.Stock_Fisico !== undefined && String(it.Stock_Fisico).trim() !== '') ? Number(it.Stock_Fisico) : null);
-        const damaged = Number(it.Mal_estado ?? it.malEstado ?? 0);
-
-        const hasRec2 = (it.Stock_Total_Reconteo_2 !== null && it.Stock_Total_Reconteo_2 !== undefined && String(it.Stock_Total_Reconteo_2).trim() !== '') ||
-                        (it.Diferencia_Final_2 !== null && it.Diferencia_Final_2 !== undefined && String(it.Diferencia_Final_2).trim() !== '') ||
-                        (it.Reconteo_2 !== null && it.Reconteo_2 !== undefined && String(it.Reconteo_2).trim() !== '');
-
-        const hasRec1 = (it.Stock_Total_Reconteo !== null && it.Stock_Total_Reconteo !== undefined && String(it.Stock_Total_Reconteo).trim() !== '') ||
-                        (it.Diferencia_Final !== null && it.Diferencia_Final !== undefined && String(it.Diferencia_Final).trim() !== '') ||
-                        (it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined && String(it.Reconteo_Fisico).trim() !== '') ||
-                        (it.Reconteo !== null && it.Reconteo !== undefined && String(it.Reconteo).trim() !== '');
-
-        // 1. Prioridad: Si tiene Reconteo 2 (Col AJ para stock total y Col AM para diferencia final)
-        if (hasRec2) {
-          const recDam2 = (it.Malestado_Reconteo_2 !== null && it.Malestado_Reconteo_2 !== undefined && String(it.Malestado_Reconteo_2).trim() !== '')
-            ? Number(it.Malestado_Reconteo_2)
-            : 0;
-          const recPhys2 = (it.Reconteo_2 !== null && it.Reconteo_2 !== undefined && String(it.Reconteo_2).trim() !== '')
-            ? Number(it.Reconteo_2)
-            : 0;
-
-          if (sys < 0 && recPhys2 === 0 && recDam2 === 0) return false;
-
-          const recTot2 = (it.Stock_Total_Reconteo_2 !== null && it.Stock_Total_Reconteo_2 !== undefined && String(it.Stock_Total_Reconteo_2).trim() !== '')
-            ? Number(it.Stock_Total_Reconteo_2)
-            : (recPhys2 + recDam2);
-
-          const finalDiff2 = (it.Diferencia_Final_2 !== null && it.Diferencia_Final_2 !== undefined && String(it.Diferencia_Final_2).trim() !== '')
-            ? Number(it.Diferencia_Final_2)
-            : (recTot2 - sys);
-
-          // Si cuadró en reconteo 2 (diferencia 0 y sin daño), NO es discrepancia
-          return (finalDiff2 !== 0 || recDam2 > 0);
-        }
-
-        // 2. Si tiene Reconteo 1 (Col Y para stock total y Col AB para diferencia final)
-        if (hasRec1) {
-          const recDam1 = (it.Reconteo_Mal_Estado !== null && it.Reconteo_Mal_Estado !== undefined && String(it.Reconteo_Mal_Estado).trim() !== '')
-            ? Number(it.Reconteo_Mal_Estado)
-            : ((it.Malestado_Reconteo !== null && it.Malestado_Reconteo !== undefined && String(it.Malestado_Reconteo).trim() !== '')
-                ? Number(it.Malestado_Reconteo)
-                : damaged);
-
-          const recPhys1 = (it.Reconteo !== null && it.Reconteo !== undefined && String(it.Reconteo).trim() !== '')
-            ? Number(it.Reconteo)
-            : ((it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined && String(it.Reconteo_Fisico).trim() !== '') ? Number(it.Reconteo_Fisico) : 0);
-
-          if (sys < 0 && recPhys1 === 0 && recDam1 === 0) return false;
-
-          const recTot1 = (it.Stock_Total_Reconteo !== null && it.Stock_Total_Reconteo !== undefined && String(it.Stock_Total_Reconteo).trim() !== '')
-            ? Number(it.Stock_Total_Reconteo)
-            : (recPhys1 + recDam1);
-
-          const finalDiff1 = (it.Diferencia_Final !== null && it.Diferencia_Final !== undefined && String(it.Diferencia_Final).trim() !== '')
-            ? Number(it.Diferencia_Final)
-            : (recTot1 - sys);
-
-          // Si cuadró en reconteo 1 (diferencia 0 y sin daño), NO es discrepancia
-          return (finalDiff1 !== 0 || recDam1 > 0);
-        }
-
-        // 3. Regla de Negativos primer conteo
-        if (sys < 0 && damaged === 0 && (physCount === 0 || physCount === null)) return false;
-
-        // 4. Daño / mal estado
-        if (damaged > 0) return true;
-
-        // 5. Verificación primer conteo (Col O Diferencia o Stock_Total vs Stock_Sistema)
-        const diffVal = (it.Diferencia !== null && it.Diferencia !== undefined && String(it.Diferencia).trim() !== '')
-          ? Number(it.Diferencia)
-          : null;
-        if (diffVal !== null) {
-          return diffVal !== 0;
-        }
-
-        const hasPhys = it.Stock_Fisico !== null && it.Stock_Fisico !== undefined && String(it.Stock_Fisico).trim() !== '';
-        if (hasPhys) {
-          const phys = Number(it.Stock_Fisico);
-          const total = (it.Stock_Total !== null && it.Stock_Total !== undefined && String(it.Stock_Total).trim() !== '')
-            ? Number(it.Stock_Total)
-            : (phys + damaged);
-          return (total - sys) !== 0;
-        }
-
-        const costDiff = Number(it.Costo_Diferencia ?? it.costoDiferencia ?? 0);
-        if (Math.abs(costDiff) > 0.001) return true;
-
-        return false;
-      };
-
-      // Si este es el inventario hijo de reconteo y tiene un inventario padre, no mostrar como tarjeta separada
-      // ya que el inventario principal se actualiza a RECONTEO_COMPLETADO y consolida toda la justificación final
-      if (inv.isReconteo && inv.parentInventoryId) {
-        return;
-      }
-
-      // Don't show recount inventories while still being actively counted by auxiliary
-      if (inv.isReconteo && inv.status === 'EN_PROGRESO') {
-        return;
-      }
-
-      // Si el inventario ya fue revisado y finalizado (cerrado en Drive), filtrar solo si no se solicitó includeFinalized
-      const isFinalized = inv.status === 'REVISADO' || inv.isFinalized === true;
-      if (isFinalized && !includeFinalized) {
-        return;
-      }
-
-      const existingJustifications = this.getJustificationsForInventory(inv.id);
-
-      const findJustificationForItem = (item) => {
-        const itemSku = String(item.SKU || '').trim().toUpperCase();
-        const itemWar = String(item.Almacen || item.almacen || item.warehouse || '').trim().toUpperCase();
-        const itemLoc = String(item.Ubicacion || '').trim().toUpperCase();
-
-        if (item.id) {
-          const byId = existingJustifications.find(j => j.itemId === item.id);
-          if (byId) return byId;
-        }
-        if (itemWar && itemLoc) {
-          const byWarLoc = existingJustifications.find(j =>
-            String(j.sku || '').trim().toUpperCase() === itemSku &&
-            String(j.almacen || j.warehouse || '').trim().toUpperCase() === itemWar &&
-            String(j.ubicacion || '').trim().toUpperCase() === itemLoc
-          );
-          if (byWarLoc) return byWarLoc;
-        }
-        if (itemWar) {
-          const byWar = existingJustifications.find(j =>
-            String(j.sku || '').trim().toUpperCase() === itemSku &&
-            String(j.almacen || j.warehouse || '').trim().toUpperCase() === itemWar
-          );
-          if (byWar) return byWar;
-        }
-        const bySku = existingJustifications.filter(j => String(j.sku || '').trim().toUpperCase() === itemSku);
-        if (bySku.length === 1 && (!bySku[0].almacen || !itemWar)) {
-          return bySku[0];
-        }
-        return null;
-      };
-
-      // Incluir tanto discrepancias pendientes como ítems ya justificados para dar visibilidad completa
-      const isItemRelevantForJustifications = (it) => {
-        if (isItemDiscrepant(it)) return true;
-        const j = findJustificationForItem(it);
-        const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-        const hasJustData = !!(j || it.Comentario_Justificacion || it.justification || it.Razon || it.Razon_Justificacion || it.isCuadra === true || corr === 'CUADRA' || corr === 'JUSTIFICADO');
-        return hasJustData;
-      };
-
-      const validItemsToJustify = (inv.items || []).filter(isItemRelevantForJustifications);
-
-      const pendingDiscrepancies = validItemsToJustify.filter(it => {
-        const j = findJustificationForItem(it);
-        const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-        return !j && corr !== 'CUADRA' && corr !== 'JUSTIFICADO' && it.isCuadra !== true && !it.Comentario_Justificacion && !it.justification;
+    for (const file of this.getAllInventoryFiles()) {
+      const inv = this.getInventoryRaw(path.basename(file, '.json'));
+      if (!inv || (inv.isReconteo && inv.parentInventoryId)) continue;
+      if (centerFilter && !['TODOS', 'GLOBAL'].includes(centerFilter) && inv.center !== centerFilter) continue;
+      if (user.role === 'ENCARGADO' && inv.center !== user.center) continue;
+      const plan = this.getReviewPlan(inv);
+      if (plan.finalized ? !includeFinalized : !['PENDIENTE_JUSTIFICACION', 'EN_RECONTEO', 'RECONTEO_COMPLETADO'].includes(inv.status)) continue;
+      if (options.status === 'REVISADO' && !plan.finalized) continue;
+      tasks.push({
+        inventoryId: inv.id, inventoryName: inv.name, type: inv.type, center: inv.center, status: inv.status,
+        isFinalized: plan.finalized, closedAt: inv.closedAt || null, closedBy: inv.closedBy || null,
+        phase: inv.phase || 'CONTEO', isReconteo: !!inv.isReconteo,
+        hasRecount: plan.keys.size > 0, hasRecount2: !!inv.hasRecount2, recountRound: inv.recountRound || 1,
+        parentInventoryId: inv.parentInventoryId || null, recountInventoryId: inv.recountInventoryId || `REC-${inv.id}`,
+        reopenedPhase: inv.reopenedPhase || null, assignedTo: inv.assignedTo || [], totalItems: inv.items.length,
+        totalDiscrepancies: plan.items.length, pendingJustificationsCount: plan.pending.length,
+        justifiedItemsCount: plan.items.length - plan.pending.length,
+        canClose: plan.canClose, canEnableRecount: plan.canEnableRecount,
+        items: plan.items
       });
-
-      if (validItemsToJustify.length > 0 || inv.status === 'PENDIENTE_JUSTIFICACION' || inv.status === 'EN_RECONTEO' || inv.status === 'RECONTEO_COMPLETADO' || isFinalized) {
-        if (inv.status === 'EN_RECONTEO') {
-          const recId = inv.recountInventoryId || `REC-${inv.id}`;
-          try {
-            const childRec = this.getInventoryRaw(recId);
-            if (childRec && (childRec.status === 'RECONTEO_COMPLETADO' || childRec.status === 'REVISADO')) {
-              inv.status = 'RECONTEO_COMPLETADO';
-              this.saveInventory(inv);
-            } else if (pendingDiscrepancies.length === 0 && (inv.hasRecount || inv.isReconteo)) {
-              inv.status = 'RECONTEO_COMPLETADO';
-              this.saveInventory(inv);
-            }
-          } catch (e) {}
-        }
-        tasks.push({
-          inventoryId: inv.id,
-          inventoryName: inv.name,
-          type: inv.type,
-          center: inv.center,
-          status: inv.status,
-          isFinalized,
-          closedAt: inv.closedAt || null,
-          closedBy: inv.closedBy || null,
-          phase: inv.phase || (inv.isReconteo ? 'RECONTEO' : 'CONTEO'),
-          isReconteo: !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-')),
-          parentInventoryId: inv.parentInventoryId || null,
-          hasRecount: inv.hasRecount || false,
-          hasRecount2: inv.hasRecount2 || false,
-          recountRound: inv.recountRound || (inv.hasRecount2 ? 2 : (inv.hasRecount ? 1 : 0)),
-          reopenedPhase: inv.reopenedPhase || null,
-          recountInventoryId: inv.recountInventoryId || `REC-${inv.id}`,
-          assignedTo: inv.assignedTo || [],
-          totalItems: inv.items.length,
-          totalDiscrepancies: validItemsToJustify.length,
-          pendingJustificationsCount: pendingDiscrepancies.length,
-          justifiedItemsCount: validItemsToJustify.length - pendingDiscrepancies.length,
-          items: validItemsToJustify.map(it => {
-            const jDetails = findJustificationForItem(it);
-            const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-            const hasText = !!(it.Comentario_Justificacion || it.justification || (jDetails && jDetails.justification));
-            const isJustified = !!jDetails || corr === 'CUADRA' || corr === 'JUSTIFICADO' || it.isCuadra === true || hasText;
-            return {
-              ...it,
-              Razon: it.Razon || it.Razon_Justificacion || (jDetails ? jDetails.reasonType : ''),
-              Comentario_Justificacion: it.Comentario_Justificacion || (jDetails ? jDetails.justification : (it.justification || '')),
-              isJustified,
-              corroborationStatus: it.corroborationStatus || it.corroboracion || (isJustified ? 'CUADRA' : null),
-              corroboratedBy: it.corroboratedBy || it.Revisado_Por || (jDetails ? jDetails.reviewedBy : null),
-              justificationDetails: jDetails
-            };
-          })
-        });
-      }
-    });
-
+    }
     return tasks;
   }
 
@@ -1548,6 +1378,11 @@ class InventoryService {
       parentInv = inv;
       const recId = inv.recountInventoryId || `REC-${inv.id}`;
       childRecountInv = this.getInventoryRaw(recId);
+    }
+
+    if (!this.canModifyInventory(primaryInv, user)) throw new Error('Inventario fuera de su centro');
+    if (!this.getReviewPlan(primaryInv).canClose) {
+      throw new Error('No se puede cerrar: termine y firme la etapa activa y registre una explicación CUADRA o NO CUADRA para cada ítem revisado, incluidos todos los recontados.');
     }
 
     // If recount exists, merge recount values into primary inventory
@@ -1665,6 +1500,16 @@ class InventoryService {
 
     // Configurar fase solicitada
     const cleanPhase = String(targetPhase || '1ER_CONTEO').toUpperCase().trim();
+    if (!['1ER_CONTEO', 'CONTEO', 'RECONTEO_1', 'RECONTEO', 'RECONTEO 1', 'RECONTEO_2', 'RECONTEO 2', 'JUSTIFICACION', 'JUSTIFICACIONES'].includes(cleanPhase)) {
+      throw new Error('Etapa de reapertura inválida');
+    }
+    if (['JUSTIFICACION', 'JUSTIFICACIONES'].includes(cleanPhase) &&
+        !['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO', 'REVISADO'].includes(inv.status)) {
+      throw new Error('Debe finalizar y firmar el conteo o reconteo antes de reabrir su justificación.');
+    }
+    if (['1ER_CONTEO', 'CONTEO'].includes(cleanPhase) && this.getReviewPlan(inv).keys.size) {
+      throw new Error('Este inventario ya tiene reconteo. Reabra esa etapa para corregir cantidades; el primer conteo se conserva como historial.');
+    }
     if (cleanPhase === 'RECONTEO_2' || cleanPhase === 'RECONTEO 2') {
       inv.status = 'EN_RECONTEO';
       inv.phase = 'RECONTEO_2';
@@ -1688,8 +1533,28 @@ class InventoryService {
       inv.reopenedPhase = '1ER_CONTEO';
     }
 
+    const reopenedAt = new Date().toISOString();
+    if (cleanPhase === 'JUSTIFICACION' || cleanPhase === 'JUSTIFICACIONES') {
+      if (inv.hasRecount || inv.recountInventoryId) inv.status = 'RECONTEO_COMPLETADO';
+    } else if (workflow.countStage(inv)) {
+      const child = this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`);
+      inv.recountItemKeys = [...workflow.recountKeys(inv, child)];
+      if (!inv.recountItemKeys.length) {
+        inv.recountItemKeys = inv.items.filter(item => workflow.review(item,1).complete && workflow.review(item,1).corroboracion === 'NO CUADRA').map(contract.member);
+      }
+      if (!inv.recountItemKeys.length) throw new Error('Registre primero las justificaciones NO CUADRA para habilitar el reconteo.');
+      inv.secondReviewNotBefore = reopenedAt;
+      inv.countNotBefore = reopenedAt;
+    } else {
+      inv.firstReviewNotBefore = reopenedAt;
+      inv.countNotBefore = reopenedAt;
+      inv.recountItemKeys = [];
+      inv.hasRecount = false;
+      inv.hasRecount2 = false;
+      inv.recountRound = 0;
+    }
     inv.isFinalized = false;
-    inv.reopenedAt = new Date().toISOString();
+    inv.reopenedAt = reopenedAt;
     inv.reopenedBy = user.displayName || user.username;
     inv.reopenReason = reason || `Reapertura para actualizar cantidades (${inv.reopenedPhase})`;
 
@@ -1762,7 +1627,14 @@ class InventoryService {
     if (inv.recountInventoryId) {
       const childRec = this.getInventoryRaw(inv.recountInventoryId);
       if (childRec) {
-        childRec.status = inv.status === 'EN_RECONTEO' ? 'EN_PROGRESO' : inv.status;
+        childRec.status = inv.reopenedPhase === '1ER_CONTEO' ? 'SUSPENDIDO'
+          : inv.status === 'EN_RECONTEO' ? 'EN_PROGRESO' : inv.status;
+        if (inv.status === 'EN_RECONTEO') {
+          childRec.countNotBefore = inv.countNotBefore;
+          childRec.phase = inv.phase;
+          childRec.recountRound = inv.recountRound;
+          childRec.secondReviewNotBefore = inv.secondReviewNotBefore;
+        }
         childRec.isFinalized = false;
         this.saveInventory(childRec);
       }
@@ -1832,6 +1704,10 @@ class InventoryService {
 
     const inv = this.getInventoryRaw(inventoryId);
     if (!inv) throw new Error('Inventario no encontrado');
+    const requestedStage = /RECONTEO[_ ]2/.test(countPhase) ? 2 : /RECONTEO/.test(countPhase) ? 1 : 0;
+    if (workflow.isFinalized(inv) || !['EN_PROGRESO', 'EN_RECONTEO'].includes(inv.status) || workflow.countStage(inv) !== requestedStage) {
+      throw new Error('Reabra el inventario en la etapa correspondiente antes de modificar cantidades.');
+    }
 
     if (isEncargado && inv.center && !config.isSameCenter(inv.center, user.center)) {
       throw new Error(`No tiene permisos para modificar inventarios del centro ${inv.center}`);
@@ -1859,6 +1735,11 @@ class InventoryService {
 
     if (!targetItem) {
       throw new Error(`Ítem con SKU ${sku} no encontrado en el inventario`);
+    }
+
+    const stageMembers = workflow.recountKeys(inv);
+    if (requestedStage && stageMembers.size && !stageMembers.has(contract.member(targetItem))) {
+      throw new Error('Este ítem no pertenece a la lista de reconteo habilitada.');
     }
 
     const qty = contract.quantity(stockFisico,'stockFisico');

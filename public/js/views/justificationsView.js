@@ -323,92 +323,17 @@ window.JustificationsView = {
     this.renderTasks();
   },
 
-  filterValidJustificationItems(items = []) {
-    if (!Array.isArray(items)) return [];
-    return items.filter(it => {
-      // 1. Excluir explícitamente ítems marcados como CUADRA
-      const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-      if (corr === 'CUADRA' || it.isCuadra === true) return false;
+  reviewAction(task) {
+    if (task.isFinalized || task.status === 'REVISADO') return '<span class="badge badge-success">Finalizado en Drive · Solo lectura</span>';
+    if (task.status === 'EN_RECONTEO') return '<span class="badge badge-info">Reconteo en curso · Justificación bloqueada</span>';
+    if (task.canEnableRecount) return `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableRecount('${task.inventoryId}')">Habilitar Reconteo</button>`;
+    if (task.canClose) return `<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>`;
+    return '<span class="badge badge-warning">Complete las justificaciones pendientes para continuar</span>';
+  },
 
-      const sys = Number(it.Stock_Sistema ?? it.stockSistema ?? 0);
-      const phys = (it.Stock_Buen_Estado !== null && it.Stock_Buen_Estado !== undefined && String(it.Stock_Buen_Estado).trim() !== '')
-        ? Number(it.Stock_Buen_Estado)
-        : ((it.Stock_Fisico !== null && it.Stock_Fisico !== undefined && String(it.Stock_Fisico).trim() !== '') ? Number(it.Stock_Fisico) : 0);
-      const damaged = Number(it.Mal_estado ?? 0);
-
-      const hasRec2 = (it.Stock_Total_Reconteo_2 !== null && it.Stock_Total_Reconteo_2 !== undefined && String(it.Stock_Total_Reconteo_2).trim() !== '') ||
-                      (it.Diferencia_Final_2 !== null && it.Diferencia_Final_2 !== undefined && String(it.Diferencia_Final_2).trim() !== '') ||
-                      (it.Reconteo_2 !== null && it.Reconteo_2 !== undefined && String(it.Reconteo_2).trim() !== '');
-
-      const hasRec1 = (it.Stock_Total_Reconteo !== null && it.Stock_Total_Reconteo !== undefined && String(it.Stock_Total_Reconteo).trim() !== '') ||
-                      (it.Diferencia_Final !== null && it.Diferencia_Final !== undefined && String(it.Diferencia_Final).trim() !== '') ||
-                      (it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined && String(it.Reconteo_Fisico).trim() !== '') ||
-                      (it.Reconteo !== null && it.Reconteo !== undefined && String(it.Reconteo).trim() !== '');
-
-      // 1. Prioridad: Si tiene Reconteo 2 (Col AJ para stock total y Col AM para diferencia final)
-      if (hasRec2) {
-        const recDam2 = (it.Malestado_Reconteo_2 !== null && it.Malestado_Reconteo_2 !== undefined && String(it.Malestado_Reconteo_2).trim() !== '')
-          ? Number(it.Malestado_Reconteo_2)
-          : 0;
-        const recPhys2 = (it.Reconteo_2 !== null && it.Reconteo_2 !== undefined && String(it.Reconteo_2).trim() !== '')
-          ? Number(it.Reconteo_2)
-          : 0;
-
-        if (sys < 0 && recPhys2 === 0 && recDam2 === 0) return false;
-
-        const recTot2 = (it.Stock_Total_Reconteo_2 !== null && it.Stock_Total_Reconteo_2 !== undefined && String(it.Stock_Total_Reconteo_2).trim() !== '')
-          ? Number(it.Stock_Total_Reconteo_2)
-          : (recPhys2 + recDam2);
-
-        const finalDiff2 = (it.Diferencia_Final_2 !== null && it.Diferencia_Final_2 !== undefined && String(it.Diferencia_Final_2).trim() !== '')
-          ? Number(it.Diferencia_Final_2)
-          : (recTot2 - sys);
-
-        return (finalDiff2 !== 0 || recDam2 > 0);
-      }
-
-      // 2. Si tiene Reconteo 1 (Col Y para stock total y Col AB para diferencia final)
-      if (hasRec1) {
-        const recDam1 = (it.Reconteo_Mal_Estado !== null && it.Reconteo_Mal_Estado !== undefined && String(it.Reconteo_Mal_Estado).trim() !== '')
-          ? Number(it.Reconteo_Mal_Estado)
-          : ((it.Malestado_Reconteo !== null && it.Malestado_Reconteo !== undefined && String(it.Malestado_Reconteo).trim() !== '')
-              ? Number(it.Malestado_Reconteo)
-              : damaged);
-
-        const recPhys1 = (it.Reconteo !== null && it.Reconteo !== undefined && String(it.Reconteo).trim() !== '')
-          ? Number(it.Reconteo)
-          : ((it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined && String(it.Reconteo_Fisico).trim() !== '') ? Number(it.Reconteo_Fisico) : 0);
-
-        if (sys < 0 && recPhys1 === 0 && recDam1 === 0) return false;
-
-        const recTot1 = (it.Stock_Total_Reconteo !== null && it.Stock_Total_Reconteo !== undefined && String(it.Stock_Total_Reconteo).trim() !== '')
-          ? Number(it.Stock_Total_Reconteo)
-          : (recPhys1 + recDam1);
-
-        const finalDiff1 = (it.Diferencia_Final !== null && it.Diferencia_Final !== undefined && String(it.Diferencia_Final).trim() !== '')
-          ? Number(it.Diferencia_Final)
-          : (recTot1 - sys);
-
-        return (finalDiff1 !== 0 || recDam1 > 0);
-      }
-
-      // 3. Regla de Negativos primer conteo
-      if (sys < 0 && damaged === 0 && phys === 0) return false;
-
-      // Primer conteo: verificar diferencia real o daño
-      const hasPhys = it.Stock_Fisico !== null && it.Stock_Fisico !== undefined && String(it.Stock_Fisico).trim() !== '';
-      if (!hasPhys && (it.Diferencia === null || it.Diferencia === undefined || String(it.Diferencia).trim() === '')) {
-        return false;
-      }
-      const total = (it.Stock_Total !== null && it.Stock_Total !== undefined && String(it.Stock_Total).trim() !== '')
-        ? Number(it.Stock_Total)
-        : (phys + damaged);
-      const diff = (it.Diferencia !== null && it.Diferencia !== undefined && String(it.Diferencia).trim() !== '')
-        ? Number(it.Diferencia)
-        : (total - sys);
-
-      return (diff !== 0 || damaged > 0);
-    });
+  reviewHistory(item) {
+    const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+    return (item.justificationHistory || []).map(entry => `<div style="margin-bottom:6px; white-space:normal; overflow-wrap:anywhere;"><strong>${entry.round}ª justificación · ${escape(entry.corroboracion)}</strong><br>${escape(entry.justification)}<br><small>${escape(entry.reviewedBy)} · ${escape(entry.reviewedAt)}</small></div>`).join('') || '-';
   },
 
   async loadJustifications() {
@@ -433,18 +358,7 @@ window.JustificationsView = {
         status: selectedStatus,
         includeFinalized: selectedStatus === 'ALL' || selectedStatus === 'REVISADO'
       });
-      this.tasks = (res.tasks || []).map(task => {
-        const allItems = task.items || [];
-        const pendingCount = allItems.filter(it => !it.isJustified && it.corroborationStatus !== 'CUADRA' && it.corroborationStatus !== 'JUSTIFICADO').length;
-        const justifiedCount = allItems.filter(it => it.isJustified || it.corroborationStatus === 'CUADRA' || it.corroborationStatus === 'JUSTIFICADO').length;
-        return {
-          ...task,
-          items: allItems,
-          totalDiscrepancies: allItems.length,
-          pendingJustificationsCount: pendingCount,
-          justifiedItemsCount: justifiedCount
-        };
-      });
+      this.tasks = (res.tasks || []).filter(task => task.isFinalized || ['PENDIENTE_JUSTIFICACION', 'EN_RECONTEO', 'RECONTEO_COMPLETADO'].includes(task.status));
 
       this.renderTasks();
     } catch (err) {
@@ -518,17 +432,7 @@ window.JustificationsView = {
       };
 
       const itemsWithDiff = (task.items || []).filter(hasItemDiscrepancy);
-      // Items that need recount: marked as NO_CUADRA or with discrepancies and not marked as CUADRA
-      const itemsNeedingRecount = (task.items || []).filter(it => {
-        const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-        const isCuadra = corr === 'CUADRA' || corr === 'JUSTIFICADO' || !!it.isJustified;
-        const isNoCuadra = corr === 'NO_CUADRA' || corr === 'NO CUADRA';
-        return isNoCuadra || (hasItemDiscrepancy(it) && !isCuadra);
-      });
-      const needsRecount = itemsNeedingRecount.length > 0;
-      // Un reconteo solo está en curso si el inventario requiere reconteo y aún está en proceso operativo.
-      // Si todos los ítems fueron justificados o no requieren reconteo, el inventario está listo para finalizar.
-      const isRecountInProgress = !isFinalized && needsRecount && (task.status === 'EN_RECONTEO' || (task.hasRecount && task.status !== 'RECONTEO_COMPLETADO' && task.status !== 'REVISADO'));
+      const isRecountInProgress = !isFinalized && task.status === 'EN_RECONTEO';
 
       const hasRecountData = isReconteoTask || (task.items || []).some(it => it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined && it.Reconteo_Fisico !== '');
       const hasRec2Data = (task.items || []).some(it => (it.Reconteo_2 !== undefined && it.Reconteo_2 !== null && String(it.Reconteo_2).trim() !== '') || (it.Stock_Total_Reconteo_2 !== undefined && it.Stock_Total_Reconteo_2 !== null && String(it.Stock_Total_Reconteo_2).trim() !== ''));
@@ -644,10 +548,7 @@ window.JustificationsView = {
       const totalDamaged = hasRecountData ? finalDamagedCount : (task.items || []).reduce((acc, it) => acc + (it.Mal_estado || 0), 0);
 
       const totalDiffItems = (task.items || []).length;
-      const justifiedCount = (task.items || []).filter(it => {
-        const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-        return it.isJustified || corr === 'CUADRA' || corr === 'JUSTIFICADO';
-      }).length;
+      const justifiedCount = (task.items || []).filter(it => it.reviewComplete).length;
       const progressPercent = totalDiffItems > 0 ? Math.round((justifiedCount / totalDiffItems) * 100) : 100;
 
       return `
@@ -667,7 +568,7 @@ window.JustificationsView = {
                       ? `<span class="badge badge-info" id="card-status-badge-${task.inventoryId}"><i class="fa-solid fa-rotate fa-spin"></i> Reconteo en Curso</span>`
                       : (task.pendingJustificationsCount > 0 
                           ? `<span class="badge badge-warning" id="card-status-badge-${task.inventoryId}"><i class="fa-solid fa-clock"></i> ${task.pendingJustificationsCount} Pendiente${task.pendingJustificationsCount > 1 ? 's' : ''}</span>`
-                          : `<span class="badge badge-success" id="card-status-badge-${task.inventoryId}"><i class="fa-solid fa-check"></i> Todas Justificadas</span>`))}
+                          : `<span class="badge badge-success" id="card-status-badge-${task.inventoryId}"><i class="fa-solid fa-check"></i> Revisión documentada</span>`))}
                 ${totalDiffItems > 0 ? `
                   <span id="card-progress-badge-${task.inventoryId}" class="badge" style="background: rgba(99, 102, 241, 0.12); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.25); font-weight: 600;">
                     <i class="fa-solid fa-chart-pie mr-1"></i> ${justifiedCount}/${totalDiffItems} (${progressPercent}%)
@@ -721,52 +622,7 @@ window.JustificationsView = {
                 >
                   <i class="fa-solid fa-lock-open"></i> Reabrir Inventario
                 </button>
-              ${isFinalized ? `
-                <button 
-                  type="button" 
-                  class="btn btn-finalized" 
-                  onclick="window.Toast.info('Este inventario ya ha sido finalizado y archivado en Google Drive.');"
-                  title="Inventario finalizado y archivado en Google Drive"
-                >
-                  <i class="fa-solid fa-check-double"></i> ${isReconteoTask ? 'Reconteo Finalizado en Drive' : 'Justificación Finalizada'}
-                </button>
-              ` : (isRecountInProgress ? `
-                <span class="badge badge-info" style="font-size: 0.85rem; padding: 7px 12px; display: inline-flex; align-items: center; gap: 6px;">
-                  <i class="fa-solid fa-rotate fa-spin"></i> Reconteo en Curso
-                </span>
-              ` : (isReconteoTask || task.hasRecount || task.status === 'RECONTEO_COMPLETADO' ? `
-                <button 
-                  type="button" 
-                  id="btn-finish-just-${task.inventoryId}" 
-                  class="btn btn-success" 
-                  onclick="window.JustificationsView.finishReview('${task.inventoryId}')"
-                  title="Finalizar inventario de reconteo y crear copia oficial en Google Drive"
-                  style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700;"
-                >
-                  <i class="fa-solid fa-file-circle-check"></i> Finalizar Inventario y Crear Copia en Drive
-                </button>
-              ` : (needsRecount ? `
-                <button 
-                  type="button" 
-                  class="btn btn-warning" 
-                  onclick="window.JustificationsView.enableRecount('${task.inventoryId}')"
-                  title="Habilitar lista de reconteo con ítems no conformes para el contador asignado"
-                  style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700;"
-                >
-                  <i class="fa-solid fa-rotate-right"></i> Habilitar Reconteo (${itemsNeedingRecount.length})
-                </button>
-              ` : `
-                <button 
-                  type="button" 
-                  id="btn-finish-just-${task.inventoryId}" 
-                  class="btn btn-success" 
-                  onclick="window.JustificationsView.finishReview('${task.inventoryId}')"
-                  title="Finalizar justificación y archivar en Google Drive (sin reconteo)"
-                  style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700;"
-                >
-                  <i class="fa-solid fa-file-circle-check"></i> Finalizar Justificación y Archivar en Drive
-                </button>
-              `)))}
+              ${this.reviewAction(task)}
               </div>
             </div>
           </div>
@@ -989,8 +845,8 @@ window.JustificationsView = {
                       const diff = item.Diferencia || 0;
                       const isJustified = !!item.isJustified;
                       const just = item.justificationDetails;
-                      const razonVal = item.Razon || (just ? just.reasonType : '') || '-';
-                      const comentarioVal = item.Comentario_Justificacion || (just ? just.justification : '') || '-';
+                      const razonVal = (just ? just.reasonType : '') || '-';
+                      const comentarioVal = (just ? just.justification : '') || '-';
                       const showRecountCols = isReconteoTask || (task.items || []).some(it => (it.Reconteo_Fisico !== undefined && it.Reconteo_Fisico !== null) || (it.Stock_Total_Reconteo !== undefined && it.Stock_Total_Reconteo !== null));
                       const itemSys = Number(item.Stock_Sistema || 0);
 
@@ -1033,13 +889,9 @@ window.JustificationsView = {
                         ? Number(item.Costo_Diferencia_Final_2)
                         : (finalDiffQty2 !== null ? (finalDiffQty2 * Number(item.Costo_Unitario || 0)) : null));
 
-                      const isSubsanadoByRec2 = hasItemRec2 && finalDiffQty2 === 0 && rec2Dam === 0;
-                      const isSubsanadoByRec1 = hasItemRec1 && !hasItemRec2 && finalDiffQty1 === 0 && rec1Dam === 0;
-                      const isSubsanado = isSubsanadoByRec2 || isSubsanadoByRec1;
-
-                      const itemCorr = String(item.corroborationStatus || item.corroboracion || item.Estado || '').toUpperCase().trim();
-                      const isCuadra = isSubsanado || itemCorr === 'CUADRA' || itemCorr === 'JUSTIFICADO' || !!item.isJustified;
-                      const isNoCuadra = !isCuadra && (itemCorr === 'NO_CUADRA' || itemCorr === 'NO CUADRA');
+                      const itemCorr = item.reviewStatus || '';
+                      const isCuadra = item.reviewComplete && itemCorr === 'CUADRA';
+                      const isNoCuadra = item.reviewComplete && itemCorr === 'NO CUADRA';
 
                       const itemWar = item.Almacen || item.almacen || item.warehouse || '';
                       const itemLoc = item.Ubicacion || '';
@@ -1115,7 +967,7 @@ window.JustificationsView = {
                                 </span>
                               ` : (isNoCuadra ? `
                                 <span class="badge badge-danger" style="font-weight: 800; font-size: 0.76rem;">
-                                  <i class="fa-solid fa-rotate-right"></i> No Cuadra (Reconteo)
+                                  <i class="fa-solid fa-rotate-right"></i> No Cuadra (${item.justificationRound === 2 ? 'Resultado final' : 'A reconteo'})
                                 </span>
                               ` : (isJustified ? `
                                 <span class="badge badge-success" style="font-weight: 800; font-size: 0.76rem;">
@@ -1126,7 +978,7 @@ window.JustificationsView = {
                                   <i class="fa-solid fa-clock"></i> Pendiente
                                 </span>
                               `))}
-                              ${!isFinalized ? `
+                              ${item.canJustify ? `
                                 <div style="display: inline-flex; gap: 4px; margin-top: 2px;">
                                   <button type="button" class="btn btn-xs ${isCuadra ? 'btn-success' : 'btn-secondary'}" onclick="window.JustificationsView.markCorroboration('${task.inventoryId}', '${item.SKU}', 'CUADRA', '${itemKey}', ${itemIdx})" title="Marcar Cuadra (Justificado)" style="padding: 2px 7px; font-size: 0.72rem;">
                                     <i class="fa-solid fa-check"></i> Cuadra
@@ -1143,11 +995,7 @@ window.JustificationsView = {
                               ${razonVal}
                             </span>
                           </td>
-                          <td class="cell-comentario" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${comentarioVal}">
-                            <span style="font-size: 0.82rem; color: ${isJustified || isCuadra ? 'var(--text-main)' : 'var(--text-dim)'};">
-                              ${comentarioVal}
-                            </span>
-                          </td>
+                          <td class="cell-comentario" style="min-width:180px; max-width:280px; white-space:normal;">${this.reviewHistory(item)}</td>
                           <td class="cell-evidencia">
                             ${(just && (just.driveUrl || just.photoUrl)) ? `
                               <a href="${just.driveUrl || just.photoUrl}" target="_blank" class="btn btn-secondary btn-xs" title="Ver foto de justificación en Google Drive" style="display: inline-flex; align-items: center; gap: 4px; text-decoration: none;">
@@ -1157,11 +1005,11 @@ window.JustificationsView = {
                           </td>
                           <td class="cell-accion" style="text-align: center;">
                             <div style="display: flex; flex-direction: column; gap: 4px; align-items: center;">
-                              <button class="btn btn-secondary btn-xs" onclick="window.JustificationsView.openJustifyModal('${task.inventoryId}', '${item.SKU}', '${itemKey}', ${itemIdx})" style="width: 100%;">
-                                <i class="fa-solid fa-pen-to-square"></i> ${isJustified || isCuadra ? 'Editar' : 'Justificar'}
+                              <button ${item.canJustify ? '' : 'disabled'} class="btn btn-secondary btn-xs" onclick="window.JustificationsView.openJustifyModal('${task.inventoryId}', '${item.SKU}', '${itemKey}', ${itemIdx})" style="width: 100%;">
+                                <i class="fa-solid fa-pen-to-square"></i> ${!item.canJustify ? 'Solo lectura' : (item.reviewComplete ? 'Editar explicación' : 'Justificar')}
                               </button>
-                              <button type="button" class="btn btn-outline-info btn-xs" onclick="window.JustificationsView.openEditCountModal('${task.inventoryId}', '${item.SKU}', '${itemKey}', ${itemIdx})" title="Editar / Actualizar cantidades de conteo (1er Conteo, Reconteo 1 o Reconteo 2)" style="width: 100%; padding: 2px 4px; font-size: 0.72rem; display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
-                                <i class="fa-solid fa-calculator"></i> Cantidad
+                              <button type="button" class="btn btn-outline-info btn-xs" onclick="window.JustificationsView.openReopenModal('${task.inventoryId}')" title="Reabra la etapa para modificar cantidades y volver a justificar el resultado." style="width: 100%; padding: 2px 4px; font-size: 0.72rem; display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
+                                <i class="fa-solid fa-calculator"></i> Reabrir cantidades
                               </button>
                             </div>
                           </td>
@@ -1345,6 +1193,10 @@ window.JustificationsView = {
 
     const item = task.items[clampedIndex];
     if (!item) return;
+    if (!item.canJustify) {
+      window.Toast.warning('Esta etapa está bloqueada. Finalice y firme el conteo o reconteo correspondiente.');
+      return;
+    }
 
     const isReconteoTask = !!(task && (task.hasRecount || task.status === 'EN_RECONTEO' || task.isReconteo || String(task.inventoryId).startsWith('REC-')));
 
@@ -1475,9 +1327,8 @@ window.JustificationsView = {
                        (hasLastRec && recFinalDiff === 0 && recDamaged === 0) ||
                        (String(item.corroborationStatus || item.corroboracion || '').toUpperCase().trim() === 'CUADRA');
 
-    // Determinar si corresponde a Segunda Justificación (reconteo o ya justificado previamente)
-    const hasPreviousJust = !!(item.Fecha_Primera_Justificacion || item.Estado_Justificacion || item.Razon_Justificacion || item.foto_justificacion);
-    const isSecondJust = isReconteoTask || hasLastRec || hasPreviousJust;
+    // La ronda viene del flujo confirmado por el servidor, no de textos o fotos previos.
+    const isSecondJust = item.justificationRound === 2;
     this.currentIsSecondJustification = isSecondJust;
 
     const elSecondInput = document.getElementById('just-modal-is-second-just');
@@ -1594,10 +1445,12 @@ window.JustificationsView = {
 
     const corrSelect = document.getElementById('just-select-corroboration');
     if (corrSelect) {
-      if (isCuadrado) {
+      if (item.reviewStatus) {
+        corrSelect.value = item.reviewStatus.replace(/ /g, '_');
+      } else if (isCuadrado) {
         corrSelect.value = 'CUADRA';
       } else {
-        corrSelect.value = item.corroborationStatus || 'NO_CUADRA';
+        corrSelect.value = (item.reviewStatus || 'NO_CUADRA').replace(/ /g, '_');
       }
     }
 
@@ -1673,12 +1526,11 @@ window.JustificationsView = {
       }
     } else {
       document.getElementById('form-submit-justification').reset();
-      if (corrSelect) corrSelect.value = isCuadrado ? 'CUADRA' : (item.corroborationStatus || 'NO_CUADRA');
+      if (corrSelect) corrSelect.value = isCuadrado ? 'CUADRA' : 'NO_CUADRA';
       const reasonSelect = document.getElementById('just-select-reason');
       if (isCuadrado) {
         if (reasonSelect) reasonSelect.value = 'balanceo';
-        const justInput = document.getElementById('just-input-text');
-        if (justInput) justInput.value = `Cuadró conforme en ${hasLastRec ? recLabel : 'reconteo'}.`;
+        document.getElementById('just-input-text').value = '';
       } else {
         if (reasonSelect) {
           reasonSelect.value = (item.Diferencia < 0) ? 'faltante en inventario anual' : ((item.Diferencia > 0) ? 'Sobrante del inventario anual' : 'balanceo');
@@ -1694,7 +1546,7 @@ window.JustificationsView = {
       }
     }
 
-    if (isCuadrado && corrSelect) {
+    if (isCuadrado && !item.reviewStatus && corrSelect) {
       corrSelect.value = 'CUADRA';
     }
 
@@ -1713,8 +1565,7 @@ window.JustificationsView = {
       // Find next pending item in the given direction
       while (nextIndex >= 0 && nextIndex < task.items.length) {
         const it = task.items[nextIndex];
-        const corrVal = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-        const isResolved = (it.isJustified || corrVal === 'CUADRA' || corrVal === 'JUSTIFICADO');
+        const isResolved = it.reviewComplete || !it.canJustify;
         if (!isResolved) break;
         nextIndex += direction;
       }
@@ -1749,15 +1600,15 @@ window.JustificationsView = {
     const task = this.tasks?.find(t => t.inventoryId === inventoryId);
     const isReconteoTask = !!(task && (task.hasRecount || task.status === 'EN_RECONTEO' || task.isReconteo || String(task.inventoryId).startsWith('REC-')));
 
+    const selectedItem = task?.items?.find(item => item.id === itemId);
+    if (!selectedItem?.canJustify) {
+      window.Toast.warning('La justificación no está habilitada para esta etapa. Actualice la lista.');
+      return false;
+    }
     if (!justification) {
-      if (corroboration === 'CUADRA') {
-        justification = 'Cuadró conforme en reconteo.';
-        if (!reasonType) reasonType = 'balanceo';
-      } else {
-        window.Toast.warning('Por favor ingrese la explicación o detalle de la justificación.');
-        document.getElementById('just-input-text')?.focus();
-        return false;
-      }
+      window.Toast.warning('Explique el resultado, incluso cuando el reconteo haya cuadrado.');
+      document.getElementById('just-input-text')?.focus();
+      return false;
     }
 
     const photoUrl = document.getElementById('just-photo-url').value || this.uploadedDriveUrl || null;
@@ -1792,63 +1643,15 @@ window.JustificationsView = {
         driveFileId
       });
 
-      // Update in-memory item state so subsequent navigations are immediately accurate
-      let updatedSys = null;
-      if (task && task.items) {
-        let itemObj = null;
-        if (typeof itemIdx === 'number' && itemIdx >= 0 && itemIdx < task.items.length && task.items[itemIdx].SKU === sku) {
-          itemObj = task.items[itemIdx];
-        } else if (itemId) {
-          itemObj = task.items.find(i => i.id === itemId);
-        } else if (almacen) {
-          itemObj = task.items.find(i => i.SKU === sku && (i.Almacen === almacen || i.almacen === almacen || i.warehouse === almacen));
-        }
-        if (!itemObj) {
-          itemObj = task.items.find(i => i.SKU === sku);
-        }
-
-        if (itemObj) {
-          const isCuadraStatus = corroboration === 'CUADRA';
-          itemObj.isJustified = isCuadraStatus;
-          itemObj.corroborationStatus = corroboration;
-          itemObj.corroboracion = corroboration;
-          itemObj.Estado = isCuadraStatus ? 'CUADRA' : 'NO CUADRA';
-          const confirmed=savedResponse.justification?.item;
-          if(!confirmed)throw new Error('Falta el ítem confirmado por Google');
-          Object.assign(itemObj,confirmed);
-          updatedSys=confirmed.Stock_Sistema;
-          itemObj.justificationDetails = {
-            reasonType,
-            justification,
-            photoUrl: driveUrl || photoUrl,
-            driveUrl,
-            driveFileId,
-            almacen,
-            warehouse: almacen,
-            location,
-            itemId
-          };
-        }
-      }
+      const confirmed = savedResponse.justification?.reviewItem;
+      if (!confirmed) throw new Error('Falta la revisión confirmada por el servidor. Actualice la lista.');
+      Object.assign(selectedItem, confirmed);
+      Object.assign(task, savedResponse.justification.reviewState);
 
       if (inventoryId) this.expandedTaskIds.add(inventoryId);
 
       const warLabel = almacen ? ` [${almacen}]` : '';
       window.Toast.success(`Guardado: SKU ${sku}${warLabel} (${corroboration === 'CUADRA' ? 'Cuadra' : 'No cuadra'})`);
-
-      // Actualización quirúrgica del DOM en la tabla sin resetear scroll ni reconstruir todo
-      this.updateItemRowDOM(inventoryId, sku, {
-        isJustified: corroboration === 'CUADRA',
-        corroborationStatus: corroboration,
-        reasonType,
-        justification,
-        photoUrl: driveUrl || photoUrl,
-        driveUrl: driveUrl || (photoUrl && String(photoUrl).includes('drive.google.com') ? photoUrl : null),
-        stockSistema: updatedSys,
-        itemKey,
-        itemIdx,
-        almacen
-      });
 
       this.updateCardHeaderProgress(inventoryId);
 
@@ -1877,353 +1680,27 @@ window.JustificationsView = {
     await this.saveCurrentModalJustification(true);
   },
 
-  updateItemRowDOM(inventoryId, sku, updateData = {}) {
-    const { itemKey, itemIdx, almacen } = updateData;
-    let row = null;
-    if (itemKey) {
-      row = document.getElementById(`just-row-${inventoryId}-${itemKey}`);
-    }
-    if (!row && typeof itemIdx === 'number' && itemIdx >= 0) {
-      row = document.querySelector(`tr[id^="just-row-${inventoryId}-"][data-item-idx="${itemIdx}"]`);
-    }
-    if (!row && almacen) {
-      row = document.querySelector(`tr[id^="just-row-${inventoryId}-"][data-sku="${sku}"][data-almacen="${almacen}"]`);
-    }
-    if (!row) {
-      const cleanSkuId = String(sku).replace(/[^a-zA-Z0-9_-]/g, '_');
-      row = document.getElementById(`just-row-${inventoryId}-${cleanSkuId}`) || document.querySelector(`tr[id^="just-row-${inventoryId}-"][data-sku="${sku}"]`);
-    }
-    if (!row) return;
-
-    const rowItemKey = row.getAttribute('data-item-key') || itemKey || '';
-    const rowItemIdx = row.getAttribute('data-item-idx') !== null ? Number(row.getAttribute('data-item-idx')) : (typeof itemIdx === 'number' ? itemIdx : 0);
-
-    const { isJustified, corroborationStatus, reasonType, justification, photoUrl, driveUrl } = updateData;
-    const isCuadra = corroborationStatus === 'CUADRA';
-    const isNoCuadra = corroborationStatus === 'NO_CUADRA';
-
-    // Si el ítem cuadra, no debe aparecer en justificación: animar y remover de la tabla
-    if (isCuadra) {
-      row.style.transition = 'all 0.35s ease';
-      row.style.opacity = '0';
-      row.style.transform = 'translateX(20px)';
-      setTimeout(() => {
-        row.remove();
-        const task = this.tasks?.find(t => t.inventoryId === inventoryId);
-        if (task && task.items) {
-          const idx = task.items.findIndex(it => (itemKey ? it._itemKey === itemKey : it.SKU === sku));
-          if (idx !== -1) task.items.splice(idx, 1);
-          task.totalDiscrepancies = task.items.length;
-          task.pendingJustificationsCount = task.items.filter(it => !it.isJustified && it.corroborationStatus !== 'CUADRA').length;
-        }
-        this.updateCardHeaderProgress(inventoryId);
-        const tbody = document.querySelector(`#task-details-${inventoryId} tbody`);
-        if (tbody && tbody.children.length === 0) {
-          tbody.innerHTML = `
-            <tr>
-              <td colspan="18" style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted);">
-                <i class="fa-solid fa-circle-check" style="color: #10b981; font-size: 2rem; margin-bottom: 0.5rem; display: block;"></i>
-                <strong style="color: var(--text-main);">Sin diferencias pendientes</strong>
-                <p style="margin: 0.25rem 0 0; font-size: 0.85rem;">Todos los ítems de este inventario cuadran o han sido justificados.</p>
-              </td>
-            </tr>
-          `;
-        }
-      }, 350);
-      return;
-    }
-
-    // 1. Remove discrepancy-row if resolved (justified or cuadra)
-    if (isJustified || isCuadra) {
-      row.classList.remove('discrepancy-row');
-    } else {
-      row.classList.add('discrepancy-row');
-    }
-
-    // 2. Update cell-status badge and buttons
-    const cellStatus = row.querySelector('.cell-status');
-    if (cellStatus) {
-      cellStatus.innerHTML = `
-        <div style="display: flex; flex-direction: column; gap: 4px;">
-          ${isCuadra ? `
-            <span class="badge badge-success" style="font-weight: 800; font-size: 0.76rem;">
-              <i class="fa-solid fa-check"></i> Cuadra (Aprobado)
-            </span>
-          ` : (isNoCuadra ? `
-            <span class="badge badge-danger" style="font-weight: 800; font-size: 0.76rem;">
-              <i class="fa-solid fa-rotate-right"></i> No Cuadra (Reconteo)
-            </span>
-          ` : (isJustified ? `
-            <span class="badge badge-success" style="font-weight: 800; font-size: 0.76rem;">
-              <i class="fa-solid fa-check"></i> Justificado
-            </span>
-          ` : `
-            <span class="badge badge-warning" style="font-weight: 800; font-size: 0.76rem;">
-              <i class="fa-solid fa-clock"></i> Pendiente
-            </span>
-          `))}
-          <div style="display: inline-flex; gap: 4px; margin-top: 2px;">
-            <button type="button" class="btn btn-xs ${isCuadra ? 'btn-success' : 'btn-secondary'}" onclick="window.JustificationsView.markCorroboration('${inventoryId}', '${sku}', 'CUADRA', '${rowItemKey}', ${rowItemIdx})" title="Marcar Cuadra (Justificado)" style="padding: 2px 7px; font-size: 0.72rem;">
-              <i class="fa-solid fa-check"></i> Cuadra
-            </button>
-            <button type="button" class="btn btn-xs ${isNoCuadra ? 'btn-danger' : 'btn-secondary'}" onclick="window.JustificationsView.markCorroboration('${inventoryId}', '${sku}', 'NO_CUADRA', '${rowItemKey}', ${rowItemIdx})" title="Marcar No Cuadra (A Reconteo)" style="padding: 2px 7px; font-size: 0.72rem;">
-              <i class="fa-solid fa-rotate-right"></i> No cuadra
-            </button>
-          </div>
-        </div>
-      `;
-    }
-
-    // 3. Update cell-razon
-    if (reasonType !== undefined) {
-      const cellRazon = row.querySelector('.cell-razon');
-      if (cellRazon) {
-        cellRazon.innerHTML = `
-          <span style="font-size: 0.82rem; font-weight: 600; color: ${isJustified || isCuadra ? 'var(--text-main)' : 'var(--text-dim)'};">
-            ${reasonType || '-'}
-          </span>
-        `;
-      }
-    }
-
-    // 4. Update cell-comentario
-    if (justification !== undefined) {
-      const cellComentario = row.querySelector('.cell-comentario');
-      if (cellComentario) {
-        cellComentario.setAttribute('title', justification || '-');
-        cellComentario.innerHTML = `
-          <span style="font-size: 0.82rem; color: ${isJustified || isCuadra ? 'var(--text-main)' : 'var(--text-dim)'};">
-            ${justification || '-'}
-          </span>
-        `;
-      }
-    }
-
-    // 5. Update cell-evidencia
-    if (photoUrl !== undefined || driveUrl !== undefined) {
-      const evidenceUrl = driveUrl || photoUrl;
-      const cellEvidencia = row.querySelector('.cell-evidencia');
-      if (cellEvidencia) {
-        cellEvidencia.innerHTML = evidenceUrl ? `
-          <a href="${evidenceUrl}" target="_blank" class="btn btn-secondary btn-xs" title="Ver foto de justificación en Google Drive" style="display: inline-flex; align-items: center; gap: 4px; text-decoration: none;">
-            <i class="fa-brands fa-google-drive" style="color: #34a853;"></i> Ver en Drive
-          </a>
-        ` : '<span style="color: var(--text-dim);">-</span>';
-      }
-    }
-
-    // 6. Update action button label
-    const cellAccion = row.querySelector('.cell-accion');
-    if (cellAccion) {
-      cellAccion.innerHTML = `
-        <button class="btn btn-secondary btn-sm" onclick="window.JustificationsView.openJustifyModal('${inventoryId}', '${sku}', '${rowItemKey}', ${rowItemIdx})">
-          <i class="fa-solid fa-pen-to-square"></i> ${isJustified || isCuadra ? 'Editar' : 'Justificar'}
-        </button>
-      `;
-    }
-
-    // 7. Update Stock_Sistema (Columna I) and Diferencia cells when CUADRA
-    if (isCuadra) {
-      const cellSys = row.querySelector('.cell-stock-sistema');
-      if (cellSys && updateData.stockSistema !== undefined && updateData.stockSistema !== null) {
-        cellSys.innerHTML = `${updateData.stockSistema}`;
-      }
-      const cellDiff = row.querySelector('.cell-diferencia');
-      if (cellDiff) {
-        cellDiff.innerHTML = `<span class="badge badge-success"><i class="fa-solid fa-check"></i> 0</span>`;
-      }
-      const cellDiffCost = row.querySelector('.cell-costo-diferencia');
-      if (cellDiffCost) {
-        cellDiffCost.innerHTML = `<strong style="color: var(--text-dim); font-family: var(--font-mono);">${window.AppConfig ? window.AppConfig.formatCurrency(0) : 'Bs. 0.00'}</strong>`;
-      }
-    }
-
-    // 8. Visual highlight animation for confirmation
-    row.classList.remove('just-row-updated');
-    void row.offsetWidth; // trigger reflow
-    row.classList.add('just-row-updated');
+  updateItemRowDOM() {
+    // Resolved entries and their history remain in the table.
+    this.renderTasks();
   },
 
   async markCorroboration(inventoryId, sku, status, itemKey, itemIdx) {
-    try {
-      const task = this.tasks?.find(t => t.inventoryId === inventoryId);
-      let targetItem = null;
-      if (task && task.items) {
-        if (typeof itemIdx === 'number' && itemIdx >= 0 && itemIdx < task.items.length && task.items[itemIdx].SKU === sku) {
-          targetItem = task.items[itemIdx];
-        } else if (itemKey) {
-          targetItem = task.items.find((it, idx) => {
-            const cleanSkuId = String(it.SKU).replace(/[^a-zA-Z0-9_-]/g, '_');
-            const cleanWarId = String(it.Almacen || it.almacen || it.warehouse || '').replace(/[^a-zA-Z0-9_-]/g, '_');
-            const cleanLocId = String(it.Ubicacion || '').replace(/[^a-zA-Z0-9_-]/g, '_');
-            return `${cleanSkuId}_${cleanWarId || 'war'}_${cleanLocId || 'loc'}_${idx}` === itemKey;
-          });
-        }
-        if (!targetItem) {
-          targetItem = task.items.find(i => i.SKU === sku);
-        }
-      }
-
-      const almacen = targetItem ? (targetItem.Almacen || targetItem.almacen || targetItem.warehouse || '') : '';
-      const location = targetItem ? (targetItem.Ubicacion || '') : '';
-      const itemId = targetItem ? (targetItem.id || null) : null;
-
-      const res = await window.API.corroborateItem(inventoryId, {
-        sku,
-        status,
-        almacen,
-        warehouse: almacen,
-        location,
-        itemId
-      });
-
-      if (this.expandedTaskIds) this.expandedTaskIds.add(inventoryId);
-      const warLabel = almacen ? ` [${almacen}]` : '';
-      window.Toast.success(res.message || `Ítem SKU ${sku}${warLabel} marcado como ${status === 'CUADRA' ? 'Cuadra (Justificado)' : 'No cuadra (A Reconteo)'}`);
-
-      // Update in-memory state
-      let updatedSys = null;
-      if (targetItem) {
-        const isCuadraStatus = status === 'CUADRA';
-        targetItem.corroborationStatus = status;
-        targetItem.corroboracion = status;
-        targetItem.Estado = isCuadraStatus ? 'CUADRA' : 'NO CUADRA';
-        targetItem.isJustified = isCuadraStatus;
-        const confirmed=res.justification?.item;
-        if(!confirmed)throw new Error('Falta el ítem confirmado por Google');
-        Object.assign(targetItem,confirmed);updatedSys=confirmed.Stock_Sistema;
-      }
-
-      // Update DOM surgically without re-rendering everything or losing scroll
-      this.updateItemRowDOM(inventoryId, sku, {
-        isJustified: status === 'CUADRA',
-        corroborationStatus: status,
-        stockSistema: updatedSys !== null ? updatedSys : (res.stockSistema !== undefined ? res.stockSistema : undefined),
-        itemKey,
-        itemIdx,
-        almacen
-      });
-
-      this.updateCardHeaderProgress(inventoryId);
-    } catch (err) {
-      window.Toast.danger(err.message || 'Error al actualizar revisión');
-    }
+    this.openJustifyModal(inventoryId, sku, itemKey, itemIdx);
+    const item = this.tasks.find(task => task.inventoryId === inventoryId)?.items?.[itemIdx];
+    if (item?.canJustify) document.getElementById('just-select-corroboration').value = status;
   },
 
   updateCardHeaderProgress(inventoryId) {
-    const task = this.tasks?.find(t => t.inventoryId === inventoryId);
+    const task = this.tasks.find(task => task.inventoryId === inventoryId);
     if (!task) return;
-
-    const isFinalized = task.status === 'REVISADO' || task.isFinalized === true;
-    const isReconteoTask = !!(task.isReconteo || task.phase === 'RECONTEO' || task.hasRecount || String(task.inventoryId).startsWith('REC-') || task.status === 'RECONTEO_COMPLETADO');
-
-    const totalDiffItems = (task.items || []).length;
-    const justifiedCount = (task.items || []).filter(it => {
-      const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-      return it.isJustified || corr === 'CUADRA' || corr === 'JUSTIFICADO';
-    }).length;
-    const progressPercent = totalDiffItems > 0 ? Math.round((justifiedCount / totalDiffItems) * 100) : 100;
-
-    const itemsNeedingRecount = (task.items || []).filter(it => {
-      const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
-      const isCuadra = corr === 'CUADRA' || corr === 'JUSTIFICADO' || !!it.isJustified;
-      const isNoCuadra = corr === 'NO_CUADRA' || corr === 'NO CUADRA';
-      return isNoCuadra || ((it.Diferencia !== 0 || (it.Mal_estado || 0) > 0) && !isCuadra);
-    });
-    const needsRecount = itemsNeedingRecount.length > 0;
-    const isRecountInProgress = !isFinalized && needsRecount && (task.status === 'EN_RECONTEO' || (task.hasRecount && task.status !== 'RECONTEO_COMPLETADO' && task.status !== 'REVISADO'));
-
-    if (!needsRecount && (task.status === 'EN_RECONTEO' || task.hasRecount)) {
-      task.status = 'RECONTEO_COMPLETADO';
-    }
-
-    const badgeEl = document.getElementById(`card-progress-badge-${inventoryId}`);
-    if (badgeEl) {
-      badgeEl.innerHTML = `<i class="fa-solid fa-chart-pie mr-1"></i> ${justifiedCount}/${totalDiffItems} (${progressPercent}%)`;
-    }
-
-    const statusBadgeEl = document.getElementById(`card-status-badge-${inventoryId}`);
-    if (statusBadgeEl) {
-      if (isFinalized) {
-        statusBadgeEl.className = 'badge badge-success';
-        statusBadgeEl.innerHTML = '<i class="fa-solid fa-check-double"></i> Finalizado en Drive';
-      } else if (isRecountInProgress) {
-        statusBadgeEl.className = 'badge badge-info';
-        statusBadgeEl.innerHTML = '<i class="fa-solid fa-rotate fa-spin"></i> Reconteo en Curso';
-      } else if (!needsRecount || progressPercent === 100) {
-        statusBadgeEl.className = 'badge badge-success';
-        statusBadgeEl.innerHTML = '<i class="fa-solid fa-check"></i> Todas Justificadas';
-      } else {
-        const pendingCount = itemsNeedingRecount.length;
-        statusBadgeEl.className = 'badge badge-warning';
-        statusBadgeEl.innerHTML = `<i class="fa-solid fa-clock"></i> ${pendingCount} Pendiente${pendingCount > 1 ? 's' : ''}`;
-      }
-    }
-
-    const barEl = document.getElementById(`card-progress-bar-${inventoryId}`);
-    if (barEl) {
-      barEl.style.width = `${progressPercent}%`;
-      barEl.style.background = progressPercent === 100 ? '#10b981' : '#f59e0b';
-    }
-
-    const actionEl = document.getElementById(`card-main-action-${inventoryId}`);
-    if (actionEl) {
-      const syncBtnHtml = `
-        <button 
-          type="button" 
-          id="btn-sync-sheet-${task.inventoryId}"
-          class="btn btn-secondary" 
-          onclick="window.JustificationsView.syncTaskFromSheets('${task.inventoryId}')"
-          title="Volver a actualizar los montos e ítems de este inventario directamente desde Google Sheets"
-          style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600;"
-        >
-          <i class="fa-solid fa-arrows-rotate"></i> Actualizar desde Sheets
-        </button>
-      `;
-      const reopenBtnHtml = `
-        <button 
-          type="button" 
-          class="btn btn-warning" 
-          onclick="window.JustificationsView.openReopenModal('${task.inventoryId}')"
-          title="Reabrir inventario para actualizar cantidades (1er Conteo, Reconteo 1 o Reconteo 2) o sincronizar con Google Sheets"
-          style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700;"
-        >
-          <i class="fa-solid fa-lock-open"></i> Reabrir Inventario
-        </button>
-      `;
-      let statusBtnHtml = '';
-      if (isFinalized) {
-        statusBtnHtml = `
-          <button type="button" class="btn btn-finalized" onclick="window.Toast.info('Este inventario ya ha sido finalizado y archivado en Google Drive.');" title="Inventario finalizado y archivado en Google Drive">
-            <i class="fa-solid fa-check-double"></i> ${isReconteoTask ? 'Reconteo Finalizado en Drive' : 'Justificación Finalizada'}
-          </button>
-        `;
-      } else if (isRecountInProgress) {
-        statusBtnHtml = `
-          <span class="badge badge-info" style="font-size: 0.85rem; padding: 7px 12px; display: inline-flex; align-items: center; gap: 6px;">
-            <i class="fa-solid fa-rotate fa-spin"></i> Reconteo en Curso
-          </span>
-        `;
-      } else if (isReconteoTask || task.hasRecount || task.status === 'RECONTEO_COMPLETADO') {
-        statusBtnHtml = `
-          <button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')" title="Finalizar inventario de reconteo y crear copia oficial en Google Drive" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700;">
-            <i class="fa-solid fa-file-circle-check"></i> Finalizar Inventario y Crear Copia en Drive
-          </button>
-        `;
-      } else if (needsRecount) {
-        statusBtnHtml = `
-          <button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableRecount('${task.inventoryId}')" title="Habilitar lista de reconteo con ítems no conformes para el contador asignado" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700;">
-            <i class="fa-solid fa-rotate-right"></i> Habilitar Reconteo (${itemsNeedingRecount.length})
-          </button>
-        `;
-      } else {
-        statusBtnHtml = `
-          <button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')" title="Finalizar justificación y archivar en Google Drive (sin reconteo)" style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 700;">
-            <i class="fa-solid fa-file-circle-check"></i> Finalizar Justificación y Archivar en Drive
-          </button>
-        `;
-      }
-      actionEl.innerHTML = `${syncBtnHtml}${reopenBtnHtml}${statusBtnHtml}`;
+    task.pendingJustificationsCount = task.items.filter(item => !item.reviewComplete).length;
+    task.justifiedItemsCount = task.items.length - task.pendingJustificationsCount;
+    const scrolls = [...document.querySelectorAll('[id^="just-table-responsive-"]')].map(el => [el.id, el.scrollLeft, el.scrollTop]);
+    this.renderTasks();
+    for (const [id, left, top] of scrolls) {
+      const el = document.getElementById(id);
+      if (el) { el.scrollLeft = left; el.scrollTop = top; }
     }
   },
 
@@ -2246,7 +1723,10 @@ window.JustificationsView = {
       `;
     }
 
-    const defaultRadio = document.querySelector('input[name="reopen-target-phase"][value="1ER_CONTEO"]');
+    const phase = task.hasRecount2 ? 'RECONTEO_2' : task.hasRecount ? 'RECONTEO_1' : '1ER_CONTEO';
+    const firstRadio = document.querySelector('input[name="reopen-target-phase"][value="1ER_CONTEO"]');
+    if (firstRadio) firstRadio.disabled = !!task.hasRecount;
+    const defaultRadio = document.querySelector(`input[name="reopen-target-phase"][value="${phase}"]`);
     if (defaultRadio) defaultRadio.checked = true;
 
     const chkSync = document.getElementById('reopen-chk-sync-gas');
@@ -2386,6 +1866,11 @@ window.JustificationsView = {
       return;
     }
 
+    if (!task?.canClose) {
+      window.Toast.warning('Complete la etapa y todas sus justificaciones, incluidas las de los ítems que cuadraron en reconteo.');
+      return;
+    }
+
     if (!confirm('¿Está seguro de terminar la justificación de este inventario?\n\nEsto cerrará el inventario, creará el archivo oficial en Google Drive y actualizará el botón a estado finalizado.')) {
       return;
     }
@@ -2400,7 +1885,7 @@ window.JustificationsView = {
       window.Toast.info('Creando archivo final en Google Drive y archivando inventario...');
       const roleName = window.Auth.currentUser?.role === 'ENCARGADO' ? 'Encargado' : 'Administrador';
       const res = await window.API.finishReview(inventoryId, {
-        reviewNotes: `Aprobado y justificado por ${roleName}`
+        reviewNotes: `Revisión documentada por ${roleName}; se conservan los resultados CUADRA y NO CUADRA.`
       });
 
       if (task) {

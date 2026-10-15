@@ -408,6 +408,17 @@ function findRowInSheet_(sh,p,rows){
   if(matches.length>1)throw new Error('SKU ambiguo: indique almacén y ubicación');
   return matches[0]||null;
 }
+function validateJustificationStage_(item,p){
+  const context=p.workflow,round=Number(p.round||(p.isJustification2?2:1));
+  if(!context||context.version!==1||context.round!==round)throw new Error('Falta el contexto de revisión. Actualice la app web antes de justificar.');
+  const stage=round===1?0:context.countStage;
+  if((round!==1&&round!==2)||(round===1?context.status!=='PENDIENTE_JUSTIFICACION':context.status!=='RECONTEO_COMPLETADO')||![0,1,2].includes(stage)||(round===2&&stage===0))
+    throw new Error('Justificación bloqueada: el conteo o reconteo no ha sido finalizado.');
+  const fields=InventoryContract.stages[stage];
+  if(!InventoryContract.has(item[fields[0]])&&!InventoryContract.has(item[fields[2]]))throw new Error('No se puede justificar sin el conteo de esta etapa.');
+  if(round===2&&String(item.Estado||'').replace(/_/g,' ').trim().toUpperCase()!=='NO CUADRA')throw new Error('El ítem no fue enviado a reconteo mediante una primera justificación NO CUADRA.');
+  if(!String(p.comentarioJustificacion||p.justification||'').trim())throw new Error('Explique el resultado CUADRA o NO CUADRA.');
+}
 function upsertCount_(p,batch){
   if(!p.sku&&!p.SKU&&!p.barcode&&!p.Codigo_Barras)throw new Error('Falta SKU o código de barras');
   const sh=batch?.sheet||getCenterSheet_(p.center||p.centro);
@@ -421,6 +432,7 @@ function upsertCount_(p,batch){
     found={rowNumber:sh.getLastRow()+1};created=true;
   }else original=rowToObject_(found.row);
   if(p.action==='saveJustification'||[p.isCuadra,p.corroboracion,p.corroboration,p.estadoJustificacion,p.estadoJustificacion2].some(InventoryContract.has)){
+    validateJustificationStage_(original,p);
     p={...p,originalStockSistema:originalStock_(p,original)};
   }
   const item=InventoryContract.update(original,p);
