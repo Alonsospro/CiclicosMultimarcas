@@ -1,7 +1,22 @@
 const {randomUUID}=require('crypto');
+function tokenForType(type) {
+  const cleanType=String(type||'CICLICO').trim().toUpperCase();
+  const tokenNames={
+    CICLICO:'CICLICOS_APPS_SCRIPT_TOKEN',
+    CICLICOS:'CICLICOS_APPS_SCRIPT_TOKEN',
+    BARRIDO:'BARRIDO_APPS_SCRIPT_TOKEN',
+    MENSUAL:'MENSUALES_APPS_SCRIPT_TOKEN',
+    MENSUALES:'MENSUALES_APPS_SCRIPT_TOKEN',
+    SEMANAL:'SEMANALES_APPS_SCRIPT_TOKEN',
+    SEMANALES:'SEMANALES_APPS_SCRIPT_TOKEN'
+  };
+  const tokenName=tokenNames[cleanType]||tokenNames.CICLICO;
+  const token=process.env[tokenName]||process.env.APPS_SCRIPT_TOKEN;
+  if(!token)throw new Error(`Configure ${tokenName} (o APPS_SCRIPT_TOKEN como respaldo) para conectar con Apps Script.`);
+  return token;
+}
 module.exports=async function request(url,payload,options={}) {
-  if(!process.env.APPS_SCRIPT_TOKEN)throw new Error('Configure APPS_SCRIPT_TOKEN para conectar con Apps Script.');
-  const body=JSON.stringify({...payload,operationId:payload.operationId||randomUUID(),apiToken:process.env.APPS_SCRIPT_TOKEN});
+  const body=JSON.stringify({...payload,operationId:payload.operationId||randomUUID(),apiToken:tokenForType(payload.type)});
   for(let attempt=0;attempt<3;attempt++){
     try{
       const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body,signal:AbortSignal.timeout(45000)});

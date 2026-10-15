@@ -84,6 +84,31 @@ function transport(fetch){
     process:{env:{APPS_SCRIPT_TOKEN:'test-only'}},fetch,AbortSignal:{timeout:()=>null},setTimeout:fn=>fn()
   });
 }
+test('transport selects a token per Apps Script type and keeps the shared-token fallback',async()=>{
+  const sent=[];
+  const request=isolated('src/services/gasTransport.js',{}, {
+    process:{env:{
+      APPS_SCRIPT_TOKEN:'shared-token',
+      CICLICOS_APPS_SCRIPT_TOKEN:'cyclic-token',
+      BARRIDO_APPS_SCRIPT_TOKEN:'sweep-token',
+      MENSUALES_APPS_SCRIPT_TOKEN:'monthly-token',
+      SEMANALES_APPS_SCRIPT_TOKEN:'weekly-token'
+    }},
+    fetch:async(_url,opts)=>{sent.push(JSON.parse(opts.body));return {ok:true,text:async()=>JSON.stringify({success:true})};},
+    AbortSignal:{timeout:()=>null},setTimeout:fn=>fn()
+  });
+  for(const [type,expected] of [
+    ['CICLICO','cyclic-token'],['BARRIDO','sweep-token'],
+    ['MENSUAL','monthly-token'],['SEMANAL','weekly-token']
+  ]) await request('mock://gas',{action:'test',type});
+  assert.deepEqual(sent.map(body=>body.apiToken),['cyclic-token','sweep-token','monthly-token','weekly-token']);
+
+  const fallback=transport(async(_url,opts)=>{
+    assert.equal(JSON.parse(opts.body).apiToken,'test-only');
+    return {ok:true,text:async()=>JSON.stringify({success:true})};
+  });
+  await fallback('mock://gas',{action:'test',type:'SEMANAL'});
+});
 test('transport preserves identity/original stock and retries with the same operationId',async()=>{
   const bodies=[];
   const request=transport(async(url,opts)=>{

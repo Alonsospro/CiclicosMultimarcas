@@ -19,7 +19,7 @@ Este cambio requiere actualizar la app y Apps Script juntos. El archivo `Invento
    - Las raíces de Drive no traen IDs de ejemplo: cada propiedad `ROOT_...` debe contener una carpeta real. Si falta o el ID no tiene acceso, el webhook devuelve un mensaje que señala la propiedad que hay que corregir.
    - `PHOTO_LINK_SHARING`: opcional; `true` permite ver nuevas fotos a cualquiera que tenga el enlace. Por defecto se conservan privadas; los usuarios que visualicen evidencias deben tener permisos de Drive.
 4. Publicar una nueva versión de la aplicación web Apps Script. Conservar el esquema de permisos necesario para que el servidor pueda llamarla.
-5. Configurar en el servidor el mismo `APPS_SCRIPT_TOKEN`, y las URLs de Apps Script utilizadas por `src/config.js`. El token se mantiene en el servidor; no incorporarlo al frontend ni al repositorio.
+5. Configurar en el servidor las URLs de Apps Script utilizadas por `src/config.js` y el token correspondiente: `CICLICOS_APPS_SCRIPT_TOKEN`, `BARRIDO_APPS_SCRIPT_TOKEN`, `MENSUALES_APPS_SCRIPT_TOKEN` o `SEMANALES_APPS_SCRIPT_TOKEN`. Cada valor debe coincidir con la propiedad `APPS_SCRIPT_TOKEN` del proyecto Apps Script que atiende esa URL. `APPS_SCRIPT_TOKEN` sigue admitido como respaldo compartido si no se define el token específico. Los tokens se mantienen en el servidor; no incorporarlos al frontend ni al repositorio.
 6. Desplegar la app y comprobar el flujo completo en prueba antes de sustituir la configuración de producción.
 
 ## Contrato de datos
