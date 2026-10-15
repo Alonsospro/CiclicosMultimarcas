@@ -5,6 +5,8 @@ const config = require('../config');
 const auditService = require('./auditService');
 const gasService = require('./gasService');
 const snapshotService = require('./snapshotService');
+const counterReliability = require('./counterReliability');
+const contract = require('./inventoryContract');
 
 function parseDateParam(val, isEndOfDay = false) {
   if (!val || val === 'undefined' || val === 'null' || val === '') return null;
@@ -164,6 +166,7 @@ class MetricsService {
     };
 
     const getGroupKey = (rec) => {
+      if (counterReliability.enabled(rec) && (rec.inventoryId || rec.id)) return `weekly:${rec.inventoryId || rec.id}`;
       const sId = getSheetId(rec.spreadsheetUrl || rec.driveUrl);
       if (sId) return `sheet:${sId}`;
       const invId = rec.inventoryId ? String(rec.inventoryId).toLowerCase().trim() : '';
@@ -313,6 +316,7 @@ class MetricsService {
 
     // Filter inventories by inventoryId, type, center, dates
     const filtered = inventories.filter(inv => {
+      if (cleanCenter && cleanCenter !== 'TODOS' && cleanCenter !== 'GLOBAL' && !config.isSameCenter(inv.center, cleanCenter)) return false;
       if (cleanInventoryId && cleanInventoryId !== 'TODOS') {
         const targetId = String(cleanInventoryId).toLowerCase().trim();
         const curId = String(inv.id || '').toLowerCase().trim();
@@ -428,6 +432,8 @@ class MetricsService {
     let totalDamagedCost = 0;
 
     // Multi-location ERU tracking (Evaluando cada estante/ubicación individual)
+    const weeklyMetrics = filtered.some(inv => inv.items?.some(contract.isWeekly));
+    const onlyWeeklyLocations = filtered.length > 0 && filtered.every(inv => inv.items?.every(contract.isWeekly));
     let totalLocationsEvaluated = 0;
     let exactMatchingLocations = 0;
 
@@ -506,6 +512,8 @@ class MetricsService {
       const invSkuMap = {};
 
       inv.items.forEach(item => {
+        const weekly = contract.isWeekly(item);
+        if (weekly) item = contract.normalize(item);
         totalItemsPlanned++;
         centerBreakdown[invCenter].totalPlanned++;
 
@@ -527,7 +535,7 @@ class MetricsService {
         const isAudited = rawPhys !== null && rawPhys !== undefined && rawPhys !== '';
         let stockFisico = isAudited ? parseCurrencyOrNumber(rawPhys, 0) : null;
 
-        const isCuadra = (String(item.corroboracion || '').toUpperCase().trim() === 'CUADRA' || String(item.corroborationStatus || '').toUpperCase().trim() === 'CUADRA');
+        const isCuadra = !weekly && (String(item.corroboracion || '').toUpperCase().trim() === 'CUADRA' || String(item.corroborationStatus || '').toUpperCase().trim() === 'CUADRA');
         if (isCuadra && isAudited) {
           stockSistema = stockFisico;
         }
@@ -543,10 +551,11 @@ class MetricsService {
         }
 
         // Multi-location grouping by SKU & distinct locations across columns D, E, F
-        const skuKey = item.SKU || item.id;
+        const skuKey = weekly ? JSON.stringify([item.SKU || item.id, item.Almacen]) : (item.SKU || item.id);
         if (!invSkuMap[skuKey]) {
           invSkuMap[skuKey] = {
-            sku: skuKey,
+            sku: item.SKU || item.id,
+            weekly,
             descripcion: item.Descripcion || '',
             categoria: item.Categoria || 'GENERAL',
             abc: (item.Clasificacion_ABC || 'C').toUpperCase(),
@@ -704,11 +713,17 @@ class MetricsService {
           finalStage = 0;
         }
 
-        if (isCuadra || item.corroboracion === 'CUADRA' || String(item.Estado || '').toLowerCase() === 'justificado') {
+        if (!weekly && (isCuadra || item.corroboracion === 'CUADRA' || String(item.Estado || '').toLowerCase() === 'justificado')) {
           diffFinal = 0;
           diffCostFinal = 0;
         }
 
+        if (weekly) {
+          stockFinal = contract.finalQuantity(item);
+          finalStage = contract.latestStage(item);
+          diffFinal = isAudited ? stockFinal - stockSistema : null;
+          diffCostFinal = isAudited ? diffFinal * unitCost : null;
+        }
         if (diffCostFinal === 0 && diffFinal !== 0 && unitCost > 0) {
           diffCostFinal = diffFinal * unitCost;
         }
@@ -718,6 +733,7 @@ class MetricsService {
         distinctItemLocations.forEach(locInfo => {
           invSkuMap[skuKey].locations.push({
             id: `${item.id}-${locInfo.name}`,
+            memberKey: contract.member(item),
             ubicacion: locInfo.name,
             almacen: item.Almacen || item.almacen || '',
             isAdditionalLocation: locInfo.isAdd,
@@ -751,7 +767,7 @@ class MetricsService {
         totalItemsAudited++;
         totalAuditedSystemUnits += stockSistema;
         totalAuditedSystemValue += (stockSistema * unitCost);
-        const itemLocationsCount = distinctItemLocations.length;
+        const itemLocationsCount = weekly ? 0 : distinctItemLocations.length;
         totalLocationsEvaluated += itemLocationsCount;
         centerBreakdown[invCenter].totalAudited++;
         centerBreakdown[invCenter].auditedSystemValue = (centerBreakdown[invCenter].auditedSystemValue || 0) + (stockSistema * unitCost);
@@ -798,8 +814,10 @@ class MetricsService {
           itemsCuadradosFinalValue += (matchedUnitsFinal * unitCost);
           centerBreakdown[invCenter].itemsExactFinalUnits = (centerBreakdown[invCenter].itemsExactFinalUnits || 0) + matchedUnitsFinal;
           centerBreakdown[invCenter].exact++;
-          centerBreakdown[invCenter].locationsExact += itemLocationsCount;
-          exactMatchingLocations += itemLocationsCount;
+          if (!weekly) {
+            centerBreakdown[invCenter].locationsExact += itemLocationsCount;
+            exactMatchingLocations += itemLocationsCount;
+          }
           if (!isExact1) {
             subsanadosCount++;
           }
@@ -833,7 +851,7 @@ class MetricsService {
 
         const isAdditionalLoc = !!item.isAdditionalLocation;
         const hasRec = (hasRec1 || hasRec2);
-        const finalPhys = (finalStage === 2 ? stockTotalRec2 : (finalStage === 1 ? stockTotalRec1 : stockFisico));
+        const finalPhys = weekly ? stockFinal : (finalStage === 2 ? stockTotalRec2 : (finalStage === 1 ? stockTotalRec1 : stockFisico));
         const finalDamaged = (finalStage === 2 ? (rawRecDam2 !== null ? Number(rawRecDam2) : 0) : (finalStage === 1 ? reconteoMalEstado : damaged));
 
         if (damaged > 0) {
@@ -843,7 +861,7 @@ class MetricsService {
         finalDamagedItems += finalDamaged;
         finalDamagedCost += (finalDamaged * unitCost);
 
-        if (hasRec && isExactFinal && !isExact1) {
+        if ((hasRec || weekly) && isExactFinal && !isExact1) {
           reconciledCount++;
         }
 
@@ -884,6 +902,8 @@ class MetricsService {
             esDiscrepanciaFinal: !isExactFinal,
             finalStage,
             stockFisicoFinal: finalPhys,
+            ...(weekly ? {physicalQuantityFinal: contract.latestPhysical(item),
+              justifiedQuantity1: item.Cantidad_Justificada_1, justifiedQuantity2: item.Cantidad_Justificada_2} : {}),
             malEstadoFinal: finalDamaged,
             costoMalEstadoFinal: finalDamaged * unitCost,
             malEstado: damaged,
@@ -917,6 +937,7 @@ class MetricsService {
         }
 
         // Worker stats tracking
+        if (!counterReliability.enabled(inv)) {
         const workerName = item.Responsable || 'Sin Asignar';
         if (!workerStatsMap[workerName]) {
           const normWorker = workerName.toLowerCase().trim();
@@ -981,20 +1002,31 @@ class MetricsService {
         }
         workerStatsMap[workerName].damagedFound += damaged;
         workerStatsMap[workerName].totalDiffCost += absDiffCost;
+        }
       });
 
       // Grouping and ERI Analysis per unique SKU in this inventory
       Object.values(invSkuMap).forEach(skuObj => {
         totalSkusPlanned++;
-        const locationsCount = skuObj.locations.length;
-        const auditedLocations = skuObj.locations.filter(l => l.stockFisico !== null && l.stockFisico !== undefined);
+        const locationsCount = skuObj.weekly ? new Set(skuObj.locations.map(l => contract.identity(l.ubicacion))).size : skuObj.locations.length;
+        const quantityRows = skuObj.weekly ? [...new Map(skuObj.locations.map(l => [l.memberKey, l])).values()] : skuObj.locations;
+        const auditedLocations = quantityRows.filter(l => l.stockFisico !== null && l.stockFisico !== undefined);
         const isSkuAudited = auditedLocations.length > 0;
 
         if (isSkuAudited) {
           totalSkusAudited++;
           centerBreakdown[invCenter].skusAudited++;
+          if (skuObj.weekly) {
+            const names = new Set(skuObj.locations.map(l => contract.identity(l.ubicacion)).filter(l => l && l !== 'SIN_UBICACION'));
+            const score = names.size ? 1 / names.size : 0;
+            skuObj.eruPercent = score * 100;
+            totalLocationsEvaluated++;
+            exactMatchingLocations += score;
+            centerBreakdown[invCenter].locationsEvaluated++;
+            centerBreakdown[invCenter].locationsExact += score;
+          }
 
-          const totalStockSistema = skuObj.locations.reduce((acc, l) => acc + (l.stockSistema || 0), 0);
+          const totalStockSistema = quantityRows.reduce((acc, l) => acc + (l.stockSistema || 0), 0);
           const totalStockTotal1 = auditedLocations.reduce((acc, l) => {
             const val = l.stockTotal1 !== null && l.stockTotal1 !== undefined ? l.stockTotal1 : ((l.stockFisico !== null ? l.stockFisico : 0) + (l.malEstado || 0));
             return acc + val;
@@ -1006,7 +1038,7 @@ class MetricsService {
           const totalDiff1 = auditedLocations.reduce((acc, l) => {
             return acc + (l.diff1 !== undefined && l.diff1 !== null ? Number(l.diff1) : (Number(l.diferencia || 0)));
           }, 0);
-          const isSkuExact1 = (totalDiff1 === 0) || skuObj.locations.some(l => l.isCuadra || l.corroboracion === 'CUADRA');
+          const isSkuExact1 = skuObj.weekly ? auditedLocations.length === quantityRows.length && auditedLocations.every(l => l.diff1 === 0) : ((totalDiff1 === 0) || skuObj.locations.some(l => l.isCuadra || l.corroboracion === 'CUADRA'));
 
           if (isSkuExact1) {
             totalSkusExactFirstCount++;
@@ -1021,7 +1053,7 @@ class MetricsService {
             return acc + (l.diffFinal !== undefined && l.diffFinal !== null ? Number(l.diffFinal) : 0);
           }, 0);
           const isSkuJustifiedCuadra = skuObj.locations.some(l => l.isCuadra || l.corroboracion === 'CUADRA' || String(l.estado || '').toLowerCase() === 'justificado');
-          const isSkuExactFinal = (totalDiffFinal === 0) || isSkuJustifiedCuadra;
+          const isSkuExactFinal = skuObj.weekly ? auditedLocations.length === quantityRows.length && auditedLocations.every(l => l.diffFinal === 0) : (totalDiffFinal === 0) || isSkuJustifiedCuadra;
 
           if (isSkuExactFinal) {
             totalSkusExactFinal++;
@@ -1032,7 +1064,7 @@ class MetricsService {
 
           // Multi-location tracking
           if (locationsCount > 1) {
-            const isFullyAudited = auditedLocations.length === locationsCount;
+            const isFullyAudited = auditedLocations.length === quantityRows.length;
             const allLocationsExact = isFullyAudited && skuObj.locations.every(l => (l.diferencia === 0 && l.malEstado === 0));
 
             multiLocationSkusList.push({
@@ -1048,6 +1080,7 @@ class MetricsService {
               totalStockFisico: isFullyAudited ? totalStockTotal1 : null,
               totalDiferencia: isFullyAudited ? totalDiff1 : null,
               allLocationsExact,
+              eruPercent: skuObj.eruPercent,
               isSkuExact: isSkuExact1,
               isSkuExactFinal,
               status: isSkuExactFinal ? 'EXACTO_ERI_FINAL' : (isSkuExact1 ? 'EXACTO_ERI' : (allLocationsExact ? 'EXACTO' : (isFullyAudited ? 'CON_DIFERENCIAS' : 'EN_PROGRESO')))
@@ -1582,6 +1615,7 @@ class MetricsService {
         
         // 2. ERU (Exactitud de Registro de Ubicación por cada estante o ubicación individual)
         eruPercent: parseFloat(eruPercent),
+        eruModel: onlyWeeklyLocations ? 'LOCATION_CONCENTRATION' : (weeklyMetrics ? 'MIXED' : 'LEGACY'),
         totalLocationsEvaluated,
         exactMatchingLocations,
         multiLocationCount: multiLocCount,
@@ -1634,32 +1668,32 @@ class MetricsService {
 
         // 5. Impacto Financiero
         impactoFinanciero: {
-          totalAbsoluteDiffCost: Math.round((totalRecountsDone > 0 ? totalFinalDiffCost : totalAbsoluteDiffCost) * 100) / 100,
+          totalAbsoluteDiffCost: Math.round(((totalRecountsDone > 0 || weeklyMetrics) ? totalFinalDiffCost : totalAbsoluteDiffCost) * 100) / 100,
           initialAbsoluteDiffCost: Math.round(totalInitialDiffCost * 100) / 100,
           finalAbsoluteDiffCost: Math.round(totalFinalDiffCost * 100) / 100,
           clarifiedCost: Math.round(Math.max(0, totalInitialDiffCost - totalFinalDiffCost) * 100) / 100,
           hasRecountData: totalRecountsDone > 0,
           reconciledItemsCount: reconciledCount,
-          sobrantesCost: Math.round((totalRecountsDone > 0 ? finalSobrantesCost : sobrantesCost) * 100) / 100,
-          faltantesCost: Math.round((totalRecountsDone > 0 ? finalFaltantesCost : faltantesCost) * 100) / 100,
+          sobrantesCost: Math.round(((totalRecountsDone > 0 || weeklyMetrics) ? finalSobrantesCost : sobrantesCost) * 100) / 100,
+          faltantesCost: Math.round(((totalRecountsDone > 0 || weeklyMetrics) ? finalFaltantesCost : faltantesCost) * 100) / 100,
           initialSobrantesCost: Math.round(initialSobrantesCost * 100) / 100,
           initialFaltantesCost: Math.round(initialFaltantesCost * 100) / 100,
-          damagedCost: Math.round((totalRecountsDone > 0 ? finalDamagedCost : totalDamagedCost) * 100) / 100,
-          damagedItemsCount: totalRecountsDone > 0 ? finalDamagedItems : totalDamagedItems
+          damagedCost: Math.round(((totalRecountsDone > 0 || weeklyMetrics) ? finalDamagedCost : totalDamagedCost) * 100) / 100,
+          damagedItemsCount: (totalRecountsDone > 0 || weeklyMetrics) ? finalDamagedItems : totalDamagedItems
         },
 
         // Direct compatibility properties
         totalPositiveDiff: sobrantesUnits,
         totalNegativeDiff: faltantesUnits,
-        totalAbsoluteDiffCost: Math.round((totalRecountsDone > 0 ? totalFinalDiffCost : totalAbsoluteDiffCost) * 100) / 100,
+        totalAbsoluteDiffCost: Math.round(((totalRecountsDone > 0 || weeklyMetrics) ? totalFinalDiffCost : totalAbsoluteDiffCost) * 100) / 100,
         initialAbsoluteDiffCost: Math.round(totalInitialDiffCost * 100) / 100,
         finalAbsoluteDiffCost: Math.round(totalFinalDiffCost * 100) / 100,
         recountClarifiedAmount: Math.round(Math.max(0, totalInitialDiffCost - totalFinalDiffCost) * 100) / 100,
         hasRecountData: totalRecountsDone > 0,
-        totalDamagedItems: totalRecountsDone > 0 ? finalDamagedItems : totalDamagedItems,
-        damagedItemsCount: totalRecountsDone > 0 ? finalDamagedItems : totalDamagedItems,
-        totalDamagedCost: Math.round((totalRecountsDone > 0 ? finalDamagedCost : totalDamagedCost) * 100) / 100,
-        damagedCost: Math.round((totalRecountsDone > 0 ? finalDamagedCost : totalDamagedCost) * 100) / 100
+        totalDamagedItems: (totalRecountsDone > 0 || weeklyMetrics) ? finalDamagedItems : totalDamagedItems,
+        damagedItemsCount: (totalRecountsDone > 0 || weeklyMetrics) ? finalDamagedItems : totalDamagedItems,
+        totalDamagedCost: Math.round(((totalRecountsDone > 0 || weeklyMetrics) ? finalDamagedCost : totalDamagedCost) * 100) / 100,
+        damagedCost: Math.round(((totalRecountsDone > 0 || weeklyMetrics) ? finalDamagedCost : totalDamagedCost) * 100) / 100
       },
       abcBreakdown: {
         A: {
@@ -1686,6 +1720,7 @@ class MetricsService {
       },
       centerStats,
       workerStats,
+      counterReliability: counterReliability.summarize(filtered),
       multiLocationSkus: multiLocationSkusList,
       discrepanciesList: discrepanciesList.sort((a, b) => b.absCostoDiferencia - a.absCostoDiferencia)
     };
@@ -1822,13 +1857,13 @@ class MetricsService {
             if (fetchedSheetCache.has(sId)) {
               fetched = fetchedSheetCache.get(sId);
             } else {
-              fetched = await gasService.fetchSpreadsheetItems(url);
+              fetched = await gasService.fetchSpreadsheetItems(url,record);
               if (Array.isArray(fetched) && fetched.length > 0) {
                 fetchedSheetCache.set(sId, fetched);
               }
             }
             if (Array.isArray(fetched) && fetched.length > 0) {
-              record.items = fetched;
+              record.items = counterReliability.preserve(fetched, record.items);
               record.totalItems = fetched.length;
               record.itemsWithDiff = fetched.filter(it => it.Diferencia !== 0).length;
               record.lastRecalculatedAt = new Date().toISOString();

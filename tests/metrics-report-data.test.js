@@ -7,6 +7,8 @@ const vm = require('node:vm');
 test('report exposes damage identified only in a recount and preserves the initial/final quantities', async () => {
   const module = { exports: {} };
   const mocks = {
+    './inventoryContract':require('../src/services/inventoryContract'),
+    './counterReliability':require('../src/services/counterReliability'),
     './storagePath': { getInventoriesDirectory: () => '/inventories', getHistoryDirectory: () => '/history', getUsersFilePath: () => '/users', readJson: () => [{ username: 'contador', displayName: 'Contador Real', role: 'AUXILIAR', center: '1160' }, { username: 'jefe', displayName: 'Encargado Real', role: 'ENCARGADO', center: '1160' }, { username: 'otro', displayName: 'Otro Centro', role: 'ENCARGADO', center: '1120' }] },
     '../config': { getCenterCode: code => code, findCenter: code => ({ code, name: 'Centro' }), isSameCenter: (a, b) => a === b },
     './auditService': { getAuditLogs: () => [] }, './gasService': {}, './snapshotService': {}

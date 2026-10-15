@@ -4,6 +4,19 @@ const metricsService = require('../services/metricsService');
 const auditService = require('../services/auditService');
 const { authenticate } = require('../middlewares/authMiddleware');
 
+// Aggregate scores may be visible to auxiliaries; signed quantities remain private during blind counts.
+router.use((req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = body => {
+    if (req.user?.role === 'AUXILIAR' && body?.counterReliability) {
+      return json({...body, counterReliability: {...body.counterReliability,
+        workers: body.counterReliability.workers.map(worker => ({...worker, records: []}))}});
+    }
+    return json(body);
+  };
+  next();
+});
+
 // GET /api/dashboard/metrics
 router.get('/metrics', authenticate, async (req, res) => {
   try {

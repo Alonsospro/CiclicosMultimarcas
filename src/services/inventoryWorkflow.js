@@ -22,14 +22,23 @@ function review(item, round, records = [], since = null) {
     reasonType: item[second ? 'Razon_Justificacion_2' : 'Razon'],
     reviewedBy: item[second ? 'Responsable_Justificacion_2' : 'Responsable_Justificacion'],
     reviewedAt: item[second ? 'Fecha_Justificacion_2' : 'Fecha_Primera_Justificacion'],
-    photoUrl: item[second ? 'foto_justificacion_2' : 'foto_justificacion']
+    photoUrl: item[second ? 'foto_justificacion_2' : 'foto_justificacion'],
+    justifiedQuantity: item[second ? 'Cantidad_Justificada_2' : 'Cantidad_Justificada_1']
   };
   const matches = records.filter(j => Number(j.round || 1) === round && contract.member(j) === contract.member(item));
   const latest = [row, ...matches].sort((a, b) => time(b.reviewedAt) - time(a.reviewedAt))[0];
   const decision = state(latest.corroboracion || latest.corroboration);
   const countDate = item[contract.stages[second ? (hasCount(item, 2) ? 2 : 1) : 0][5]];
-  const complete = ['CUADRA', 'NO CUADRA'].includes(decision) && !!String(latest.justification || '').trim()
+  let complete = ['CUADRA', 'NO CUADRA'].includes(decision) && !!String(latest.justification || '').trim()
     && time(latest.reviewedAt) > 0 && time(latest.reviewedAt) >= Math.max(time(since), time(countDate));
+  if (contract.isWeekly(item) && decision === 'CUADRA') {
+    // Validate this review against its own physical stage, including when a later stage exists.
+    const stage = second ? (hasCount(item, 2) ? 2 : 1) : 0;
+    const physical = item[contract.stages[stage][2]];
+    complete = complete && contract.has(latest.justifiedQuantity)
+      && Number.isSafeInteger(Number(latest.justifiedQuantity))
+      && contract.has(physical) && Number(physical) + Number(latest.justifiedQuantity) === Number(item.Stock_Sistema);
+  }
   return {...latest, round, corroboracion: decision, complete};
 }
 
@@ -37,8 +46,8 @@ function initialDiscrepancy(item) {
   if (!hasCount(item)) return false;
   const total = contract.has(item.Stock_Total) ? Number(item.Stock_Total)
     : Number(item.Stock_Buen_Estado ?? item.Stock_Fisico) + Number(item.Mal_estado || 0);
-  const system = Number(item.Stock_Sistema_Original ?? item.Stock_Sistema);
-  if (system < 0 && total === 0 && Number(item.Mal_estado || 0) === 0) return false;
+  const system = Number(contract.isWeekly(item) ? item.Stock_Sistema : (item.Stock_Sistema_Original ?? item.Stock_Sistema));
+  if (!contract.isWeekly(item) && system < 0 && total === 0 && Number(item.Mal_estado || 0) === 0) return false;
   return total !== system || Number(item.Mal_estado || 0) > 0;
 }
 

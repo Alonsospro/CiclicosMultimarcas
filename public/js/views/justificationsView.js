@@ -333,7 +333,7 @@ window.JustificationsView = {
 
   reviewHistory(item) {
     const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
-    return (item.justificationHistory || []).map(entry => `<div style="margin-bottom:6px; white-space:normal; overflow-wrap:anywhere;"><strong>${entry.round}ª justificación · ${escape(entry.corroboracion)}</strong><br>${escape(entry.justification)}<br><small>${escape(entry.reviewedBy)} · ${escape(entry.reviewedAt)}</small></div>`).join('') || '-';
+    return (item.justificationHistory || []).map(entry => `<div style="margin-bottom:6px; white-space:normal; overflow-wrap:anywhere;"><strong>${entry.round}ª justificación · ${escape(entry.corroboracion)}</strong><br>${escape(entry.justification)}${window.InventoryContract?.isWeekly(item) && window.InventoryContract.has(entry.justifiedQuantity) ? `<br>Compensación: ${Number(entry.justifiedQuantity) > 0 ? '+' : ''}${escape(entry.justifiedQuantity)}` : ''}<br><small>${escape(entry.reviewedBy)} · ${escape(entry.reviewedAt)}</small></div>`).join('') || '-';
   },
 
   async loadJustifications() {
@@ -531,6 +531,11 @@ window.JustificationsView = {
             : (diffFinal * cost));
         }
 
+        if (window.InventoryContract?.isWeekly(it)) {
+          physFinal = window.InventoryContract.finalQuantity(it);
+          diffFinal = physFinal - sys;
+          costDiffFinal = diffFinal * cost;
+        }
         finalDiffCostTotal += Math.abs(costDiffFinal);
         if (costDiffFinal < 0) finalFaltantesCost += Math.abs(costDiffFinal);
         if (costDiffFinal > 0) finalSobrantesCost += costDiffFinal;
@@ -544,7 +549,7 @@ window.JustificationsView = {
       });
 
       const clarifiedCost = Math.max(0, initialDiffCostTotal - finalDiffCostTotal);
-      const totalCost = hasRecountData ? finalDiffCostTotal : initialDiffCostTotal;
+      const totalCost = hasRecountData || task.items?.some(it => window.InventoryContract?.isWeekly(it)) ? finalDiffCostTotal : initialDiffCostTotal;
       const totalDamaged = hasRecountData ? finalDamagedCount : (task.items || []).reduce((acc, it) => acc + (it.Mal_estado || 0), 0);
 
       const totalDiffItems = (task.items || []).length;
@@ -960,6 +965,7 @@ window.JustificationsView = {
                           ` : ''}
                           <td>${item.Mal_estado > 0 ? `<span class="badge badge-danger">${item.Mal_estado}</span>` : '0'}</td>
                           <td class="cell-status">
+                            ${window.InventoryContract?.isWeekly(item) ? `<div style="white-space:normal; margin-bottom:6px;"><strong>Final conciliado: ${window.InventoryContract.finalQuantity(item) ?? '-'}</strong><br><small>Físico: ${window.InventoryContract.latestPhysical(window.InventoryContract.normalize(item)) ?? '-'}</small></div>` : ''}
                             <div style="display: flex; flex-direction: column; gap: 4px;">
                               ${isCuadra ? `
                                 <span class="badge badge-success" style="font-weight: 800; font-size: 0.76rem;">
@@ -1550,7 +1556,34 @@ window.JustificationsView = {
       corrSelect.value = 'CUADRA';
     }
 
+    const amountInput = document.getElementById('just-compensation-quantity');
+    if (amountInput) {
+      const saved = item[this.currentIsSecondJustification ? 'Cantidad_Justificada_2' : 'Cantidad_Justificada_1'];
+      amountInput.value = window.InventoryContract?.has(saved) ? Math.abs(Number(saved)) : '';
+    }
+    if (corrSelect) corrSelect.onchange = () => this.refreshCompensation(item);
+    this.refreshCompensation(item);
     window.ModalHelper.open('modal-justification');
+  },
+
+  refreshCompensation(item) {
+    const panel = document.getElementById('just-compensation-panel');
+    const input = document.getElementById('just-compensation-quantity');
+    const hint = document.getElementById('just-compensation-hint');
+    if (!panel || !input || !hint) return;
+    const contract = window.InventoryContract;
+    const enabled = contract?.isWeekly(item) && document.getElementById('just-select-corroboration')?.value === 'CUADRA';
+    panel.hidden = !enabled;
+    panel.style.display = enabled ? '' : 'none';
+    input.disabled = !enabled;
+    input.required = !!enabled;
+    if (!enabled) return;
+    const round = this.currentIsSecondJustification ? 2 : 1;
+    const needed = contract.compensationNeeded(item, round);
+    if (needed === 0) input.value = '0';
+    hint.textContent = 'Stock inicial: ' + item.Stock_Sistema + '. Último total físico: ' + contract.latestPhysical(contract.normalize(item))
+      + '. ' + (needed > 0 ? 'Debe sumar ' + needed : needed < 0 ? 'Debe descontar ' + Math.abs(needed) : 'Sin diferencia: ingrese 0')
+      + ' unidades. El conteo físico se conserva; la compensación queda registrada por separado.';
   },
 
   navigatePopup(direction) {
@@ -1623,7 +1656,14 @@ window.JustificationsView = {
     const isSecondJust = !!(this.currentIsSecondJustification || document.getElementById('just-modal-is-second-just')?.value === 'true');
 
     try {
+      let justifiedQuantity;
+      if (window.InventoryContract?.isWeekly(selectedItem)) {
+        justifiedQuantity = document.getElementById('just-compensation-quantity')?.value;
+        window.InventoryContract.update(selectedItem, {action:'saveJustification', corroboracion:corroboration,
+          round:isSecondJust ? 2 : 1, justifiedQuantity});
+      }
       const savedResponse=await window.API.saveJustification({
+        justifiedQuantity,
         inventoryId,
         sku,
         almacen,
@@ -1688,7 +1728,7 @@ window.JustificationsView = {
   async markCorroboration(inventoryId, sku, status, itemKey, itemIdx) {
     this.openJustifyModal(inventoryId, sku, itemKey, itemIdx);
     const item = this.tasks.find(task => task.inventoryId === inventoryId)?.items?.[itemIdx];
-    if (item?.canJustify) document.getElementById('just-select-corroboration').value = status;
+    if (item?.canJustify) { document.getElementById('just-select-corroboration').value = status; this.refreshCompensation(item); }
   },
 
   updateCardHeaderProgress(inventoryId) {

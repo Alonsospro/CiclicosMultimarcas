@@ -420,7 +420,7 @@ window.DashboardView = {
     if (elEruDetail) {
       const locsExact = summary.exactMatchingLocations || 0;
       const locsTotal = summary.totalLocationsEvaluated || 0;
-      elEruDetail.textContent = `${locsExact} de ${locsTotal} ubicaciones exactas`;
+      elEruDetail.textContent = summary.eruModel === 'LOCATION_CONCENTRATION' ? `Promedio de ${locsTotal} SKU/almacén · 100% ÷ ubicaciones` : summary.eruModel === 'MIXED' ? 'Resultado combinado de modelos por tipo de inventario' : `${locsExact} de ${locsTotal} ubicaciones exactas`;
     }
     const elEruBadge = document.getElementById('stat-eru-multiloc-badge');
     if (elEruBadge) {
@@ -1090,6 +1090,7 @@ window.DashboardView = {
   },
 
   renderWorkersRanking(workers = []) {
+    window.CounterReliabilityPanel?.render(this.currentData?.counterReliability, workers);
     const tbody = document.getElementById('tbody-workers-ranking');
     if (!tbody) return;
 
@@ -1121,13 +1122,13 @@ window.DashboardView = {
           </td>
           <td><span class="badge badge-neutral">${w.center}</span></td>
           <td style="text-align: center; font-weight: 700; font-family: var(--font-mono);">${w.totalCounted}</td>
-          <td style="text-align: center; color: #38bdf8; font-weight: 700; font-family: var(--font-mono);" title="Conteo certero sin requerir correcciones posteriores">${w.firstPassCounted || w.totalCounted} <small style="color: var(--text-dim);">(${(w.firstPassRate || 100).toFixed(1)}%)</small></td>
+          <td style="text-align: center; color: #38bdf8; font-weight: 700; font-family: var(--font-mono);" title="Conteo certero sin requerir correcciones posteriores">${w.firstPassCounted ?? w.totalCounted} <small style="color: var(--text-dim);">(${(w.firstPassRate ?? 0).toFixed(1)}%)</small></td>
           <td style="text-align: center; color: #22c55e; font-weight: 700; font-family: var(--font-mono);">${w.exactCounted}</td>
           <td style="text-align: center;">${reEditsBadge}</td>
           <td style="text-align: center; font-family: var(--font-mono); font-weight: 600; color: ${w.reEditRate > 15 ? 'var(--danger)' : (w.reEditRate > 5 ? 'var(--warning)' : 'var(--text-muted)')};">${(w.reEditRate || 0).toFixed(1)}%</td>
-          <td style="text-align: center; font-family: var(--font-mono); font-weight: 600; color: var(--text-muted);">${(w.rawAccuracy || 100).toFixed(1)}%</td>
+          <td style="text-align: center; font-family: var(--font-mono); font-weight: 600; color: var(--text-muted);">${(w.rawAccuracy ?? 0).toFixed(1)}%</td>
           <td style="text-align: center; font-family: var(--font-mono); font-weight: 800; color: var(--primary); font-size: 1.05rem;">
-            ${(w.effectiveAccuracy || 100).toFixed(1)}%
+            ${(w.effectiveAccuracy ?? 0).toFixed(1)}%
           </td>
           <td>
             <span class="badge ${w.ratingClass || 'badge-success'}" title="${w.ratingDescription || ''}">
@@ -1161,7 +1162,7 @@ window.DashboardView = {
 
     document.getElementById('worker-modal-name').textContent = worker.worker;
     document.getElementById('worker-modal-center').textContent = `Centro: ${worker.center}`;
-    document.getElementById('worker-modal-effective-acc').textContent = `${(worker.effectiveAccuracy || 100).toFixed(1)}%`;
+    document.getElementById('worker-modal-effective-acc').textContent = `${(worker.effectiveAccuracy ?? 0).toFixed(1)}%`;
     
     const elRating = document.getElementById('worker-modal-rating-badge');
     if (elRating) {
@@ -1172,7 +1173,7 @@ window.DashboardView = {
     document.getElementById('worker-modal-total-counted').textContent = worker.totalCounted || 0;
     const elFirstPass = document.getElementById('worker-modal-first-pass');
     if (elFirstPass) {
-      elFirstPass.textContent = `${worker.firstPassCounted || worker.totalCounted} (${(worker.firstPassRate || 100).toFixed(1)}%)`;
+      elFirstPass.textContent = `${worker.firstPassCounted ?? worker.totalCounted} (${(worker.firstPassRate ?? 0).toFixed(1)}%)`;
     }
     document.getElementById('worker-modal-exact-counted').textContent = worker.exactCounted || 0;
     document.getElementById('worker-modal-reedits-count').textContent = `${worker.reEditCount || 0} (${(worker.reEditRate || 0).toFixed(1)}%)`;
@@ -1230,7 +1231,7 @@ window.DashboardView = {
         `;
       }).join('');
 
-      const statusBadge = item.allLocationsExact
+      const statusBadge = Number.isFinite(item.eruPercent) ? `<span class="badge badge-warning">ERU ${item.eruPercent.toFixed(2)}%</span>` : item.allLocationsExact
         ? '<span class="badge badge-success"><i class="fa-solid fa-check"></i> ERU 100%</span>'
         : (item.status === 'CON_DIFERENCIAS'
           ? '<span class="badge badge-warning"><i class="fa-solid fa-triangle-exclamation"></i> Discrepancia</span>'
@@ -1444,7 +1445,7 @@ window.DashboardView = {
         [],
         ['2. CONCORDANCIA DE UBICACIONES EN ALMACÉN (ERU)'],
         ['Métrica ERU', 'Valor', 'Unidad de Medida', 'Observación Operativa'],
-        ['Exactitud de Ubicación (ERU)', summary.eruPercent !== undefined ? `${summary.eruPercent}%` : '98.50%', 'Porcentaje', 'Concordancia entre racks físicos y asignación en sistema'],
+        ['Exactitud de Ubicación (ERU)', summary.eruPercent !== undefined ? `${summary.eruPercent}%` : 'Sin evaluación', 'Porcentaje', 'Concordancia entre racks físicos y asignación en sistema'],
         ['Ítems en Múltiples Ubicaciones', (currentData.multiLocationSkus || []).length, 'Productos / SKUs', 'Artículos distribuidos en dos o más ubicaciones físicas'],
         ['Ítems con Ubicaciones Adicionales', (currentData.multiLocationSkus || []).filter(m => (m.locations || []).some(l => l.isAdditionalLocation)).length, 'Productos / SKUs', 'Mercadería detectada en racks no formalizados'],
         [],
@@ -1511,7 +1512,7 @@ window.DashboardView = {
           eriItemF,
           eriSkuF,
           eriMoneyF,
-          summary.eruPercent || 98.5,
+          summary.eruPercent ?? null,
           totalSkus,
           netShortageCost,
           summary.sobrantesFinal?.cost || 0,

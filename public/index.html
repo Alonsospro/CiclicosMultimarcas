@@ -30,6 +30,7 @@
   <link rel="stylesheet" href="/css/components.css?v=2.2">
   <link rel="stylesheet" href="/css/responsive.css?v=2.2">
   <link rel="stylesheet" href="/css/liquid-glass.css?v=2.3">
+  <link rel="stylesheet" href="/css/counterReliability.css?v=1.0">
   <link rel="stylesheet" href="/css/inventory-layout.css?v=2.4">
   <link rel="stylesheet" href="/css/executive-report.css?v=2.4">
 </head>
@@ -1256,12 +1257,13 @@
 
         <!-- TAB 2: RENDIMIENTO DE CONTADORES & RE-EDICIONES -->
         <div class="dash-tab-pane" id="tab-workers">
-          <div class="card">
+          <div class="card" id="weekly-counter-reliability" hidden></div>
+          <div class="card" id="legacy-worker-ranking">
             <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
               <div>
                 <h3 class="card-title"><i class="fa-solid fa-medal" style="color: #f59e0b;"></i> Matriz de Rendimiento y Confiabilidad de Contadores</h3>
                 <p class="stat-subtext" style="margin-top: 0.2rem;">
-                  La exactitud efectiva evalúa el acierto al primer conteo y penaliza las correcciones/re-ediciones sobre un mismo ítem.
+                  Evaluación anterior para cíclicos y otros tipos. Semanales utiliza la comprobación física y cobertura mostradas por separado.
                 </p>
               </div>
               <div style="display: flex; gap: 0.5rem;">
@@ -1876,7 +1878,7 @@
               <label class="form-label" for="just-select-corroboration" style="color: #38bdf8; font-weight: 700; margin-bottom: 0;">
                 <i class="fa-solid fa-code-compare"></i> Resultado de Revisión / Justificación
               </label>
-              <span style="font-size: 0.72rem; color: var(--text-dim);">Actualiza Col. Q</span>
+              <span style="font-size: 0.72rem; color: var(--text-dim);">Resultado de la etapa</span>
             </div>
             <select id="just-select-corroboration" class="form-select" style="font-weight: 600;">
               <option value="CUADRA">✅ Cuadra (Marca como justificado / Conforme)</option>
@@ -1884,10 +1886,16 @@
             </select>
           </div>
 
+          <div id="just-compensation-panel" class="form-group" hidden style="margin-bottom: 0.85rem;">
+            <label class="form-label" for="just-compensation-quantity">Cantidad que compensa la diferencia</label>
+            <input id="just-compensation-quantity" class="form-input" type="number" min="0" step="1" inputmode="numeric" placeholder="Ingrese la cantidad">
+            <p id="just-compensation-hint" style="font-size:0.82rem; margin-top:0.5rem; overflow-wrap:anywhere;"></p>
+          </div>
+
           <div class="form-group" style="margin-bottom: 0.85rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
               <label class="form-label" for="just-select-reason" style="margin-bottom: 0;">Tipo de Justificación</label>
-              <span style="font-size: 0.72rem; color: var(--text-dim);">Col. R (Motivo)</span>
+              <span style="font-size: 0.72rem; color: var(--text-dim);">Motivo</span>
             </div>
             <select id="just-select-reason" class="form-select">
               <option value="faltante en inventario anual">faltante en inventario anual</option>
@@ -1903,7 +1911,7 @@
           <div class="form-group" style="margin-bottom: 0.85rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
               <label class="form-label" for="just-input-text" style="margin-bottom: 0;">Explicación / Detalle de la Justificación</label>
-              <span style="font-size: 0.72rem; color: var(--text-dim);">Col. S (Comentario)</span>
+              <span style="font-size: 0.72rem; color: var(--text-dim);">Comentario</span>
             </div>
             <textarea id="just-input-text" class="form-textarea" rows="2" placeholder="Detalle las razones del ajuste y la auditoría..."></textarea>
           </div>
@@ -2868,13 +2876,15 @@
   <script src="/js/views/inventoryView.js?v=2.4.1"></script>
   <script src="/js/views/barridoView.js?v=2.2"></script>
   <script src="/js/views/assignmentsView.js?v=2.2"></script>
-  <script src="/js/views/justificationsView.js?v=2.3"></script>
+  <script src="/js/inventoryContract.js?v=weekly43-1"></script>
+  <script src="/js/views/justificationsView.js?v=3.0"></script>
   <script src="/js/views/historyView.js?v=2.2"></script>
   <link rel="stylesheet" href="/css/detailed-report.css?v=1.5">
   <script src="/js/components/detailedMetricsReport.js?v=1.6"></script>
   <script src="/js/components/metricsReportModal.js?v=2.6"></script>
   <script src="/js/components/snapshotManagerModal.js?v=2.2"></script>
-  <script src="/js/views/dashboardView.js?v=2.2"></script>
+  <script src="/js/components/counterReliabilityPanel.js?v=1.0"></script>
+  <script src="/js/views/dashboardView.js?v=2.3"></script>
   <script src="/js/views/userManagementView.js?v=2.2"></script>
   <script src="/js/app.js?v=2.4"></script>
 </body>

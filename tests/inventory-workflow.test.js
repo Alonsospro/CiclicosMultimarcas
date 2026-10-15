@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const contract = require('../src/services/inventoryContract');
 const workflow = require('../src/services/inventoryWorkflow');
+const reliability = require('../src/services/counterReliability');
 const root = path.join(__dirname, '..');
 const user = {role:'ADMIN', username:'reviewer', displayName:'Reviewer'};
 const old = '2020-01-01T00:00:00.000Z';
@@ -36,6 +37,7 @@ function fixture() {
     }
   };
   const mocks = {
+    './counterReliability':require('../src/services/counterReliability'),
     './inventoryContract':contract,'./inventoryWorkflow':workflow,'../config':{isSameCenter:(a,b)=>a===b},
     './storagePath':store,'./auditService':new Proxy({}, {get:()=>()=>{}}),
     './gasService':gas,'./metricsService':{},'./snapshotService':{},
@@ -52,11 +54,119 @@ function fixture() {
     store.writeJson(path.join('/inventories',inv.id+'.json'),inv);
     inv.items.forEach(item=>sheets.set(contract.member(item),clone(item)));
   };
-  const save = (invId,item,decision,round=1,text='Se verificaron las existencias y documentos.')=>service.saveJustification({
+  const save = (invId,item,decision,round=1,text='Se verificaron las existencias y documentos.',justifiedQuantity)=>service.saveJustification({
     inventoryId:invId,sku:item.SKU,itemId:item.id,almacen:item.Almacen,location:item.Ubicacion,
-    round,corroboracion:decision,reasonType:'balanceo',justification:text,user
+    round,corroboracion:decision,reasonType:'balanceo',justification:text,justifiedQuantity,user
   });
   return {service,files,sheets,gasCalls,closures,put,save,gasContext};
+}
+
+test('weekly physical verification uses signed author, checks role/center and never changes Sheets', async () => {
+  const {service, put, gasCalls} = fixture();
+  const item = {...counted(), Schema_Version:contract.weeklyVersion};
+  put({id:'INV-SEMANAL-1120-1', type:'SEMANAL', center:'1120', name:'Semanal', status:'EN_PROGRESO', items:[item]});
+  const id = 'INV-SEMANAL-1120-1';
+  await service.updateCount({inventoryId:id, itemId:item.id, stockFisico:8, malEstado:0, user});
+  service.submitInventoryForReview({inventoryId:id, user});
+  const row = service.getPhysicalReviews(id, user).rows[0];
+  assert.equal(row.ready, true); assert.equal(row.signed[0].actor.username, user.username);
+  const input = {itemId:item.id, revision:row.revision, requestId:'physical-test-123', good:8, bad:0,
+    comparable:true, physicallyChecked:true, reason:'Comprobación física realizada sin movimientos.'};
+  const calls = gasCalls.length;
+  assert.throws(() => service.savePhysicalReview(id, input, {...user, role:'AUXILIAR', center:'1120'}), /encargado o administrador/);
+  assert.throws(() => service.savePhysicalReview(id, input, {...user, role:'ENCARGADO', center:'1160'}), /fuera de su centro/);
+  assert.throws(() => service.getPhysicalReviews('../escape', user), /Identificador/);
+  service.savePhysicalReview(id, input, {...user, role:'ENCARGADO', center:'1120'});
+  assert.equal(gasCalls.length, calls);
+  const stored = service.getInventoryRaw(id);
+  assert.equal(stored.items[0].Stock_Total,8); assert.equal(stored.items[0].Stock_Sistema,10);
+  assert.equal(reliability.summarize([stored]).workers[0].selfVerified, 1);
+  await service.reopenInventory({inventoryId:id,user,reason:'Validar nueva cantidad',syncFromGAS:false});
+  assert.equal(service.getPhysicalReviews(id,user).rows[0].ready,false);
+  assert.equal(reliability.summarize([service.getInventoryRaw(id)]).verified,0);
+  assert.equal(service.getInventoryRaw(id).items[0].counterEvidence.verifications.length,1);
+});
+
+test('weekly recount keeps both stage authors and pending verification until signed', async () => {
+  const {service,put,save} = fixture(); const item = {...counted(), Schema_Version:contract.weeklyVersion};
+  put({id:'WEEK',type:'SEMANAL',center:'1120',name:'Semanal',status:'EN_PROGRESO',items:[item]});
+  await service.updateCount({inventoryId:'WEEK',itemId:item.id,stockFisico:8,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:'WEEK',user});
+  await save('WEEK',item,'NO CUADRA');
+  const child = service.enableRecount({inventoryId:'WEEK',user}).recountInventory;
+  await service.updateCount({inventoryId:child.id,itemId:child.items[0].id,stockFisico:10,malEstado:0,user:{...user,username:'second-counter'}});
+  assert.equal(service.getPhysicalReviews('WEEK',user).rows[0].ready,false);
+  service.submitInventoryForReview({inventoryId:child.id,user});
+  const row = service.getPhysicalReviews('WEEK',user).rows[0];
+  assert.equal(row.ready,true); assert.equal(row.signed.length,2);
+  service.savePhysicalReview('WEEK',{itemId:item.id,revision:row.revision,requestId:'recount-verification',
+    comparable:true,physicallyChecked:true,good:10,bad:0,reason:'Conteo físico de diez piezas confirmado.'},user);
+  const result = reliability.summarize([service.getInventoryRaw('WEEK')]);
+  assert.equal(result.verified,2); assert.equal(result.correct,1);
+  assert.equal(service.getInventoryRaw(child.id).items[0].counterEvidence.verifications.length,1);
+});
+
+test('weekly CUADRA without recount can close with L reconciled, K/M preserved and physical reliability unchanged', async () => {
+  const {service,put,save,gasCalls,closures}=fixture();
+  const item={...counted(),Schema_Version:contract.weeklyVersion};
+  put({id:'WEEK-COMP',type:'SEMANALES',center:'1120',name:'Semanal',status:'EN_PROGRESO',items:[item]});
+  await service.updateCount({inventoryId:'WEEK-COMP',itemId:item.id,stockFisico:8,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:'WEEK-COMP',user});
+  const signedBefore=JSON.stringify(service.getInventoryRaw('WEEK-COMP').items[0].counterEvidence.signed);
+  const calls=gasCalls.length;
+  await assert.rejects(save('WEEK-COMP',item,'CUADRA'),/cantidad que compensa/);
+  assert.equal(gasCalls.length,calls);
+  await save('WEEK-COMP',item,'CUADRA',1,'Dos unidades compensadas con documento.',2);
+  const stored=service.getInventoryRaw('WEEK-COMP');
+  assert.equal(stored.items[0].Stock_Sistema,10);
+  assert.equal(stored.items[0].Stock_Total,8);
+  assert.equal(stored.items[0].Cantidad_Fisica_Final,10);
+  assert.equal(service.getReviewPlan(stored).canClose,true);
+  assert.equal(JSON.stringify(stored.items[0].counterEvidence.signed),signedBefore);
+  assert.equal(reliability.summarize([stored]).verified,0);
+  await service.finishReviewAndClose({inventoryId:'WEEK-COMP',user});
+  assert.equal(closures.length,1);
+  assert.equal(closures[0].inventory.items[0].Cantidad_Justificada_1,2);
+});
+
+test('a weekly photo-only update preserves physical quantities, date and signed evidence',async()=>{
+  const {service,put,gasCalls}=fixture();
+  const item=contract.normalize({...counted(),Schema_Version:contract.weeklyVersion,Stock_Buen_Estado:7,Stock_Total:8,Mal_estado:1});
+  put({id:'PHOTO-WEEK',type:'SEMANALES',center:'1120',status:'EN_PROGRESO',items:[item]});
+  await service.updateCount({inventoryId:'PHOTO-WEEK',itemId:item.id,photoUrl:'https://example.test/photo.jpg',user});
+  const payload=gasCalls.at(-1);
+  assert.equal(payload.stockBuenEstado,undefined);
+  assert.equal(payload.malEstado,undefined);
+  const stored=service.getInventoryRaw('PHOTO-WEEK').items[0];
+  assert.equal(stored.Stock_Total,8);
+  assert.equal(stored.Mal_estado,1);
+  assert.equal(stored.Fecha_Ultimo_Conteo,old);
+  assert.equal(stored.counterEvidence,undefined);
+});
+
+for (const quantity of [9,10,11]) {
+  test(`weekly signed recount ${quantity} requires its own review and exports the final compensation in AK`,async()=>{
+    const {service,put,save,closures}=fixture();
+    const item={...counted(),Schema_Version:contract.weeklyVersion};
+    put({id:'WEEK-REC',type:'SEMANALES',center:'1120',name:'Semanal',status:'EN_PROGRESO',items:[item]});
+    await service.updateCount({inventoryId:'WEEK-REC',itemId:item.id,stockFisico:8,malEstado:0,user});
+    service.submitInventoryForReview({inventoryId:'WEEK-REC',user});
+    await save('WEEK-REC',item,'NO CUADRA');
+    const child=service.enableRecount({inventoryId:'WEEK-REC',user}).recountInventory;
+    await service.updateCount({inventoryId:child.id,itemId:child.items[0].id,stockFisico:quantity,malEstado:0,user});
+    service.submitInventoryForReview({inventoryId:child.id,user});
+    await assert.rejects(service.finishReviewAndClose({inventoryId:'WEEK-REC',user}),/No se puede cerrar/);
+    await save('WEEK-REC',item,'CUADRA',2,'Reconteo comprobado y compensación documentada.',Math.abs(10-quantity));
+    await service.finishReviewAndClose({inventoryId:'WEEK-REC',user});
+    const result=closures[0].inventory.items[0];
+    assert.equal(result.Stock_Sistema,10);
+    assert.equal(result.Stock_Total,8);
+    assert.equal(result.Stock_Total_Reconteo,quantity);
+    assert.equal(result.Cantidad_Justificada_2,10-quantity);
+    assert.equal(result.Cantidad_Fisica_Final,10);
+    assert.equal(result.Diferencia,-2);
+    assert.equal(result.Diferencia_Final,quantity-10);
+  });
 }
 
 test('counting inventories are absent from review and direct justification calls cannot write Sheets',async()=>{

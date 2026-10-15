@@ -43,6 +43,7 @@ test('final records retain all forty columns including both rounds',()=>{
 function inventoryService(gas,allowed=true){
   const records=new Map();
   const service=isolated('src/services/inventoryService.js',{
+    './counterReliability':require('../src/services/counterReliability'),
     './inventoryWorkflow':require('../src/services/inventoryWorkflow'),
     './inventoryContract':contract,'../config':{centersList:[{code:'1120'},{code:'1160'}],findCenter:v=>['1120','1160'].includes(v)?{code:v}:null,getCenterCode:v=>v,isSameCenter:(a,b)=>a===b},
     './storagePath':{getInventoriesDirectory:()=>'/fake',getJustificationsDirectory:()=>'/fake-just',listFiles:()=>[...records.keys()].map(id=>id+'.json'),readJson:p=>records.get(path.basename(p,'.json'))},

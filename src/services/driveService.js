@@ -171,6 +171,9 @@ class DriveService {
     if(!result.success||!result.fileId||!result.spreadsheetUrl)throw new Error('Google no confirmó el archivo final');
     const history={...record,fileId:result.fileId,fileName:result.fileName,spreadsheetUrl:result.spreadsheetUrl,
       driveUrl:result.spreadsheetUrl,manifest:result.manifest};
+    // Keep signed authorship in application history; it does not occupy Sheet columns.
+    history.items = items.map((item, index) => inventory.items[index].counterEvidence
+      ? {...item, counterEvidence: JSON.parse(JSON.stringify(inventory.items[index].counterEvidence))} : item);
     storagePath.writeJson(path.join(this.historyDir,result.fileId+'.json'),history);
     return {...result,driveUrl:result.spreadsheetUrl};
   }

@@ -5,6 +5,24 @@ const gasService = require('../services/gasService');
 const { authenticate, requireRole, requireInventoryCreator, requireBulkInventoryCreator } = require('../middlewares/authMiddleware');
 const { restrictCenter } = require('../middlewares/centerMiddleware');
 
+// Do not reveal earlier signed quantities to an auxiliary doing a blind recount.
+router.use((req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = body => json(req.user?.role === 'AUXILIAR'
+    ? JSON.parse(JSON.stringify(body, (key, value) => key === 'counterEvidence' ? undefined : value)) : body);
+  next();
+});
+
+router.get('/:id/physical-reviews', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+  try { res.json({success: true, ...inventoryService.getPhysicalReviews(req.params.id, req.user)}); }
+  catch (err) { res.status(400).json({success: false, message: err.message}); }
+});
+
+router.post('/:id/physical-reviews', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
+  try { res.json(inventoryService.savePhysicalReview(req.params.id, req.body || {}, req.user)); }
+  catch (err) { res.status(400).json({success: false, message: err.message}); }
+});
+
 // GET /api/inventories (List)
 router.get('/', authenticate, restrictCenter, async (req, res) => {
   try {

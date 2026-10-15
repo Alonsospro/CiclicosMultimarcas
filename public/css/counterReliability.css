@@ -1,0 +1,27 @@
+.reliability-content { padding: 1rem; }
+.reliability-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin: 1rem 0; }
+.reliability-summary strong, .reliability-summary span { display: block; }
+.reliability-summary strong { color: var(--primary, #10b981); font-size: 1.4rem; }
+.reliability-summary span { margin-top: .4rem; }
+.reliability-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; margin-top: 1rem; }
+.reliability-actions select { flex: 1; min-width: 150px; max-width: 100%; }
+.counter-evidence-dialog { background: var(--bg-card, #162332); color: var(--text-main, #eef5fa); border: 1px solid #64748b; border-radius: 16px; padding: 1.2rem; width: min(1000px, 94vw); max-width: 94vw; max-height: 90dvh; margin: auto; overflow: auto; }
+.counter-evidence-dialog::backdrop { background: #020617bb; }
+.reliability-dialog-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.counter-evidence-dialog p { margin: .75rem 0; overflow-wrap: anywhere; }
+.counter-evidence-dialog label { display: block; margin: .7rem 0; }
+.counter-evidence-dialog .form-input { width: 100%; margin-top: .4rem; }
+.counter-evidence-dialog td, #weekly-counter-reliability td { white-space: normal; overflow-wrap: anywhere; }
+.counter-evidence-dialog details { margin-top: 1rem; }
+#weekly-counter-reliability { margin-bottom: 1rem; }
+#weekly-counter-reliability [hidden], .counter-evidence-dialog [hidden], #weekly-counter-reliability[hidden], #legacy-worker-ranking[hidden] { display: none !important; }
+@media (max-width: 600px) {
+  .counter-evidence-dialog { padding: .8rem; }
+  .counter-evidence-dialog table, .counter-evidence-dialog tbody, .counter-evidence-dialog tr, .counter-evidence-dialog td { display: block; width: 100%; }
+  .counter-evidence-dialog thead { display: none; }
+  .counter-evidence-dialog tr { border-bottom: 2px solid #64748b; padding: .5rem 0; }
+  #weekly-counter-reliability table, #weekly-counter-reliability tbody, #weekly-counter-reliability tr, #weekly-counter-reliability td { display: block; width: 100%; min-width: 0; }
+  #weekly-counter-reliability thead { display: none; }
+  #weekly-counter-reliability tr { border-bottom: 2px solid #64748b; padding: .5rem 0; }
+  #weekly-counter-reliability td::before, .counter-evidence-dialog td::before { content: attr(data-label); display: block; font-weight: 600; opacity: .7; font-size: .8rem; margin-bottom: .25rem; }
+}
