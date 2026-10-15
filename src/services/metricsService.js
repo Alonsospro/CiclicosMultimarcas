@@ -848,7 +848,7 @@ class MetricsService {
         }
 
         // Registrar en la lista de discrepancias si hubo discrepancia en 1er conteo o en final
-        if (!isExact1 || !isExactFinal || damaged > 0) {
+        if (!isExact1 || !isExactFinal || damaged > 0 || finalDamaged > 0) {
           let tipoDiscrepancia = 'CUADRADO';
           if (diffFinal > 0) tipoDiscrepancia = 'SOBRANTE';
           else if (diffFinal < 0) tipoDiscrepancia = 'FALTANTE';
@@ -883,6 +883,9 @@ class MetricsService {
             esDiscrepancia1erConteo: !isExact1,
             esDiscrepanciaFinal: !isExactFinal,
             finalStage,
+            stockFisicoFinal: finalPhys,
+            malEstadoFinal: finalDamaged,
+            costoMalEstadoFinal: finalDamaged * unitCost,
             malEstado: damaged,
             costoMalEstado: damagedCost,
             tipoDiscrepancia,

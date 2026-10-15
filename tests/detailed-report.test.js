@@ -35,5 +35,46 @@ test('long discrepancy lists retain all identities in bounded page groups', () =
   const list = Array.from({ length: 29 }, (_, i) => ({ sku: `SKU-${i}-END`, diferenciaFinal: -1, stockSistema: 2, costoDiferenciaFinal: -4 }));
   const html = render({ summary: { totalItemsAudited: 29 }, discrepanciesList: list });
   list.forEach(item => assert.ok(html.includes(`>${item.sku}</td>`)));
-  assert.equal((html.match(/class="detail-page"/g) || []).length, 7);
+  assert.equal((html.match(/class="detail-page"/g) || []).length, 3);
+  assert.equal((html.match(/ÍTEMS CRÍTICOS CON FALTANTES/g) || []).length, 5);
+});
+
+test('ERU replaces the fourth KPI and monetary cards show each category with an explicit total', () => {
+  const html = render({ summary: { eruPercent: 92, exactMatchingLocations: 46, totalLocationsEvaluated: 50, faltantesFinal: { cost: 100 }, sobrantesFinal: { cost: 20 }, totalDamagedCost: 30 }, discrepanciesList: [] });
+  const cards = html.slice(html.indexOf('<div class="detail-kpis">'), html.indexOf('<div class="detail-money-cards"'));
+  assert.ok(cards.includes('ERU • EXACTITUD DE UBICACIÓN'));
+  assert.ok(cards.includes('92.00%'));
+  assert.ok(!cards.includes('IMPACTO POR FALTANTES'));
+  const financial = html.slice(html.indexOf('<div class="detail-money-cards"'), html.indexOf('Impacto total ='));
+  for (const title of ['SOBRANTES', 'AVERÍAS', 'FALTANTES', 'IMPACTO TOTAL']) assert.ok(financial.includes(title));
+  assert.ok(financial.includes('150,00'));
+});
+
+test('final damaged quantities override initial evidence and remain separate from surplus quantities', () => {
+  const html = render({ summary: {}, discrepanciesList: [
+    { sku: 'AVERIA-FINAL', descripcion: 'Pieza', almacen: 'RFO7', stockSistema: 8, diferenciaFinal: 0, malEstado: 1, malEstadoFinal: 3, costoMalEstado: 10, costoMalEstadoFinal: 30 },
+    { sku: 'YA-SANO', stockSistema: 8, diferenciaFinal: 0, malEstado: 4, malEstadoFinal: 0 },
+    { sku: 'SOBRA', stockSistema: 4, diferenciaFinal: 2, costoDiferenciaFinal: 20 }
+  ] });
+  const damage = html.slice(html.indexOf('TABLA 4'), html.indexOf('ANÁLISIS GRÁFICO'));
+  assert.ok(damage.includes('AVERIA-FINAL'));
+  assert.ok(!damage.includes('YA-SANO'));
+  assert.ok(!damage.includes('>SOBRA</td>'));
+  assert.ok(damage.includes('class="num">3</td>'));
+  assert.ok(damage.includes('30,00'));
+  assert.ok(html.includes('TABLA 3 • DETALLE DE SOBRANTES'));
+});
+
+test('comparison labels use actual initial/final values, deltas and severity colors', () => {
+  const html = render({ summary: { eriItemInicial: 70, eriItemFinal: 98, eriSkuInicial: 96, eriSkuFinal: 92, eriMonetarioInicial: 88, eriMonetarioFinal: 88, eruPercent: 99 }, discrepanciesList: [] });
+  const charts = Array.from(html.matchAll(/src="data:image\/svg\+xml;charset=utf-8,([^"]+)"/g), match => decodeURIComponent(match[1]));
+  const chart = charts.find(svg => svg.includes('data-initial'));
+  assert.ok(chart.includes('data-initial="70" data-final="98" data-level="good"'));
+  assert.ok(chart.includes('data-initial="96" data-final="92" data-level="attention"'));
+  assert.ok(chart.includes('data-initial="88" data-final="88" data-level="alert"'));
+  assert.ok(chart.includes('+28.00 pp'));
+  assert.ok(chart.includes('-4.00 pp'));
+  assert.ok(chart.includes('Sin cambio: 0.00 pp'));
+  assert.ok(chart.includes('data-initial="" data-final="99"'));
+  assert.ok(chart.includes('N/D'));
 });

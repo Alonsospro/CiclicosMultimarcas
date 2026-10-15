@@ -249,7 +249,7 @@ window.MetricsReportModal = {
     const finalDiscrepancies = count(numeric(summary.discrepanciasFinal, Math.max(0, totalSkus - exactRecordsFinal)));
     const damagedCost = Math.abs(numeric(summary.impactoFinanciero?.finalDamagedCost, summary.totalDamagedCost));
     const warehouse = filters.warehouse || filters.almacen || inv.warehouse || inv.almacen || (String(center).toUpperCase().includes('TODO') ? 'Todos los almacenes' : 'Consolidado del centro');
-    const rows = [['Existencias auditadas', totalUnits, 'Unidades en alcance'], ['SKU auditados', totalSkus, 'Códigos revisados'], ['Registros conformes · inicial', exactRecordsInitial, `${initialEri.toFixed(2)}% de exactitud`], ['Registros con diferencia · inicial', initialDiscrepancies, 'Revisados en conciliación'], ['Registros conformes · final', exactRecordsFinal, `${finalEri.toFixed(2)}% de exactitud`], ['Registros pendientes · final', finalDiscrepancies, finalDiscrepancies ? 'Requieren regularización' : 'Sin pendientes']];
+    const rows = window.DetailedMetricsReport.reconciliationRows(summary);
     const resultTotal = exactRecordsFinal + finalDiscrepancies;
     const exactRatio = resultTotal > 0 ? Math.min(100, exactRecordsFinal / resultTotal * 100) : finalEri;
     const impactMax = Math.max(initialImpact, finalImpact);
@@ -270,7 +270,10 @@ window.MetricsReportModal = {
 
   buildDetailedReportDOM(inv, metrics) {
     const container = document.getElementById('report-printable-area');
-    if (container) container.innerHTML = window.DetailedMetricsReport.render(inv, metrics);
+    if (container) {
+      container.innerHTML = window.DetailedMetricsReport.render(inv, metrics);
+      window.DetailedMetricsReport.paginate(container);
+    }
   },
 
   async downloadDetailedPDF() {
@@ -523,8 +526,14 @@ window.MetricsReportModal = {
     controls.forEach(control => { control.disabled = true; });
     const detailed = this.exportMode === 'detallado';
     const btn = document.getElementById(detailed ? 'btn-report-download-detailed-pdf' : 'btn-report-download-pdf');
-    const previousMinWidth = element.style.minWidth;
-    if (detailed) element.style.minWidth = '794px';
+    const previousSizes = ['width', 'minWidth', 'maxWidth'].map(key => [key, element.style[key]]);
+    if (detailed) {
+      const width = `${window.DetailedMetricsReport.exportWidth}px`;
+      element.style.width = width;
+      element.style.minWidth = width;
+      element.style.maxWidth = width;
+      this.buildDetailedReportDOM(this.currentInventory, this.currentMetrics);
+    }
     const originalText = btn ? btn.innerHTML : '';
     if (btn) {
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando PDF...';
@@ -653,7 +662,7 @@ window.MetricsReportModal = {
     }
 
     controls.forEach(control => { control.disabled = false; });
-    element.style.minWidth = previousMinWidth;
+    previousSizes.forEach(([key, value]) => { element.style[key] = value; });
     this.isExporting = false;
     if (!downloaded) {
       window.Toast?.danger('No se pudo completar la descarga directa. Abriendo diálogo de impresión...');

@@ -21,6 +21,7 @@ function fixture() {
     }
   });
   vm.runInContext(dashboardCode, context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/js/components/detailedMetricsReport.js'), 'utf8'), context);
   return { context, view: context.window.DashboardView, warnings, reports, elements };
 }
 
