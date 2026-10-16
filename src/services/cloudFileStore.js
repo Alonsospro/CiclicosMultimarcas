@@ -103,7 +103,14 @@ class CloudFileStore {
     if (!this.isManaged(relative)) return;
     if (!this.state) throw Object.assign(new Error('La conexión con Firestore todavía no está preparada.'), { status: 503 });
     const content = JSON.stringify(value);
-    if (Buffer.byteLength(content, 'utf8') > 900000) throw Object.assign(new Error('El inventario excede el tamaño admitido para un documento. Divide el inventario antes de guardarlo.'), { status: 413 });
+    const byteLength = Buffer.byteLength(content, 'utf8');
+    if (byteLength > 900000) {
+      const isInv = relative.startsWith('inventories/');
+      const msg = isInv
+        ? 'El inventario excede el tamaño admitido para un documento. Divide el inventario antes de guardarlo.'
+        : `El archivo ${relative} excede el tamaño admitido para un documento de Firestore (${Math.round(byteLength / 1024)} KB > 900 KB).`;
+      throw Object.assign(new Error(msg), { status: 413 });
+    }
     this.pending.set(relative, { type: 'set', relative, content });
     this.scheduleBackground();
   }

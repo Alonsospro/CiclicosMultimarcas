@@ -13,27 +13,59 @@ class AuditService {
     return path.join(this.auditDir, `audit-${safeCenter}-${dateStr}.json`);
   }
 
+  _sanitizeEntry(entry) {
+    if (!entry || typeof entry !== 'object') return entry;
+    const sanitized = { ...entry };
+    if (typeof sanitized.details === 'string' && sanitized.details.length > 1000) {
+      sanitized.details = sanitized.details.slice(0, 1000) + '... [truncado]';
+    } else if (sanitized.details && typeof sanitized.details === 'object') {
+      try {
+        const str = JSON.stringify(sanitized.details);
+        if (str.length > 1000) {
+          sanitized.details = str.slice(0, 1000) + '... [truncado]';
+        }
+      } catch (_) {}
+    }
+    if (typeof sanitized.reason === 'string' && sanitized.reason.length > 500) {
+      sanitized.reason = sanitized.reason.slice(0, 500) + '... [truncado]';
+    }
+    return sanitized;
+  }
+
+  _pruneLogs(logs, maxEntries = 400, maxBytes = 350000) {
+    if (!Array.isArray(logs)) return [];
+    if (logs.length > maxEntries) {
+      logs.splice(0, logs.length - maxEntries);
+    }
+    while (logs.length > 20 && Buffer.byteLength(JSON.stringify(logs), 'utf8') > maxBytes) {
+      const dropCount = Math.min(10, logs.length - 20);
+      logs.splice(0, dropCount);
+    }
+    return logs;
+  }
+
   appendLog(entry) {
     try {
+      const cleanEntry = this._sanitizeEntry(entry);
       const logEntry = {
         id: 'LOG-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
         timestamp: new Date().toISOString(),
-        ...entry
+        ...cleanEntry
       };
 
-      const filePath = this.getAuditFilePath(entry.center || 'GLOBAL');
-      const existing = storagePath.readJson(filePath, []);
+      const filePath = this.getAuditFilePath(cleanEntry.center || 'GLOBAL');
+      let existing = storagePath.readJson(filePath, []);
+      if (!Array.isArray(existing)) existing = [];
       existing.push(logEntry);
+      this._pruneLogs(existing, 400, 350000);
       storagePath.writeJson(filePath, existing);
 
       // Also append to a consolidated global log
       const globalPath = path.join(this.auditDir, 'audit-consolidated.json');
-      const globalExisting = storagePath.readJson(globalPath, []);
+      let globalExisting = storagePath.readJson(globalPath, []);
+      if (!Array.isArray(globalExisting)) globalExisting = [];
       globalExisting.push(logEntry);
-      // Keep consolidated to last 5000 entries
-      if (globalExisting.length > 5000) {
-        globalExisting.splice(0, globalExisting.length - 5000);
-      }
+      this._pruneLogs(globalExisting, 400, 350000);
       storagePath.writeJson(globalPath, globalExisting);
 
       return logEntry;
@@ -162,6 +194,31 @@ class AuditService {
     } catch (err) {
       console.error('[auditService] Error retrieving logs:', err);
       return [];
+    }
+  }
+
+  pruneExistingAuditFiles() {
+    try {
+      const globalPath = path.join(this.auditDir, 'audit-consolidated.json');
+      let globalLogs = storagePath.readJson(globalPath, []);
+      if (Array.isArray(globalLogs) && (globalLogs.length > 400 || Buffer.byteLength(JSON.stringify(globalLogs), 'utf8') > 350000)) {
+        this._pruneLogs(globalLogs, 400, 350000);
+        storagePath.writeJson(globalPath, globalLogs);
+      }
+      if (fs.existsSync(this.auditDir)) {
+        const files = fs.readdirSync(this.auditDir);
+        for (const file of files) {
+          if (!file.endsWith('.json') || file === 'audit-consolidated.json') continue;
+          const filePath = path.join(this.auditDir, file);
+          let logs = storagePath.readJson(filePath, []);
+          if (Array.isArray(logs) && (logs.length > 400 || Buffer.byteLength(JSON.stringify(logs), 'utf8') > 350000)) {
+            this._pruneLogs(logs, 400, 350000);
+            storagePath.writeJson(filePath, logs);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[auditService] Notice during log maintenance:', err.message);
     }
   }
 }

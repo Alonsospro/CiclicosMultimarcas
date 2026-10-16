@@ -68,6 +68,10 @@ if (require.main === module) {
     console.log('[server] Listening; authoritative database:', cloud.databaseId);
     const backups = require('./src/services/dailyBackupService');
     backups.startScheduler(work => persistence.runExclusive(work));
+    persistence.runExclusive(async () => {
+      const audit = require('./src/services/auditService');
+      audit.pruneExistingAuditFiles();
+    }).catch(err => console.warn('[server] Notice during audit maintenance:', err.message));
   });
 }
 module.exports = app;
