@@ -32,7 +32,7 @@ class AuditService {
     return sanitized;
   }
 
-  _pruneLogs(logs, maxEntries = 400, maxBytes = 350000) {
+  _pruneLogs(logs, maxEntries = 600, maxBytes = 500000) {
     if (!Array.isArray(logs)) return [];
     if (logs.length > maxEntries) {
       logs.splice(0, logs.length - maxEntries);
@@ -57,7 +57,7 @@ class AuditService {
       let existing = storagePath.readJson(filePath, []);
       if (!Array.isArray(existing)) existing = [];
       existing.push(logEntry);
-      this._pruneLogs(existing, 400, 350000);
+      this._pruneLogs(existing, 600, 500000);
       storagePath.writeJson(filePath, existing);
 
       // Also append to a consolidated global log
@@ -65,7 +65,7 @@ class AuditService {
       let globalExisting = storagePath.readJson(globalPath, []);
       if (!Array.isArray(globalExisting)) globalExisting = [];
       globalExisting.push(logEntry);
-      this._pruneLogs(globalExisting, 400, 350000);
+      this._pruneLogs(globalExisting, 600, 500000);
       storagePath.writeJson(globalPath, globalExisting);
 
       return logEntry;
@@ -201,8 +201,8 @@ class AuditService {
     try {
       const globalPath = path.join(this.auditDir, 'audit-consolidated.json');
       let globalLogs = storagePath.readJson(globalPath, []);
-      if (Array.isArray(globalLogs) && (globalLogs.length > 400 || Buffer.byteLength(JSON.stringify(globalLogs), 'utf8') > 350000)) {
-        this._pruneLogs(globalLogs, 400, 350000);
+      if (Array.isArray(globalLogs) && (globalLogs.length > 600 || Buffer.byteLength(JSON.stringify(globalLogs), 'utf8') > 500000)) {
+        this._pruneLogs(globalLogs, 600, 500000);
         storagePath.writeJson(globalPath, globalLogs);
       }
       if (fs.existsSync(this.auditDir)) {
@@ -211,8 +211,8 @@ class AuditService {
           if (!file.endsWith('.json') || file === 'audit-consolidated.json') continue;
           const filePath = path.join(this.auditDir, file);
           let logs = storagePath.readJson(filePath, []);
-          if (Array.isArray(logs) && (logs.length > 400 || Buffer.byteLength(JSON.stringify(logs), 'utf8') > 350000)) {
-            this._pruneLogs(logs, 400, 350000);
+          if (Array.isArray(logs) && (logs.length > 600 || Buffer.byteLength(JSON.stringify(logs), 'utf8') > 500000)) {
+            this._pruneLogs(logs, 600, 500000);
             storagePath.writeJson(filePath, logs);
           }
         }

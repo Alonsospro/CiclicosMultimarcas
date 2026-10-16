@@ -21,7 +21,7 @@ test('auditService sanitizes large payloads', () => {
 });
 
 test('auditService prunes older entries below size limits and preserves latest', () => {
-  const dummyLogs = Array.from({ length: 600 }, (_, i) => ({
+  const dummyLogs = Array.from({ length: 800 }, (_, i) => ({
     id: 'LOG-' + i,
     timestamp: new Date().toISOString(),
     action: 'COUNT_REGISTERED',
@@ -29,9 +29,9 @@ test('auditService prunes older entries below size limits and preserves latest',
     user: 'auditor'
   }));
 
-  const pruned = auditService._pruneLogs(dummyLogs, 400, 350000);
-  assert.ok(pruned.length <= 400);
+  const pruned = auditService._pruneLogs(dummyLogs, 600, 500000);
+  assert.ok(pruned.length <= 600);
   const bytes = Buffer.byteLength(JSON.stringify(pruned), 'utf8');
-  assert.ok(bytes <= 350000);
-  assert.equal(pruned[pruned.length - 1].id, 'LOG-599');
+  assert.ok(bytes <= 500000);
+  assert.equal(pruned[pruned.length - 1].id, 'LOG-799');
 });
