@@ -348,8 +348,7 @@ window.DashboardView = {
     const targetVal = String(selectedId !== undefined && selectedId !== null && selectedId !== '' ? selectedId : (select.value || 'TODOS')).trim();
     const targetValLower = targetVal.toLowerCase();
 
-    const pending = cleanList.filter(inv => inv.sourceValidation && !['valid','not_requested'].includes(inv.sourceValidation.status)).length;
-    const options = [new Option('Consolidado (' + cleanList.length + ' inventarios' + (pending ? '; ' + pending + ' por revisar' : '') + ')', 'TODOS')];
+    const options = [new Option('Consolidado (' + cleanList.length + ' inventarios)', 'TODOS')];
     cleanList.forEach(inv => {
       const state = ['valid', 'not_requested'].includes(inv.sourceValidation?.status) ? '' : ' ⚠ Revisar fuente';
       options.push(new Option('[' + inv.center + '] ' + (inv.name || inv.id) + state, inv.id));
@@ -398,23 +397,41 @@ window.DashboardView = {
     if (!panel) return;
     panel.replaceChildren();
     const sources = data.sourceDiagnostics || [];
-    const issues = sources.filter(source => source.status !== 'valid');
+    const inventories = sources.filter(source => source.kind !== 'discovery');
+    const valid = inventories.filter(source => source.status === 'valid').length;
+    const pending = inventories.length - valid;
+    const discovery = sources.filter(source => source.kind === 'discovery').length;
     const label = document.createElement('strong');
-    label.textContent = data.metricsValid === false ? (sources.length ? 'No hay métricas verificadas para esta selección.' : 'No hay inventarios para los filtros seleccionados.')
-      : (issues.length ? 'Consolidado parcial: ' + issues.length + ' archivo(s) excluidos.' : 'Lectura y validación de fuentes: ' + sources.length + ' inventario(s).');
+    label.className = 'dashboard-sources__summary';
+    label.textContent = sources.length ? ((data.metricsValid === false ? 'Sin métricas verificadas' : (pending || discovery ? 'Consolidado parcial' : 'Fuentes verificadas')) +
+      ' · ' + valid + (valid === 1 ? ' inventario disponible' : ' inventarios disponibles') + (pending ? ' · ' + pending + ' por revisar' : '') +
+      (discovery ? ' · ' + discovery + (discovery === 1 ? ' consulta pendiente' : ' consultas pendientes') : '')) : 'No hay inventarios para los filtros seleccionados.';
     panel.appendChild(label);
+    if (!sources.length) return;
+    const details = document.createElement('details');
+    details.open = false;
+    const summary = document.createElement('summary');
+    summary.textContent = 'Ver detalle de fuentes (' + sources.length + ')';
+    details.appendChild(summary);
+    const list = document.createElement('div');
+    list.className = 'dashboard-sources__list';
     sources.forEach(source => {
+      const entry = document.createElement('div');
+      entry.className = 'dashboard-sources__entry';
       const line = document.createElement('div');
       line.textContent = '[' + (source.center || 'GLOBAL') + '] ' + (source.name || source.id || 'Lectura de métricas') + ' · ' +
         (source.status === 'valid' ? ((source.sheetName || 'Inventario activo') + ': ' + source.actualRows + ' filas / ' + source.actualSkus + ' SKU únicos') : (source.issues || []).join('; '));
-      panel.appendChild(line);
+      entry.appendChild(line);
       if (/^https:\/\/(docs|drive)\.google\.com\//.test(source.spreadsheetUrl || '')) {
         const link = document.createElement('a');
         link.href = source.spreadsheetUrl; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Abrir archivo fuente';
-        panel.appendChild(link);
+        entry.appendChild(link);
       }
-      (source.warnings || []).forEach(warning => { const row = document.createElement('div'); row.textContent = warning; panel.appendChild(row); });
+      (source.warnings || []).forEach(warning => { const row = document.createElement('div'); row.textContent = warning; entry.appendChild(row); });
+      list.appendChild(entry);
     });
+    details.appendChild(list);
+    panel.appendChild(details);
   },
 
   renderKPIs(summary, workerStats = []) {

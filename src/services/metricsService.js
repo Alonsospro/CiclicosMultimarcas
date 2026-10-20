@@ -62,9 +62,9 @@ function parseCurrencyOrNumber(val, fallback = 0) {
 const metricsCalculationCache = new Map();
 const METRICS_CALCULATION_CACHE_TTL = 30000; // 30s TTL
 
-function invalidateMetricsCache() {
+function invalidateMetricsCache({sources = false} = {}) {
   metricsCalculationCache.clear();
-  metricsSources.invalidate();
+  if (sources) metricsSources.invalidate();
 }
 
 class MetricsService {
@@ -79,7 +79,7 @@ class MetricsService {
 
   async getDashboardMetrics({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', period = 'TODO', startDate = null, endDate = null, forceRefresh = false }) {
     if (forceRefresh) {
-      this.invalidateCache();
+      this.invalidateCache({sources:true});
     }
 
     // Sanitize input values
@@ -1544,8 +1544,8 @@ class MetricsService {
     return result;
   }
 
-  invalidateCache() {
-    invalidateMetricsCache();
+  invalidateCache(options) {
+    invalidateMetricsCache(options);
   }
 
   async recalculateMetrics(params = {}) {

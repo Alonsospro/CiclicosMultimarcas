@@ -145,3 +145,56 @@ test('reopened inventories use current observations and retain the old copy as a
   assert.equal(metrics.sourceDiagnostics[0].source,'LOCAL_ACTIVE');
   assert.equal(f.calls.filter(c=>c.kind==='read').length,0);
 });
+
+test('legacy manifests with explicit members compare against the real membership, with or without a hash',async()=>{
+  const record={inventoryId:'INV',fileId:'copy_5100',type:'CICLICO',center:'5100',spreadsheetUrl:url};
+  for(const withHash of [false,true]) {
+    const manifest={...model.createManifest({...record,items:[base]}),members:[contract.member(base)]};
+    if(!withHash)delete manifest.membershipHash;
+    assert.deepEqual(model.validateManifest(manifest,record,[base]),[]);
+    assert.ok(model.validateManifest({...manifest,members:['wrong member']},record,[base]).length>0);
+    const f=sourceFixture({remote:[{...record,manifest}],read:()=>({headers:contract.columns,
+      rows:[contract.columns.map(k=>base[k]??'')],manifest,gid:123})});
+    const metrics=await dashboard(f.service).getDashboardMetrics({type:'CICLICO',center:'5100'});
+    assert.equal(metrics.metricsComplete,true);assert.equal(metrics.summary.totalInventories,1);
+  }
+});
+
+test('ordinary inventory saves invalidate calculations while preserving recent archive and history reads',async()=>{
+  const f=sourceFixture({remote:[{fileId:'copy_5100',type:'CICLICO',center:'5100',spreadsheetUrl:url}]});
+  const service=dashboard(f.service);
+  await service.getDashboardMetrics({type:'CICLICO',center:'5100'});
+  service.invalidateCache();
+  await service.getDashboardMetrics({type:'CICLICO',center:'5100'});
+  assert.equal(f.calls.filter(c=>c.kind==='history').length,1);
+  assert.equal(f.calls.filter(c=>c.kind==='read').length,1);
+  await service.recalculateMetrics({type:'CICLICO',center:'5100'});
+  assert.equal(f.calls.filter(c=>c.kind==='read').length,2,'Explicit recalculation must revalidate Google data');
+});
+
+test('a filtered view reuses the already discovered global history',async()=>{
+  const f=sourceFixture({remote:type=>type==='CICLICO'?[{fileId:'copy_5100',type,center:'5100',spreadsheetUrl:url}]:[]});
+  await f.service.load({type:'TODOS',center:'TODOS'});
+  await f.service.load({type:'CICLICO',center:'5100'});
+  assert.equal(f.calls.filter(c=>c.kind==='history').length,4);
+  assert.equal(f.calls.filter(c=>c.kind==='read').length,1);
+});
+
+test('slow files do not leave the remaining read slots idle and concurrent reads never exceed three',async()=>{
+  let release,active=0,maximum=0;
+  const blocked=new Promise(resolve=>{release=resolve;});
+  const f=sourceFixture({remote:Array.from({length:5},(_,i)=>({fileId:'copy_'+i,type:'CICLICO',center:'5100',
+    spreadsheetUrl:url.replace('copy_5100','copy_'+i)})),read:async record=>{
+      active++;maximum=Math.max(maximum,active);
+      if(record.driveFileId==='copy_0')await blocked;
+      active--;
+      return {headers:contract.columns,rows:[contract.columns.map(k=>base[k]??'')],gid:123};
+    }});
+  const loading=f.service.load({type:'CICLICO',center:'5100'});
+  try {
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(f.calls.filter(c=>c.kind==='read').length,5,'Later files can finish while the first file is still blocked');
+    assert.ok(maximum<=3);
+  } finally {release();}
+  assert.equal((await loading).length,5);
+});
