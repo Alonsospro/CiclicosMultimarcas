@@ -175,7 +175,7 @@ const InventoryContract = (() => {
   const identity = v => String(v ?? '').trim().toUpperCase();
   function number(v, label, fallback = 0) {
     if (!has(v)) return fallback;
-    if (typeof v === 'boolean' || !Number.isFinite(Number(v))) throw new Error('Número inválido: ' + label);
+    if (!['number','string'].includes(typeof v) || !Number.isFinite(Number(v))) throw new Error('Número inválido: ' + label);
     return Number(v);
   }
   function quantity(v, label) {
@@ -200,6 +200,7 @@ const InventoryContract = (() => {
     r.Ubicacion = String(first(raw.Ubicacion, raw.ubicacion, raw.location) ?? '').trim();
     r.Stock_Sistema = number(first(raw.Stock_Sistema, raw.stockSistema), 'Stock_Sistema');
     r.Costo_Unitario = number(first(raw.Costo_Unitario, raw.costoUnitario), 'Costo_Unitario');
+    if (r.Costo_Unitario < 0) throw new Error('Costo_Unitario no puede ser negativo');
     r.Reconteo = first(raw.Reconteo, raw.Reconteo_Fisico) ?? null;
     r.Malestado_Reconteo = first(raw.Malestado_Reconteo, raw.Reconteo_Mal_Estado) ?? null;
     if (!has(r.Stock_Buen_Estado)) {
@@ -563,9 +564,27 @@ function getRootFolderForType_(type){
 function getOrCreateFolder_(parent,name){if(!String(name).trim())throw new Error('Nombre de carpeta vacío');const it=parent.getFoldersByName(String(name));return it.hasNext()?it.next():parent.createFolder(String(name));}
 function manifestFor_(p,sh,items){
   const record=p.driveRecord||{},members=items.map(InventoryContract.member).sort();
-  return {version:2,schemaVersion:SHEET_LAYOUT,inventoryId:record.inventoryId||p.inventoryId,operationId:p.operationId,center:String(p.center),type:p.type||'CICLICO',
+  return {version:3,schemaVersion:SHEET_LAYOUT,inventoryId:record.inventoryId||p.inventoryId,operationId:p.operationId,center:String(p.center),type:p.type||'CICLICO',
     gid:sh.getSheetId(),sheetName:sh.getName(),closedAt:record.closedAt||new Date().toISOString(),itemCount:items.length,
-    skuCount:new Set(items.map(it=>it.SKU)).size,membershipHash:hash_(JSON.stringify(members)),members};
+    skuCount:new Set(items.map(it=>it.SKU)).size,membershipHash:hash_(JSON.stringify(members)),contentHash:finalContentHash_(items),members};
+}
+function finalContentHash_(items){
+  const rows=items.slice().sort((a,b)=>{
+    const left=InventoryContract.member(a),right=InventoryContract.member(b);return left<right?-1:left>right?1:0;
+  }).map(item=>rowValues_(item).map(value=>value instanceof Date?value.toISOString():value));
+  return hash_(JSON.stringify(rows));
+}
+function finalRowsHash_(rows){return finalContentHash_(rows.map(row=>Object.fromEntries(SHEET_COLUMNS.map((key,i)=>[key,row[i]]))));}
+function formatFinalSheet_(sh,source,items){
+  const sourceFormats=source.getRange(2,1,1,SHEET_WIDTH).getNumberFormats()[0];
+  const range=sh.getRange(2,1,items.length,SHEET_WIDTH);
+  const formats=range.getNumberFormats().map(row=>SHEET_COLUMNS.map((key,i)=>{
+    if(key.startsWith('Costo_'))return [row[i],sourceFormats[i]].find(format=>/Bs|BOB|\$|¤/i.test(format))||'"Bs" #,##0.00';
+    if(key.startsWith('Fecha_'))return [row[i],sourceFormats[i]].find(format=>/[dy]/i.test(format))||'dd/MM/yyyy HH:mm:ss';
+    if(/^(Stock_|Cantidad_|Reconteo|Malestado_|Mal_estado|Diferencia)/.test(key))return /[0#]/.test(row[i])&&!/[a-z$¤]/i.test(row[i])?row[i]:'#,##0';
+    return '@';
+  }));
+  range.setNumberFormats(formats);
 }
 function createFinalFile_(p){
   if(SHEET_LAYOUT===InventoryContract.weeklyVersion&&p.schemaVersion!==SHEET_LAYOUT)throw new Error('El cierre requiere la appweb de semanales de 43 columnas.');
@@ -574,7 +593,7 @@ function createFinalFile_(p){
     return InventoryContract.finalItem(item);
   });
   if(!items.length)throw new Error('No se puede crear un cierre vacío');
-  getCenterSheet_(p.center);
+  const sourceBook=spreadsheet_(),source=getCenterSheet_(p.center,sourceBook);
   const members=items.map(InventoryContract.member);
   if(new Set(members).size!==members.length)throw new Error('Identidades duplicadas en el cierre');
   // Rows already contain both rounds and the confirmed calculations. Do not reinterpret CUADRA during export.
@@ -582,49 +601,45 @@ function createFinalFile_(p){
   const payloadHash=hash_(JSON.stringify({items,inventoryId:record.inventoryId,center:p.center,type:p.type,justifications:record.justifications||[]}));
   const existing=folder.getFiles();
   while(existing.hasNext()){
-    const f=existing.next();let m;try{m=JSON.parse(f.getDescription()||'{}');}catch(_){continue;}
+    const f=existing.next();let m;try{m=JSON.parse(f.getDescription()||'{}')||{};}catch(_){continue;}
     if(m.operationId===p.operationId){
       if(m.payloadHash!==payloadHash)throw new Error('Cierre repetido con contenido diferente');
       if(m.complete)return m.result;
     }
   }
-  let copy;
+  let copy,evidenceFile;
   try{
     const stamp=Utilities.formatDate(new Date(),Session.getScriptTimeZone()||'America/La_Paz','yyyyMMdd_HHmmss');
-    copy=DriveApp.getFileById(spreadsheet_().getId()).makeCopy('Inventario_'+p.type+'_'+p.center+'_FINAL_'+stamp,folder);
-    const ss=SpreadsheetApp.openById(copy.getId()),sh=getCenterSheet_(p.center,ss);
+    const ss=SpreadsheetApp.create('Inventario_'+p.type+'_'+p.center+'_FINAL_'+stamp);
+    copy=DriveApp.getFileById(ss.getId());
+    copy.moveTo(folder);
+    ss.setSpreadsheetLocale(sourceBook.getSpreadsheetLocale());
+    ss.setSpreadsheetTimeZone(sourceBook.getSpreadsheetTimeZone());
+    const sh=source.copyTo(ss).setName(String(p.center));
+    sh.showSheet();
     ss.getSheets().forEach(s=>{if(s.getSheetId()!==sh.getSheetId())ss.deleteSheet(s);});
     if(sh.getMaxRows()<items.length+1)sh.insertRowsAfter(sh.getMaxRows(),items.length+1-sh.getMaxRows());
     if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,SHEET_WIDTH).clearContent();
-    sh.getRange(1,1,1,SHEET_WIDTH).setValues([DEFAULT_HEADERS]);
-    SHEET_COLUMNS.map((key,i)=>/^(Stock_|Cantidad_|Reconteo|Malestado_|Mal_estado|Diferencia|Costo_)/.test(key)?i+1:null).filter(Boolean).forEach(c=>sh.getRange(2,c,items.length,1).setNumberFormat('0.##########'));
+    formatFinalSheet_(sh,source,items);
     sh.getRange(2,1,items.length,SHEET_WIDTH).setValues(items.map(rowValues_));
     if(sh.getMaxColumns()>SHEET_WIDTH)sh.deleteColumns(SHEET_WIDTH+1,sh.getMaxColumns()-SHEET_WIDTH);
+    SpreadsheetApp.flush();
+    const written=sh.getRange(2,1,items.length,SHEET_WIDTH).getValues();
+    if(finalRowsHash_(written)!==finalContentHash_(items))throw new Error('La copia final no conserva los datos confirmados del cierre');
     const manifest=manifestFor_(p,sh,items),summary={...manifest};delete summary.members;
-    const meta=ss.insertSheet('__INVENTORY_MANIFEST');
-    if(meta.getMaxRows()<members.length+1)meta.insertRowsAfter(meta.getMaxRows(),members.length+1-meta.getMaxRows());
-    meta.getRange(1,1).setValue(JSON.stringify(summary));meta.getRange(2,1,members.length,1).setValues(manifest.members.map(m=>[m]));meta.hideSheet();
-    // Preserve complete evidence metadata, including round and exact item identity.
-    const justifications=record.justifications||[];
-    if(justifications.length){
-      const evidence=ss.insertSheet('__JUSTIFICATIONS');
-      if(evidence.getMaxRows()<justifications.length+1)evidence.insertRowsAfter(evidence.getMaxRows(),justifications.length+1-evidence.getMaxRows());
-      evidence.getRange(1,1).setValue('Justificaciones y evidencia');
-      const entries=justifications.map(j=>{
+    // Keep the spreadsheet to one center tab. Complete evidence lives alongside it in Drive.
+    const justifications=(record.justifications||[]).map(j=>{
         const saved=savePhotoIfAny_({...j,action:'saveJustification',photoJustificacion:j.photoBase64||j.photoUrl||j.driveUrl},p.center,p.type,j.sku||j.SKU,'justificaciones');
         const cleaned={...j};delete cleaned.photoBase64;
         if(saved)cleaned.driveFileId=saved.id;
-        const text=JSON.stringify(cleaned);if(text.length>45000)throw new Error('Justificación demasiado extensa');
-        return [text];
-      });
-      evidence.getRange(2,1,entries.length,1).setValues(entries);evidence.hideSheet();
-    }
-    SpreadsheetApp.flush();
+        return cleaned;
+    });
+    evidenceFile=folder.createFile(copy.getName()+'.metadata.json',JSON.stringify({inventoryManifest:manifest,justifications}),MimeType.PLAIN_TEXT);
     const result={fileId:copy.getId(),fileName:copy.getName(),spreadsheetUrl:copy.getUrl()+'#gid='+sh.getSheetId(),
-      folderId:folder.getId(),center:p.center,type:p.type,itemsSynced:items.length,manifest:summary};
-    copy.setDescription(JSON.stringify({complete:true,operationId:p.operationId,payloadHash,inventoryManifest:summary,result}));
+      folderId:folder.getId(),center:p.center,type:p.type,itemsSynced:items.length,evidenceFileId:evidenceFile.getId(),manifest:summary};
+    copy.setDescription(JSON.stringify({complete:true,operationId:p.operationId,payloadHash,inventoryManifest:summary,evidenceFileId:evidenceFile.getId(),result}));
     return result;
-  }catch(e){if(copy)copy.setTrashed(true);throw e;}
+  }catch(e){if(evidenceFile)evidenceFile.setTrashed(true);if(copy)copy.setTrashed(true);throw e;}
 }
 function allowedRoots_(){
   const props=PropertiesService.getScriptProperties().getProperties();
@@ -642,7 +657,10 @@ function readFinalInventory_(p){
   while(parents.hasNext())if(parents.next().getName()==='Archivos Finales')final=true;
   if(!final||!belongsToRoot_(file,allowedRoots_()))throw new Error('Archivo fuera de las carpetas de cierres autorizadas');
   const ss=SpreadsheetApp.openById(id),meta=ss.getSheetByName('__INVENTORY_MANIFEST');
-  if(!meta){
+  let metadata={};try{metadata=JSON.parse(file.getDescription()||'{}')||{};}catch(_){}
+  if(metadata.complete===false)throw new Error('El cierre no fue confirmado');
+  const manifest=meta?JSON.parse(meta.getRange(1,1).getValue()):metadata.inventoryManifest;
+  if(!manifest){
     if(!/^\d{4}$/.test(String(p.center||'')))throw new Error('Cierre antiguo: indique el centro exacto');
     const legacy=p.gid!==undefined?ss.getSheets().find(s=>String(s.getSheetId())===String(p.gid)):ss.getSheetByName(String(p.center));
     if(!legacy||legacy.getName()!==String(p.center))throw new Error('La pestaña no corresponde al centro');
@@ -651,15 +669,17 @@ function readFinalInventory_(p){
       manifest:null,legacy:true,sheetName:legacy.getName(),gid:legacy.getSheetId(),spreadsheetId:id,
       spreadsheetTimeZone:ss.getSpreadsheetTimeZone(),modifiedAt:file.getLastUpdated().toISOString()};
   }
-  const manifest=JSON.parse(meta.getRange(1,1).getValue());
   if(p.center&&String(p.center)!==String(manifest.center))throw new Error('Centro incorrecto');
   if(p.gid!==undefined&&String(p.gid)!==String(manifest.gid))throw new Error('Pestaña incorrecta');
   const sh=ss.getSheets().find(s=>s.getSheetId()===Number(manifest.gid));if(!sh)throw new Error('Pestaña del cierre ausente');
   validateHeaders_(sh);
   const rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,SHEET_WIDTH).getValues():[];
-  manifest.members=meta.getLastRow()>1?meta.getRange(2,1,meta.getLastRow()-1,1).getValues().map(r=>r[0]):[];
+  if(meta)manifest.members=meta.getLastRow()>1?meta.getRange(2,1,meta.getLastRow()-1,1).getValues().map(r=>r[0]):[];
   const actual=rows.map(rowToObject_).map(InventoryContract.member).sort();
-  if(actual.length!==manifest.itemCount||JSON.stringify(actual)!==JSON.stringify(manifest.members.slice().sort()))throw new Error('El contenido del cierre no coincide con su manifiesto');
+  if(actual.length!==manifest.itemCount||new Set(actual).size!==actual.length||
+    (manifest.membershipHash&&hash_(JSON.stringify(actual))!==manifest.membershipHash)||
+    (manifest.members&&JSON.stringify(actual)!==JSON.stringify(manifest.members.slice().sort()))||
+    (manifest.contentHash&&finalRowsHash_(rows)!==manifest.contentHash))throw new Error('El contenido del cierre no coincide con su manifiesto');
   return {schemaVersion:SHEET_LAYOUT,headers:DEFAULT_HEADERS,rows,manifest,sheetName:sh.getName(),gid:sh.getSheetId(),spreadsheetId:id,spreadsheetTimeZone:ss.getSpreadsheetTimeZone(),modifiedAt:file.getLastUpdated().toISOString()};
 }
 function getHistory_(type,center){
@@ -667,8 +687,16 @@ function getHistory_(type,center){
   if(center)centers.push(String(center));else{const it=root.getFolders();while(it.hasNext()){const f=it.next();if(/^\d{4}$/.test(f.getName()))centers.push(f.getName());}}
   const history=[];
   centers.forEach(c=>{const cs=root.getFoldersByName(c);while(cs.hasNext()){const fs=cs.next().getFoldersByName('Archivos Finales');while(fs.hasNext()){const files=fs.next().getFiles();while(files.hasNext()){
-    const f=files.next();let metadata;try{metadata=JSON.parse(f.getDescription()||'{}');}catch(_){continue;}
-    const m=metadata.inventoryManifest;if(!m||metadata.complete===false)continue;
+    const f=files.next();let metadata={};try{metadata=JSON.parse(f.getDescription()||'{}')||{};}catch(_){}
+    let m=metadata.inventoryManifest;if(metadata.complete===false)continue;
+    if(!m){
+      const name=f.getName().match(/^Inventario_(CICLICO|SEMANAL|SEMANALES|MENSUAL|MENSUALES|BARRIDO)_(\d{4})_FINAL_\d{8}_\d{6}$/i);
+      if(!name||name[2]!==c)continue;
+      const legacyType=name[1].toUpperCase();if(type&&legacyType!==String(type))continue;
+      history.push({fileId:f.getId(),fileName:f.getName(),spreadsheetUrl:f.getUrl(),driveUrl:f.getUrl(),
+        center:c,type:legacyType,closedAt:f.getDateCreated().toISOString(),modifiedAt:f.getLastUpdated().toISOString(),
+        legacy:true,source:'GOOGLE_DRIVE'});continue;
+    }
     if(type&&String(m.type)!==String(type))continue;
     history.push({fileId:f.getId(),fileName:f.getName(),driveUrl:f.getUrl(),spreadsheetUrl:f.getUrl()+'#gid='+m.gid,
       inventoryId:m.inventoryId,center:c,type:m.type,closedAt:m.closedAt,modifiedAt:f.getLastUpdated().toISOString(),manifest:m,totalItems:m.itemCount,source:'GOOGLE_DRIVE'});

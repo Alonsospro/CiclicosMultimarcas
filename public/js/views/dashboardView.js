@@ -160,6 +160,7 @@ window.DashboardView = {
   async recalculateMetrics() {
     const requestSerial = this.requestSerial = (this.requestSerial || 0) + 1;
     this.isLoadingMetrics = true;
+    this.setMetricsPending();
     this.metricsLoadFailed = false;
     const btnRecalc = document.getElementById('btn-dash-recalculate');
     const btnBanner = document.getElementById('btn-dash-banner-recalculate');
@@ -208,7 +209,7 @@ window.DashboardView = {
 
       const [recalcRes, auditRes] = await Promise.all([
         window.API.recalculateDashboardMetrics(params),
-        window.API.getAuditLogs(auditParams)
+        window.API.getAuditLogs(auditParams).catch(() => ({logs:[]}))
       ]);
 
       if (requestSerial !== this.requestSerial) return;
@@ -220,14 +221,15 @@ window.DashboardView = {
 
       // Update Context Banner
       this.renderContextBanner(recalcRes.selectedInventory, recalcRes.filters);
-
-      this.renderKPIs(recalcRes.summary, recalcRes.workerStats || []);
-      this.renderCharts(recalcRes);
-      this.renderWorkersRanking(recalcRes.workerStats || []);
-      this.renderMultiLocations(recalcRes.multiLocationSkus || []);
-      this.renderDiscrepancies(recalcRes.discrepanciesList || [], this.currentDiscFilter);
-      this.renderAuditLogs(auditRes.logs || []);
       this.renderSourceValidation(this.currentData);
+      if (recalcRes.metricsValid !== false) {
+        this.renderKPIs(recalcRes.summary, recalcRes.workerStats || []);
+        this.renderCharts(recalcRes);
+        this.renderWorkersRanking(recalcRes.workerStats || []);
+        this.renderMultiLocations(recalcRes.multiLocationSkus || []);
+        this.renderDiscrepancies(recalcRes.discrepanciesList || [], this.currentDiscFilter);
+        this.renderAuditLogs(auditRes.logs || []);
+      }
 
       const countMsg = recalcRes.resyncedCount > 0
         ? ` (${recalcRes.resyncedCount} archivos leídos de Google Sheets)`
@@ -238,6 +240,7 @@ window.DashboardView = {
       console.error('[dashboardView] Error recalculating metrics:', err);
       if (requestSerial === this.requestSerial) {
         this.metricsLoadFailed = true;
+        this.renderSourceValidation({metricsValid:false, metricsComplete:false, sourceDiagnostics:[{status:'unavailable', issues:[err.message || 'Error al leer las fuentes de métricas']} ]});
         window.Toast?.danger(err.message || 'Error al leer las fuentes de métricas');
       }
     } finally {
@@ -252,6 +255,7 @@ window.DashboardView = {
   async loadDashboard(forceRefresh = false) {
     const requestSerial = this.requestSerial = (this.requestSerial || 0) + 1;
     this.isLoadingMetrics = true;
+    this.setMetricsPending();
     this.metricsLoadFailed = false;
     const user = window.Auth?.currentUser;
     const isAdmin = user && (user.role === 'ADMIN' || user.isSuperadmin);
@@ -289,7 +293,7 @@ window.DashboardView = {
 
       const [metricsRes, auditRes] = await Promise.all([
         window.API.getDashboardMetrics(params),
-        window.API.getAuditLogs(auditParams)
+        window.API.getAuditLogs(auditParams).catch(() => ({logs:[]}))
       ]);
 
       if (requestSerial !== this.requestSerial) return;
@@ -301,21 +305,37 @@ window.DashboardView = {
 
       // Update Context Banner
       this.renderContextBanner(metricsRes.selectedInventory, metricsRes.filters);
-
-      this.renderKPIs(metricsRes.summary, metricsRes.workerStats || []);
-      this.renderCharts(metricsRes);
-      this.renderWorkersRanking(metricsRes.workerStats || []);
-      this.renderMultiLocations(metricsRes.multiLocationSkus || []);
-      this.renderDiscrepancies(metricsRes.discrepanciesList || [], this.currentDiscFilter);
-      this.renderAuditLogs(auditRes.logs || []);
       this.renderSourceValidation(this.currentData);
+      if (metricsRes.metricsValid !== false) {
+        this.renderKPIs(metricsRes.summary, metricsRes.workerStats || []);
+        this.renderCharts(metricsRes);
+        this.renderWorkersRanking(metricsRes.workerStats || []);
+        this.renderMultiLocations(metricsRes.multiLocationSkus || []);
+        this.renderDiscrepancies(metricsRes.discrepanciesList || [], this.currentDiscFilter);
+        this.renderAuditLogs(auditRes.logs || []);
+      }
     } catch (err) {
       if (requestSerial === this.requestSerial) {
         this.metricsLoadFailed = true;
+        this.renderSourceValidation({metricsValid:false, metricsComplete:false, sourceDiagnostics:[{status:'unavailable', issues:[err.message || 'Error cargando datos del Dashboard']} ]});
         window.Toast?.danger(err.message || 'Error cargando datos del Dashboard');
       }
     } finally {
       if (requestSerial === this.requestSerial) this.isLoadingMetrics = false;
+    }
+  },
+
+  setMetricsPending() {
+    this.currentData = null;
+    const panel = document.getElementById('dash-source-validation');
+    if (panel) panel.textContent = 'Leyendo y validando inventarios…';
+    const results = document.getElementById('dash-metrics-results');
+    if (results) results.style.display = 'none';
+    const banner = document.getElementById('dash-inventory-context-banner');
+    if (banner) banner.style.display = 'none';
+    for (const id of ['btn-dash-print-report', 'btn-dash-banner-print-report', 'btn-export-overview-xlsx', 'btn-export-discrepancies-csv']) {
+      const button = document.getElementById(id);
+      if (button) button.disabled = true;
     }
   },
 
@@ -328,7 +348,8 @@ window.DashboardView = {
     const targetVal = String(selectedId !== undefined && selectedId !== null && selectedId !== '' ? selectedId : (select.value || 'TODOS')).trim();
     const targetValLower = targetVal.toLowerCase();
 
-    const options = [new Option('Consolidado (' + cleanList.length + ' inventarios)', 'TODOS')];
+    const pending = cleanList.filter(inv => inv.sourceValidation && !['valid','not_requested'].includes(inv.sourceValidation.status)).length;
+    const options = [new Option('Consolidado (' + cleanList.length + ' inventarios' + (pending ? '; ' + pending + ' por revisar' : '') + ')', 'TODOS')];
     cleanList.forEach(inv => {
       const state = ['valid', 'not_requested'].includes(inv.sourceValidation?.status) ? '' : ' ⚠ Revisar fuente';
       options.push(new Option('[' + inv.center + '] ' + (inv.name || inv.id) + state, inv.id));
@@ -353,6 +374,13 @@ window.DashboardView = {
       }
       if (metaEl) {
         metaEl.textContent = `Tipo: ${selectedInventory.type} | Creado: ${dateStr} | Total Ítems: ${selectedInventory.totalItems || 0} | Estado: ${selectedInventory.status || 'En Proceso'}`;
+        const sheetUrl = selectedInventory.spreadsheetUrl || selectedInventory.previousSpreadsheetUrl;
+        if (/^https:\/\/docs\.google\.com\/spreadsheets\//.test(sheetUrl || '')) {
+          const link = document.createElement('a');
+          link.href = sheetUrl;
+          link.target = '_blank'; link.rel = 'noopener'; link.textContent = selectedInventory.spreadsheetUrl ? ' · Abrir archivo final' : ' · Abrir cierre anterior';
+          metaEl.appendChild(link);
+        }
       }
     } else {
       banner.style.display = 'none';
@@ -372,13 +400,13 @@ window.DashboardView = {
     const sources = data.sourceDiagnostics || [];
     const issues = sources.filter(source => source.status !== 'valid');
     const label = document.createElement('strong');
-    label.textContent = data.metricsValid === false ? 'No hay métricas verificadas para esta selección.'
+    label.textContent = data.metricsValid === false ? (sources.length ? 'No hay métricas verificadas para esta selección.' : 'No hay inventarios para los filtros seleccionados.')
       : (issues.length ? 'Consolidado parcial: ' + issues.length + ' archivo(s) excluidos.' : 'Lectura y validación de fuentes: ' + sources.length + ' inventario(s).');
     panel.appendChild(label);
     sources.forEach(source => {
       const line = document.createElement('div');
-      line.textContent = '[' + source.center + '] ' + (source.name || source.id) + ' · ' +
-        (source.status === 'valid' ? ((source.sheetName || 'Inventario activo') + ': ' + source.actualRows + ' filas / ' + source.actualSkus + ' SKU únicos') : source.issues.join('; '));
+      line.textContent = '[' + (source.center || 'GLOBAL') + '] ' + (source.name || source.id || 'Lectura de métricas') + ' · ' +
+        (source.status === 'valid' ? ((source.sheetName || 'Inventario activo') + ': ' + source.actualRows + ' filas / ' + source.actualSkus + ' SKU únicos') : (source.issues || []).join('; '));
       panel.appendChild(line);
       if (/^https:\/\/(docs|drive)\.google\.com\//.test(source.spreadsheetUrl || '')) {
         const link = document.createElement('a');
@@ -1319,6 +1347,7 @@ window.DashboardView = {
   },
 
   exportDiscrepanciesCSV() {
+    if (!this.currentData || this.isLoadingMetrics || this.metricsLoadFailed || this.currentData.metricsComplete === false || this.currentData.metricsValid === false) return window.Toast?.warning('Valide los archivos antes de exportar.');
     const list = this.currentData?.discrepanciesList || [];
     if (list.length === 0) {
       window.Toast.info('No hay datos de discrepancias para exportar');
@@ -1358,7 +1387,7 @@ window.DashboardView = {
   },
 
   async exportOverviewXLSX() {
-    if (this.currentData?.metricsComplete === false) return window.Toast?.warning('Valide los archivos antes de exportar.');
+    if (!this.currentData || this.isLoadingMetrics || this.metricsLoadFailed || this.currentData.metricsComplete === false || this.currentData.metricsValid === false) return window.Toast?.warning('Valide los archivos antes de exportar.');
     const btn = document.getElementById('btn-export-overview-xlsx');
     const originalText = btn ? btn.innerHTML : '';
     if (btn) {

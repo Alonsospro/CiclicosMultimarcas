@@ -4,11 +4,13 @@ const gas = require('./gasService');
 const config = require('../config');
 const snapshots = require('./snapshotService');
 const model = require('./inventorySheetModel');
+const reliability = require('./counterReliability');
 
 const reads = new Map();
 const norm = value => String(value || '').trim().toLowerCase().replace(/\.json$/, '');
 const sheetKey = record => gas.extractSpreadsheetId(record.spreadsheetUrl || record.driveUrl || '') || record.driveFileId || '';
 const closed = record => record.isHistory || String(record.status).toUpperCase() === 'REVISADO';
+const child = record => record.parentInventoryId || String(record.inventoryId || record.id || '').startsWith('REC-');
 const matchesId = (record, id) => [record.id, record.inventoryId, record.fileId, record.driveFileId, record.fileName, record.name, ...(record.aliases || [])].some(value => value && norm(value) === norm(id));
 
 class MetricsSourceService {
@@ -20,13 +22,15 @@ class MetricsSourceService {
     const cached = this.historyCache.get(cacheKey);
     if (cached && Date.now() - cached.at < 30000) return cached.value;
     const types = type && type !== 'TODOS' ? [type] : config.inventoryTypes;
-    const results = await Promise.allSettled(types.map(t => gas.getHistoryFromGAS(t, center)));
+    const results = await Promise.allSettled(types.map(t => gas.getHistoryFromGAS(t, ['TODOS','GLOBAL'].includes(center) ? null : center)));
     const value = results.flatMap(r => r.status === 'fulfilled' && Array.isArray(r.value) ? r.value : []);
+    value.discoveryIssues = results.flatMap((r, i) => r.status === 'rejected' ? [{type:types[i], center,
+      status:'unavailable', name:'Historial de cierres', issues:[r.reason?.message || 'No se pudo consultar el historial']}]:[]);
     this.historyCache.set(cacheKey, { at: Date.now(), value });
     return value;
   }
 
-  async load({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS' } = {}) {
+  async load({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', startDate = null, endDate = null } = {}) {
     const candidates = [];
     for (const [dir, isHistory] of [[storage.getHistoryDirectory(), true], [storage.getInventoriesDirectory(), false]]) {
       for (const file of storage.listFiles(dir).filter(f => f.endsWith('.json'))) {
@@ -38,7 +42,8 @@ class MetricsSourceService {
           createdAt: isHistory ? (record.closedAt || record.createdAt) : record.createdAt });
       }
     }
-    for (const record of await this.history(type, center)) {
+    const remoteHistory = await this.history(type, center);
+    for (const record of remoteHistory) {
       if (snapshots.isSnapshotDeleted(record)) continue;
       candidates.push({ ...record, center: record.center ? config.getCenterCode(record.center) : null, id: record.inventoryId || record.fileId, name: record.fileName, isHistory: true,
         createdAt: record.closedAt, status: 'REVISADO' });
@@ -49,7 +54,6 @@ class MetricsSourceService {
     for (const record of candidates) {
       if (type !== 'TODOS' && record.type !== type) continue;
       if (center !== 'TODOS' && center !== 'GLOBAL' && !config.isSameCenter(record.center, center)) continue;
-      if (String(record.inventoryId || record.id).startsWith('REC-') || record.parentInventoryId) continue;
       const sheet = sheetKey(record);
       const related = groups.filter(g => g.some(r => (sheet && sheet === sheetKey(r)) || (record.inventoryId && r.inventoryId === record.inventoryId)));
       if (!related.length) groups.push([record]);
@@ -60,32 +64,44 @@ class MetricsSourceService {
     }
 
     const inventories = [];
-    for (let start = 0; start < groups.length; start += 3) {
-      inventories.push(...await Promise.all(groups.slice(start, start + 3).map(group =>
-        this.resolve(group, inventoryId !== 'TODOS' && !group.some(record => matchesId(record, inventoryId))))));
+    const primaryGroups = groups.filter(group => group.some(record => !child(record)));
+    for (let start = 0; start < primaryGroups.length; start += 3) {
+      inventories.push(...await Promise.all(primaryGroups.slice(start, start + 3).map(group =>
+        this.resolve(group, inventoryId !== 'TODOS' && !group.some(record => matchesId(record, inventoryId)), {startDate,endDate}))));
     }
+    inventories.discoveryIssues = remoteHistory.discoveryIssues || [];
     return inventories;
   }
 
-  async resolve(group, skipRead = false) {
+  async resolve(group, skipRead = false, {startDate, endDate} = {}) {
     // Locally signed closures carry membership; a remote cache of rows is never that membership.
-    const rank = r => r.manifest ? 4 : (r.isHistory && String(r.fileId).startsWith('DRIVE-FILE-') && r.inventoryId ? 3 : (!r.isHistory ? 2 : 1));
+    const rank = r => !closed(r) ? 5 : (r.manifest ? 4 : (r.isHistory && String(r.fileId).startsWith('DRIVE-FILE-') && r.inventoryId ? 3 : (!r.isHistory ? 2 : 1)));
     group.sort((a, b) => rank(b) - rank(a) ||
       ((Date.parse(b.manifest?.closedAt || b.closedAt || b.createdAt) || 0) - (Date.parse(a.manifest?.closedAt || a.closedAt || a.createdAt) || 0)));
-    const anchor = group[0];
-    const linked = group.some(closed) ? group.find(r => sheetKey(r)) : null;
+    const primary = group.filter(record => !child(record));
+    const anchor = primary[0];
+    const linked = closed(anchor) ? primary.find(r => closed(r) && sheetKey(r)) : null;
     const record = { ...anchor, items: [], aliases: [...new Set(group.flatMap(r => [r.id, r.inventoryId, r.fileId, r.driveFileId, r.fileName]).filter(Boolean))] };
     if (linked) {
       record.spreadsheetUrl = group.find(r => sheetKey(r) === sheetKey(linked) && /[#&?]gid=\d+/.test(r.spreadsheetUrl || ''))?.spreadsheetUrl || linked.spreadsheetUrl || linked.driveUrl;
       record.driveFileId = sheetKey(linked);
+      record.driveUrl = record.spreadsheetUrl;
       record.isHistory = group.some(closed);
       if (record.isHistory) record.status = 'REVISADO';
+    } else if (!closed(anchor)) {
+      // An explicitly reopened inventory uses current observations, not its previous archive.
+      record.previousSpreadsheetUrl = anchor.spreadsheetUrl || anchor.driveUrl;
+      delete record.spreadsheetUrl; delete record.driveUrl; delete record.driveFileId;
+      record.closedAt = null;
+      record.createdAt = anchor.reopenedAt || anchor.createdAt;
     }
-    const localManifest = anchor.manifest || ((rank(anchor) >= 3 || (!anchor.isHistory && closed(anchor))) && anchor.items?.length ? model.createManifest(anchor) : null);
+    const localManifest = closed(anchor) ? (anchor.manifest || ((rank(anchor) >= 3 || !anchor.isHistory) && anchor.items?.length ? model.createManifest(anchor) : null)) : null;
     const validation = { status: 'valid', source: linked ? 'GOOGLE_SHEETS' : 'LOCAL_ACTIVE', issues: [], warnings: [],
       expectedRows: localManifest?.itemCount ?? null, expectedSkus: localManifest?.skuCount ?? null };
     record.sourceValidation = validation;
     record.totalItems = localManifest?.itemCount ?? anchor.totalItems ?? anchor.items?.length ?? 0;
+    const date = Date.parse(record.closedAt || record.createdAt);
+    if (Number.isFinite(date) && ((startDate && date < Date.parse(startDate)) || (endDate && date > Date.parse(endDate)))) skipRead = true;
     if (skipRead) { validation.status = 'not_requested'; return record; }
     try {
       if (!record.center) { const error = new Error('Falta el centro del inventario'); error.code = 'INVALID_SHEET'; throw error; }
@@ -102,18 +118,26 @@ class MetricsSourceService {
         validation.sheetName = source.sheetName;
         validation.gid = source.gid;
         validation.readAt = source.readAt;
-        try { items = model.normalizeTable(source.headers, source.rows); }
+        if (source.gid !== undefined) {
+          record.spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${record.driveFileId}/edit#gid=${source.gid}`;
+          record.driveUrl = record.spreadsheetUrl;
+        }
+        try { items = model.normalizeTable(source.headers, source.rows, source.schemaVersion); }
         catch (error) { error.code = 'INVALID_SHEET'; throw error; }
+        const authorship = primary.find(record => record.items?.some(item => item.counterEvidence));
+        if (authorship) items = reliability.preserve(items, authorship.items);
         const remoteManifest = source.manifest;
         validation.issues.push(...model.validateManifest(localManifest, record, items));
         validation.issues.push(...model.validateManifest(remoteManifest, record, items));
         if (!localManifest && !remoteManifest) validation.warnings.push('Archivo antiguo sin manifiesto: se validó su estructura, pero no se puede confirmar su pertenencia al cierre.');
+        if (remoteManifest) record.manifest = remoteManifest;
       } else {
         if (closed(record)) throw new Error('El cierre no tiene un enlace confirmado a Google Sheets');
         items = (anchor.items || []).map(model.normalizeItem);
       }
       validation.actualRows = items.length;
       validation.actualSkus = new Set(items.map(it => it.SKU)).size;
+      if (new Set(items.map(model.member)).size !== items.length) validation.issues.push('Hay SKU, almacenes y ubicaciones duplicados en la hoja');
       if (!items.length) validation.issues.push('La hoja no contiene registros de inventario');
       if (closed(record) && items.some(it => it.Stock_Total === null)) validation.issues.push('El archivo final contiene filas sin conteo');
       if (validation.issues.length) validation.status = 'inconsistent';

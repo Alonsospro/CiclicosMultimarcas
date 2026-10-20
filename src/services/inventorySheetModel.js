@@ -1,4 +1,5 @@
 const { createHash } = require('crypto');
+const contract = require('./inventoryContract');
 
 const key = value => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const identityText = value => String(value ?? '').trim().toUpperCase();
@@ -24,9 +25,13 @@ const fields = {
 };
 const aliases = new Map();
 for (const [field, names] of Object.entries(fields)) for (const name of [field, ...names]) aliases.set(key(name), field);
+for (const field of [...contract.columns, ...contract.weeklyColumns]) {
+  if (!aliases.has(key(field))) aliases.set(key(field), field);
+}
 
 function number(value, fallback = null) {
   if (!hasValue(value)) return fallback;
+  if (!['number', 'string'].includes(typeof value)) throw new Error('Tipo numérico inválido');
   if (typeof value === 'number') {
     if (Number.isFinite(value)) return value;
     throw new Error('Número no finito');
@@ -73,11 +78,14 @@ function normalizeItem(raw, index = 0) {
     item[diff] = hasValue(item[diff]) ? number(item[diff]) : (item[total] === null ? null : item[total] - item.Stock_Sistema);
     item[cost] = item[diff] === null ? null : item[diff] * item.Costo_Unitario;
   }
-  return item;
+  return contract.normalize(item);
 }
 
-function normalizeTable(headers, rows) {
-  const columns = headers.map(h => aliases.get(key(h)));
+function normalizeTable(headers, rows, schemaVersion) {
+  const weekly = schemaVersion === contract.weeklyVersion || headers.some(h => key(h) === 'cantidadfisicafinal');
+  const tableAliases = new Map(aliases);
+  if (weekly) contract.weeklyHeaders.forEach((header, i) => tableAliases.set(key(header), contract.weeklyColumns[i]));
+  const columns = headers.map(h => tableAliases.get(key(h)));
   const recognized = columns.filter(Boolean);
   if (new Set(recognized).size !== recognized.length) throw new Error('Hay encabezados ambiguos que representan la misma columna');
   for (const required of ['SKU', 'Stock_Sistema', 'Costo_Unitario']) {
@@ -87,6 +95,7 @@ function normalizeTable(headers, rows) {
   return rows.filter(row => row.some(hasValue)).map((row, index) => {
     const raw = {};
     columns.forEach((field, i) => { if (field) raw[field] = row[i]; });
+    if (weekly) raw.Schema_Version = contract.weeklyVersion;
     return normalizeItem(raw, index);
   });
 }
