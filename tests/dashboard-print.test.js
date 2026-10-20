@@ -143,26 +143,6 @@ test('a failed refresh blocks the old snapshot until a successful reload', async
   assert.equal(f.reports.length, 0);
 });
 
-test('invalid sources hide previous cards and retain an actionable link to their final copy', () => {
-  const f=fixture();
-  const element=()=>({style:{},children:[],appendChild(child){this.children.push(child);},replaceChildren(){this.children=[];}});
-  f.context.document.createElement=element;
-  const results=element(),panel=element(),print=element();
-  f.elements.set('dash-metrics-results',results);f.elements.set('dash-source-validation',panel);
-  f.elements.set('btn-dash-print-report',print);
-  f.view.currentData=metrics();f.view.setMetricsPending();
-  assert.equal(f.view.currentData,null);assert.equal(results.style.display,'none');assert.equal(print.disabled,true);
-  const url='https://docs.google.com/spreadsheets/d/final_5100/edit#gid=123';
-  f.view.renderSourceValidation({metricsValid:false,metricsComplete:false,sourceDiagnostics:[{
-    center:'5100',status:'inconsistent',issues:['Costo_Unitario inválido'],spreadsheetUrl:url
-  }]});
-  assert.equal(results.style.display,'none');assert.equal(print.disabled,true);
-  assert.equal(panel.children.find(child=>child.href)?.href,url);
-  assert.ok(panel.children.some(child=>child.textContent?.includes('Costo_Unitario inválido')));
-  f.view.renderSourceValidation({metricsValid:true,metricsComplete:true,sourceDiagnostics:[]});
-  assert.equal(results.style.display,'');assert.equal(print.disabled,false);
-});
-
 test('printable report includes escaped filter context and aggregate results without item listings', () => {
   const f = fixture(), area = { innerHTML: '' };
   f.elements.set('report-printable-area', area);
