@@ -8,6 +8,10 @@ El archivo final tiene una sola pestaña. En la misma carpeta se guarda un archi
 
 El enlace confirmado por Google, incluido el nuevo `gid`, se conserva en el inventario y el historial. Los reintentos de la misma operación devuelven el mismo archivo. El dashboard usa ese archivo final para sus métricas; el selector, el consolidado y los informes comparten la misma lista de inventarios principales. Un reconteo `REC-` no se cuenta como otro inventario. El recálculo vuelve a leer el cierre y no reemplaza datos operativos ni usa el maestro como sustituto del archivo final.
 
+El panel de fuentes muestra un resumen compacto y mantiene el detalle cerrado, con desplazamiento interno al abrirlo. Las consultas de historial fallidas se distinguen de los inventarios rechazados. Los manifiestos antiguos con listas explícitas de miembros se comparan con la composición real de la hoja.
+
+Guardar un conteo invalida el cálculo, pero conserva las lecturas recientes de los archivos finales durante su caché de 30 segundos. Los filtros específicos pueden reutilizar el historial global ya consultado. Se mantienen como máximo tres lecturas en curso y una lectura lenta no deja inactivos los otros puestos. **Actualizar** y **Recalcular métricas** fuerzan la relectura de Google. La primera consulta puede seguir tardando según la cantidad de cierres y la respuesta de Google.
+
 ## Activación
 
 1. Revisar y publicar el cambio de la appweb desde GitHub/AI Studio.

@@ -17,15 +17,24 @@ class MetricsSourceService {
   invalidate() { reads.clear(); this.historyCache = null; }
 
   async history(type, center) {
+    center = ['GLOBAL','TODOS'].includes(center) ? 'TODOS' : center;
     const cacheKey = `${type}:${center}`;
     this.historyCache ||= new Map();
     const cached = this.historyCache.get(cacheKey);
     if (cached && Date.now() - cached.at < 30000) return cached.value;
+    const broad = [this.historyCache.get(`${type}:TODOS`), this.historyCache.get('TODOS:TODOS')]
+      .find(entry => entry && Date.now() - entry.at < 30000);
+    if (broad) {
+      const value = broad.value.filter(record => (type === 'TODOS' || record.type === type) &&
+        (center === 'TODOS' || config.isSameCenter(record.center, center)));
+      value.discoveryIssues = (broad.value.discoveryIssues || []).filter(issue => type === 'TODOS' || issue.type === type);
+      return value;
+    }
     const types = type && type !== 'TODOS' ? [type] : config.inventoryTypes;
     const results = await Promise.allSettled(types.map(t => gas.getHistoryFromGAS(t, ['TODOS','GLOBAL'].includes(center) ? null : center)));
     const value = results.flatMap(r => r.status === 'fulfilled' && Array.isArray(r.value) ? r.value : []);
     value.discoveryIssues = results.flatMap((r, i) => r.status === 'rejected' ? [{type:types[i], center,
-      status:'unavailable', name:'Historial de cierres', issues:[r.reason?.message || 'No se pudo consultar el historial']}]:[]);
+      kind:'discovery', status:'unavailable', name:'Historial de cierres', issues:[r.reason?.message || 'No se pudo consultar el historial']}]:[]);
     this.historyCache.set(cacheKey, { at: Date.now(), value });
     return value;
   }
@@ -63,12 +72,15 @@ class MetricsSourceService {
       }
     }
 
-    const inventories = [];
     const primaryGroups = groups.filter(group => group.some(record => !child(record)));
-    for (let start = 0; start < primaryGroups.length; start += 3) {
-      inventories.push(...await Promise.all(primaryGroups.slice(start, start + 3).map(group =>
-        this.resolve(group, inventoryId !== 'TODOS' && !group.some(record => matchesId(record, inventoryId)), {startDate,endDate}))));
-    }
+    const inventories = new Array(primaryGroups.length);
+    let next = 0;
+    await Promise.all(Array.from({length:Math.min(3, primaryGroups.length)}, async () => {
+      while (next < primaryGroups.length) {
+        const index = next++, group = primaryGroups[index];
+        inventories[index] = await this.resolve(group, inventoryId !== 'TODOS' && !group.some(record => matchesId(record, inventoryId)), {startDate,endDate});
+      }
+    }));
     inventories.discoveryIssues = remoteHistory.discoveryIssues || [];
     return inventories;
   }
@@ -109,8 +121,11 @@ class MetricsSourceService {
       if (linked) {
         const cacheKey = `${record.driveFileId}:${record.center}:${record.spreadsheetUrl}:${localManifest?.membershipHash || ''}:${linked.modifiedAt || ''}`;
         let cached = reads.get(cacheKey);
-        if (!cached || Date.now() - cached.at > 30000) {
-          cached = { at: Date.now(), promise: gas.readInventorySpreadsheet(record) };
+        if (!cached || (!cached.pending && Date.now() - cached.at > 30000)) {
+          cached = { at: Date.now(), pending:true };
+          cached.promise = gas.readInventorySpreadsheet(record).then(source => {
+            cached.pending = false; cached.at = Date.now(); return source;
+          });
           reads.set(cacheKey, cached);
         }
         let source;

@@ -121,7 +121,7 @@ function validateManifest(manifest, record, items) {
   if (manifest.inventoryId && record.inventoryId && manifest.inventoryId !== record.inventoryId) issues.push('El identificador no coincide con el cierre');
   if (manifest.itemCount !== actual.itemCount || manifest.skuCount !== actual.skuCount) issues.push(`El cierre declara ${manifest.itemCount} filas / ${manifest.skuCount} SKU; la hoja contiene ${actual.itemCount} filas / ${actual.skuCount} SKU`);
   if (manifest.membershipHash && manifest.membershipHash !== actual.membershipHash) issues.push('Los SKU, almacenes o ubicaciones no coinciden con el cierre');
-  else if (manifest.members && JSON.stringify([...manifest.members].sort()) !== JSON.stringify(actual.members)) issues.push('Los registros no coinciden con el cierre');
+  else if (manifest.members && JSON.stringify([...manifest.members].sort()) !== JSON.stringify(membership(items))) issues.push('Los registros no coinciden con el cierre');
   return issues;
 }
 
