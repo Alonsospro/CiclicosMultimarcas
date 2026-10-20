@@ -19,7 +19,7 @@ const InventoryContract = (() => {
   const identity = v => String(v ?? '').trim().toUpperCase();
   function number(v, label, fallback = 0) {
     if (!has(v)) return fallback;
-    if (typeof v === 'boolean' || !Number.isFinite(Number(v))) throw new Error('Número inválido: ' + label);
+    if (!['number','string'].includes(typeof v) || !Number.isFinite(Number(v))) throw new Error('Número inválido: ' + label);
     return Number(v);
   }
   function quantity(v, label) {
@@ -44,6 +44,7 @@ const InventoryContract = (() => {
     r.Ubicacion = String(first(raw.Ubicacion, raw.ubicacion, raw.location) ?? '').trim();
     r.Stock_Sistema = number(first(raw.Stock_Sistema, raw.stockSistema), 'Stock_Sistema');
     r.Costo_Unitario = number(first(raw.Costo_Unitario, raw.costoUnitario), 'Costo_Unitario');
+    if (r.Costo_Unitario < 0) throw new Error('Costo_Unitario no puede ser negativo');
     r.Reconteo = first(raw.Reconteo, raw.Reconteo_Fisico) ?? null;
     r.Malestado_Reconteo = first(raw.Malestado_Reconteo, raw.Reconteo_Mal_Estado) ?? null;
     if (!has(r.Stock_Buen_Estado)) {

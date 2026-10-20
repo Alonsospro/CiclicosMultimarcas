@@ -1,12 +1,9 @@
-const fs = require('fs');
-const path = require('path');
 const storagePath = require('./storagePath');
 const config = require('../config');
 const auditService = require('./auditService');
-const gasService = require('./gasService');
-const snapshotService = require('./snapshotService');
 const counterReliability = require('./counterReliability');
 const contract = require('./inventoryContract');
+const metricsSources = require('./metricsSourceService');
 
 function parseDateParam(val, isEndOfDay = false) {
   if (!val || val === 'undefined' || val === 'null' || val === '') return null;
@@ -61,18 +58,13 @@ function parseCurrencyOrNumber(val, fallback = 0) {
   return n;
 }
 
-let cachedGasHistory = null;
-let cachedGasHistoryTime = 0;
-const GAS_HISTORY_CACHE_TTL = 60000; // 60 seconds
-
 // Cache for calculated metrics responses (TTL 30 seconds, keyed by query params)
 const metricsCalculationCache = new Map();
 const METRICS_CALCULATION_CACHE_TTL = 30000; // 30s TTL
 
 function invalidateMetricsCache() {
   metricsCalculationCache.clear();
-  cachedGasHistory = null;
-  cachedGasHistoryTime = 0;
+  metricsSources.invalidate();
 }
 
 class MetricsService {
@@ -81,129 +73,8 @@ class MetricsService {
     this.historyDir = storagePath.getHistoryDirectory();
   }
 
-  async getAllInventoriesData() {
-    let activeFiles = [];
-    let historyFiles = [];
-
-    try {
-      activeFiles = storagePath.listFiles(this.invDir).filter(f => f.endsWith('.json'));
-    } catch (e) {
-      activeFiles = [];
-    }
-
-    try {
-      historyFiles = storagePath.listFiles(this.historyDir).filter(f => f.endsWith('.json'));
-    } catch (e) {
-      historyFiles = [];
-    }
-
-    const seenIds = new Set();
-    const allInventories = [];
-
-    // 1. Files from active local inventories (THE PRIMARY CURRENT INVENTORIES)
-    activeFiles.forEach(f => {
-      if (snapshotService.isSnapshotDeleted(f)) return;
-      const inv = storagePath.readJson(path.join(this.invDir, f), null);
-      if (inv && !snapshotService.isSnapshotDeleted(inv) && Array.isArray(inv.items) && inv.items.length > 0) {
-        const id = inv.id || f.replace(/\.json$/, '');
-        const normId = String(id).toLowerCase().trim();
-        if (!seenIds.has(normId)) {
-          seenIds.add(normId);
-          const createdAt = inv.createdAt || inv.created_at || inv.date || (inv.items.find(i => i.Fecha_Ultimo_Conteo)?.Fecha_Ultimo_Conteo) || new Date().toISOString();
-          allInventories.push({ ...inv, id, createdAt, isHistory: false });
-        }
-      }
-    });
-
-    // 2. Files from local history snapshots (only unique, non-deleted snapshots)
-    historyFiles.forEach(f => {
-      if (snapshotService.isSnapshotDeleted(f)) return;
-      const hist = storagePath.readJson(path.join(this.historyDir, f), null);
-      if (hist && !snapshotService.isSnapshotDeleted(hist) && Array.isArray(hist.items) && hist.items.length > 0) {
-        const id = hist.inventoryId || hist.fileId || f.replace(/\.json$/, '');
-        const normId = String(id).toLowerCase().trim();
-        const fName = String(hist.fileName || '').toLowerCase().trim();
-        if (!seenIds.has(normId) && !seenIds.has(fName)) {
-          seenIds.add(normId);
-          if (hist.inventoryId) seenIds.add(String(hist.inventoryId).toLowerCase().trim());
-          if (hist.fileId) seenIds.add(String(hist.fileId).toLowerCase().trim());
-          if (hist.fileName) seenIds.add(fName);
-
-          const createdAt = hist.closedAt || hist.createdAt || new Date().toISOString();
-          allInventories.push({
-            id,
-            name: hist.fileName || id,
-            type: hist.type || 'CICLICO',
-            center: hist.center || '1120',
-            status: 'REVISADO',
-            createdAt,
-            closedAt: hist.closedAt || createdAt,
-            items: hist.items,
-            isHistory: true,
-            isReconteo: !!hist.isReconteo,
-            driveUrl: hist.driveUrl || hist.spreadsheetUrl,
-            spreadsheetUrl: hist.spreadsheetUrl
-          });
-        }
-      }
-    });
-
-    // =========================================================================
-    // DEDUPLICACIÓN ESTRICTA: Solo mantener el snapshot final de cada inventario
-    // (El archivo maestro .xlsx se borra constantemente y no debe duplicarse)
-    // =========================================================================
-    const isFinalSnapshot = (rec) => {
-      if (!rec) return false;
-      if (rec.isFinalSnapshot) return true;
-      const str = `${rec.name || ''} ${rec.fileName || ''} ${rec.id || ''} ${rec.fileId || ''}`.toUpperCase();
-      return str.includes('FINAL') || str.includes('SNAPSHOT');
-    };
-
-    const getSheetId = (url) => {
-      if (!url) return '';
-      const m = String(url).match(/\/d\/([a-zA-Z0-9-_]+)/);
-      return m ? m[1] : '';
-    };
-
-    const getGroupKey = (rec) => {
-      if (counterReliability.enabled(rec) && (rec.inventoryId || rec.id)) return `weekly:${rec.inventoryId || rec.id}`;
-      const sId = getSheetId(rec.spreadsheetUrl || rec.driveUrl);
-      if (sId) return `sheet:${sId}`;
-      const invId = rec.inventoryId ? String(rec.inventoryId).toLowerCase().trim() : '';
-      if (invId && invId !== 'undefined' && invId !== 'null') return `inv:${invId}`;
-      const dateStr = rec.closedAt || rec.createdAt || '';
-      const ymd = dateStr ? dateStr.substring(0, 10) : '';
-      return `center:${rec.center || ''}:${ymd}:${rec.type || ''}`;
-    };
-
-    const inventoryGroups = new Map();
-    for (const inv of allInventories) {
-      const key = getGroupKey(inv);
-      if (!inventoryGroups.has(key)) {
-        inventoryGroups.set(key, []);
-      }
-      inventoryGroups.get(key).push(inv);
-    }
-
-    const deduplicated = [];
-    for (const [key, group] of inventoryGroups.entries()) {
-      if (group.length === 1) {
-        deduplicated.push(group[0]);
-      } else {
-        // Prioridad: buscar el snapshot final con _FINAL_ en el nombre que tenga ítems válidos
-        const maxItems = Math.max(...group.map(it => (it.items?.length || 0)));
-        const finalSnapshot = group.find(inv => isFinalSnapshot(inv) && Array.isArray(inv.items) && inv.items.length >= Math.max(1, maxItems * 0.5));
-        if (finalSnapshot) {
-          deduplicated.push(finalSnapshot);
-        } else {
-          // Si ninguno tiene _FINAL_ con ítems completos, elegir el que tiene mayor cantidad de ítems válidos
-          group.sort((a, b) => ((b.items?.length || 0) - (a.items?.length || 0)));
-          deduplicated.push(group[0]);
-        }
-      }
-    }
-
-    return deduplicated;
+  async getAllInventoriesData(filters = {}) {
+    return metricsSources.load(filters);
   }
 
   async getDashboardMetrics({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', period = 'TODO', startDate = null, endDate = null, forceRefresh = false }) {
@@ -224,8 +95,6 @@ class MetricsService {
     if (!forceRefresh && cachedItem && (nowTs - cachedItem.timestamp < METRICS_CALCULATION_CACHE_TTL)) {
       return cachedItem.data;
     }
-
-    const inventories = await this.getAllInventoriesData();
 
     // Compute start and end dates based on period preset if provided
     let effectiveStartDate = parseDateParam(startDate, false);
@@ -260,94 +129,34 @@ class MetricsService {
       return true;
     };
 
-    // List of all inventories available in this period & filters for the dropdown selector
-    // (Excluding intermediate reconteos "REC-" to avoid duplications and show only the final verified inventory)
-    const availableInventories = inventories.filter(inv => {
-      if (cleanType && cleanType !== 'TODOS' && inv.type !== cleanType) return false;
-      if (cleanCenter && cleanCenter !== 'TODOS' && cleanCenter !== 'GLOBAL' && !config.isSameCenter(inv.center, cleanCenter)) return false;
-      if (cleanPeriod !== 'TODO' && !checkDateRange(inv.createdAt)) return false;
-      // Do not list separate intermediate reconteos in the dropdown; their data is already consolidated in the finalized inventory
-      const idStr = String(inv.id || '');
-      if (idStr.startsWith('REC-')) return false;
-      return true;
-    }).map(inv => ({
-      id: inv.id,
-      name: inv.name,
-      type: inv.type,
-      center: inv.center,
-      status: inv.status,
-      createdAt: inv.createdAt,
-      totalItems: (inv.items || []).length,
-      isHistory: !!inv.isHistory
-    })).sort((a, b) => {
-      const da = new Date(a.createdAt).getTime() || 0;
-      const db = new Date(b.createdAt).getTime() || 0;
-      return db - da;
+    const inventories = await this.getAllInventoriesData({type:cleanType, center:cleanCenter, inventoryId:cleanInventoryId,
+      startDate:isValidDate(effectiveStartDate) ? effectiveStartDate.toISOString() : null,
+      endDate:isValidDate(effectiveEndDate) ? effectiveEndDate.toISOString() : null});
+    // The selector, consolidation and reports share the same set of parent inventories.
+    const eligible = inventories.filter(inv => {
+      if (inv.parentInventoryId || String(inv.inventoryId || inv.id || '').startsWith('REC-')) return false;
+      if (cleanType !== 'TODOS' && inv.type !== cleanType) return false;
+      if (!['TODOS','GLOBAL'].includes(cleanCenter) && !config.isSameCenter(inv.center, cleanCenter)) return false;
+      return checkDateRange(inv.closedAt || inv.createdAt);
     });
-
-    // Ensure that if a specific inventory was explicitly chosen, it remains in availableInventories
-    if (cleanInventoryId && cleanInventoryId !== 'TODOS') {
-      const targetId = String(cleanInventoryId).toLowerCase().trim();
-      const alreadyInList = availableInventories.some(inv => {
-        const cId = String(inv.id || '').toLowerCase().trim();
-        return cId === targetId || cId.replace(/\.json$/, '') === targetId.replace(/\.json$/, '');
-      });
-      if (!alreadyInList) {
-        const matchFound = inventories.find(inv => {
-          const cId = String(inv.id || '').toLowerCase().trim();
-          const fId = String(inv.fileId || '').toLowerCase().trim();
-          const invIdStr = String(inv.inventoryId || '').toLowerCase().trim();
-          return cId === targetId || fId === targetId || invIdStr === targetId || cId.replace(/\.json$/, '') === targetId.replace(/\.json$/, '');
-        });
-        if (matchFound) {
-          availableInventories.unshift({
-            id: matchFound.id,
-            name: matchFound.name,
-            type: matchFound.type,
-            center: matchFound.center,
-            status: matchFound.status,
-            createdAt: matchFound.createdAt,
-            totalItems: (matchFound.items || []).length,
-            isHistory: !!matchFound.isHistory
-          });
-        }
-      }
-    }
-
-    // Filter inventories by inventoryId, type, center, dates
-    const filtered = inventories.filter(inv => {
-      if (cleanCenter && cleanCenter !== 'TODOS' && cleanCenter !== 'GLOBAL' && !config.isSameCenter(inv.center, cleanCenter)) return false;
-      if (cleanInventoryId && cleanInventoryId !== 'TODOS') {
-        const targetId = String(cleanInventoryId).toLowerCase().trim();
-        const curId = String(inv.id || '').toLowerCase().trim();
-        const fileId = String(inv.fileId || '').toLowerCase().trim();
-        const invIdStr = String(inv.inventoryId || '').toLowerCase().trim();
-        const fileName = String(inv.fileName || inv.name || '').toLowerCase().trim();
-        const matches = (curId === targetId) || (fileId === targetId) || (invIdStr === targetId) || (fileName === targetId) || (curId.replace(/\.json$/, '') === targetId.replace(/\.json$/, ''));
-        return matches;
-      }
-      if (cleanType && cleanType !== 'TODOS' && inv.type !== cleanType) return false;
-      if (cleanCenter && cleanCenter !== 'TODOS' && cleanCenter !== 'GLOBAL' && !config.isSameCenter(inv.center, cleanCenter)) return false;
-      if (!checkDateRange(inv.createdAt)) return false;
-      return true;
-    });
-
-    // Determine selectedInventory safely here so it is available for all downstream calculations
-    const selectedInventory = (cleanInventoryId && cleanInventoryId !== 'TODOS')
-      ? availableInventories.find(inv => {
-          const tId = String(cleanInventoryId).toLowerCase().trim();
-          const curId = String(inv.id || '').toLowerCase().trim();
-          return curId === tId || curId.replace(/\.json$/, '') === tId.replace(/\.json$/, '');
-        }) || (filtered.length === 1 ? {
-          id: filtered[0].id,
-          name: filtered[0].name,
-          type: filtered[0].type,
-          center: filtered[0].center,
-          status: filtered[0].status,
-          createdAt: filtered[0].createdAt,
-          totalItems: (filtered[0].items || []).length
-        } : null)
-      : null;
+    const selected = cleanInventoryId === 'TODOS' ? eligible : eligible.filter(inv => metricsSources.matchesId(inv, cleanInventoryId));
+    const sourceDiagnostics = selected.map(inv => ({id:inv.id, name:inv.name, center:inv.center,
+      spreadsheetUrl:inv.spreadsheetUrl || inv.driveUrl, ...inv.sourceValidation}));
+    if (cleanInventoryId !== 'TODOS' && !selected.length) sourceDiagnostics.push({id:cleanInventoryId,
+      center:cleanCenter, status:'unavailable', issues:['El inventario no está disponible para los filtros seleccionados.']});
+    const discoveryIssues = inventories.discoveryIssues || [];
+    if (cleanInventoryId === 'TODOS') sourceDiagnostics.push(...discoveryIssues);
+    const filtered = selected.filter(inv => !inv.sourceValidation || inv.sourceValidation.status === 'valid');
+    const metricsValid = filtered.length > 0;
+    const metricsComplete = metricsValid && selected.length === filtered.length &&
+      (cleanInventoryId !== 'TODOS' || discoveryIssues.length === 0);
+    const option = inv => ({id:inv.id, inventoryId:inv.inventoryId, name:inv.name, type:inv.type,
+      center:inv.center, status:inv.status, createdAt:inv.closedAt || inv.createdAt,
+      totalItems:inv.totalItems ?? (inv.items || []).length, isHistory:!!inv.isHistory,
+      aliases:inv.aliases || [], driveFileId:inv.driveFileId,
+      spreadsheetUrl:inv.spreadsheetUrl || inv.driveUrl, previousSpreadsheetUrl:inv.previousSpreadsheetUrl, sourceValidation:inv.sourceValidation});
+    const availableInventories = eligible.map(option).sort((a,b) => (Date.parse(b.createdAt)||0) - (Date.parse(a.createdAt)||0));
+    const selectedInventory = cleanInventoryId !== 'TODOS' && selected.length === 1 ? option(selected[0]) : null;
 
     // Retrieve audit logs for tracking worker edit counts on items
     const auditLogs = auditService.getAuditLogs({
@@ -1477,7 +1286,8 @@ class MetricsService {
       centerManagers: uniqueNames(usersForReport.filter(person => person.role === 'ENCARGADO' && reportCenters.has(config.getCenterCode(person.center))).map(person => person.displayName || person.name || person.username))
     };
 
-    return {
+    const result = {
+      metricsValid, metricsComplete, sourceDiagnostics,
       reportSignatories,
       filters: {
         type: cleanType,
@@ -1739,179 +1549,15 @@ class MetricsService {
   }
 
   async recalculateMetrics(params = {}) {
-    const opts = typeof params === 'string' ? { inventoryId: params } : (params || {});
-    const { type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', period = 'TODO', startDate = null, endDate = null, user = null } = opts;
-    console.log('[metricsService] Starting comprehensive metrics recalculation and DB/Sheets resync...');
-
-    // 1. Invalidate in-memory caches
-    this.invalidateCache();
-
-    // 2. Ensure data is loaded in memory from local disk if needed
-    try {
-      if (!storagePath.memoryStore || storagePath.memoryStore.size === 0) {
-        storagePath.hydrateFromLocal();
-      }
-    } catch (fsErr) {
-      console.warn('[metricsService] Notice during data hydration:', fsErr.message);
-    }
-
-    // 3. Re-sync with Google Sheets (Excel) for finalized history snapshots and active inventories
-    let resyncedCount = 0;
-    try {
-      const cleanCenter = (!center || center === 'undefined' || center === 'null') ? 'TODOS' : center;
-      const cleanInventoryId = (!inventoryId || inventoryId === 'undefined' || inventoryId === 'null') ? 'TODOS' : inventoryId;
-
-      const historyFiles = storagePath.listFiles(this.historyDir).filter(f => f.endsWith('.json'));
-      const activeFiles = storagePath.listFiles(this.invDir).filter(f => f.endsWith('.json'));
-
-      const targetRecords = [];
-
-      // History snapshots
-      for (const f of historyFiles) {
-        if (snapshotService.isSnapshotDeleted(f)) continue;
-        const filePath = path.join(this.historyDir, f);
-        const record = storagePath.readJson(filePath, null);
-        if (!record || snapshotService.isSnapshotDeleted(record)) continue;
-        const sheetUrl = record.spreadsheetUrl || record.driveUrl;
-        if (!sheetUrl) continue;
-
-        if (cleanInventoryId !== 'TODOS') {
-          const tId = String(cleanInventoryId).toLowerCase().trim();
-          const curId = String(record.id || '').toLowerCase().trim();
-          const fId = String(record.fileId || '').toLowerCase().trim();
-          const invIdStr = String(record.inventoryId || '').toLowerCase().trim();
-          const fn = String(record.fileName || '').toLowerCase().trim();
-          const isMatch = (curId === tId || fId === tId || invIdStr === tId || fn === tId || curId.replace(/\.json$/, '') === tId.replace(/\.json$/, ''));
-          if (!isMatch) continue;
-        } else if (cleanCenter !== 'TODOS' && cleanCenter !== 'GLOBAL') {
-          if (!config.isSameCenter(record.center, cleanCenter)) continue;
-        }
-
-        targetRecords.push({ filePath, record, isHistory: true });
-      }
-
-      // Active inventories
-      for (const f of activeFiles) {
-        if (snapshotService.isSnapshotDeleted(f)) continue;
-        const filePath = path.join(this.invDir, f);
-        const record = storagePath.readJson(filePath, null);
-        if (!record || snapshotService.isSnapshotDeleted(record)) continue;
-        const sheetUrl = record.spreadsheetUrl || record.driveUrl;
-        if (!sheetUrl) continue;
-
-        if (cleanInventoryId !== 'TODOS') {
-          const tId = String(cleanInventoryId).toLowerCase().trim();
-          const curId = String(record.id || '').toLowerCase().trim();
-          const isMatch = (curId === tId || curId.replace(/\.json$/, '') === tId.replace(/\.json$/, ''));
-          if (!isMatch) continue;
-        } else if (cleanCenter !== 'TODOS' && cleanCenter !== 'GLOBAL') {
-          if (!config.isSameCenter(record.center, cleanCenter)) continue;
-        }
-
-        targetRecords.push({ filePath, record, isHistory: false });
-      }
-
-      // If cleanInventoryId is 'TODOS' and few records found, query live history from GAS to discover any newly finalized sheets
-      if (targetRecords.length === 0 && cleanInventoryId === 'TODOS') {
-        try {
-          const gasHistory = await gasService.getHistoryFromGAS('CICLICO', cleanCenter === 'TODOS' ? null : cleanCenter);
-          if (Array.isArray(gasHistory)) {
-            for (const gh of gasHistory.slice(0, 10)) {
-              if (snapshotService.isSnapshotDeleted(gh)) continue;
-              if (gh.spreadsheetUrl || gh.driveUrl) {
-                const savePath = path.join(this.historyDir, `${gh.fileId || Date.now()}.json`);
-                targetRecords.push({
-                  filePath: savePath,
-                  record: {
-                    fileId: gh.fileId,
-                    fileName: gh.fileName,
-                    center: gh.center || '1120',
-                    type: gh.type || 'CICLICO',
-                    closedAt: gh.closedAt || new Date().toISOString(),
-                    closedBy: gh.closedBy || 'Admin / GAS',
-                    spreadsheetUrl: gh.spreadsheetUrl || gh.driveUrl,
-                    driveUrl: gh.driveUrl || gh.spreadsheetUrl,
-                    items: []
-                  },
-                  isHistory: true
-                });
-              }
-            }
-          }
-        } catch (gErr) {
-          console.warn('[metricsService] Notice fetching GAS history during recalculate:', gErr.message);
-        }
-      }
-
-      // Fetch remote spreadsheet items with controlled concurrency and sheetId deduplication
-      const fetchedSheetCache = new Map();
-      const batchSize = 3;
-      for (let i = 0; i < targetRecords.length; i += batchSize) {
-        const batch = targetRecords.slice(i, i + batchSize);
-        await Promise.allSettled(batch.map(async ({ filePath, record }) => {
-          const url = record.spreadsheetUrl || record.driveUrl;
-          if (!url) return;
-          try {
-            const sId = gasService.extractSpreadsheetId(url) || url;
-            let fetched;
-            if (fetchedSheetCache.has(sId)) {
-              fetched = fetchedSheetCache.get(sId);
-            } else {
-              fetched = await gasService.fetchSpreadsheetItems(url,record);
-              if (Array.isArray(fetched) && fetched.length > 0) {
-                fetchedSheetCache.set(sId, fetched);
-              }
-            }
-            if (Array.isArray(fetched) && fetched.length > 0) {
-              record.items = counterReliability.preserve(fetched, record.items);
-              record.totalItems = fetched.length;
-              record.itemsWithDiff = fetched.filter(it => it.Diferencia !== 0).length;
-              record.lastRecalculatedAt = new Date().toISOString();
-              storagePath.writeJson(filePath, record);
-              resyncedCount++;
-            }
-          } catch (fetchErr) {
-            console.warn(`[metricsService] Note fetching items from ${url}:`, fetchErr.message);
-          }
-        }));
-      }
-    } catch (syncErr) {
-      console.warn('[metricsService] Notice syncing with Google Sheets during recalculate:', syncErr.message);
-    }
-
-    // 4. Invalidate calculation cache so fresh data is computed
-    this.invalidateCache();
-
-    // 5. Audit log the recalculation event
-    try {
-      auditService.logAction({
-        action: 'RECALCULATE_METRICS',
-        details: `Recálculo forzado de métricas y sincronización con Sheets y Base de Datos (${resyncedCount} inventarios actualizados)`,
-        user: user?.username || 'Administrador',
-        center: (center && center !== 'TODOS') ? center : 'GLOBAL'
-      });
-    } catch (auditErr) {
-      console.warn('[metricsService] Audit logging notice:', auditErr.message);
-    }
-
-    // 6. Compute fresh metrics
-    const metrics = await this.getDashboardMetrics({
-      type,
-      center,
-      inventoryId,
-      period,
-      startDate,
-      endDate,
-      forceRefresh: true
-    });
-
-    return {
-      ...metrics,
-      recalculated: true,
-      resyncedCount,
-      recalculatedAt: new Date().toISOString()
-    };
+    const opts = typeof params === 'string' ? {inventoryId:params} : (params || {});
+    const metrics = await this.getDashboardMetrics({...opts, forceRefresh:true});
+    const resyncedCount = metrics.sourceDiagnostics.filter(source => source.status === 'valid' && source.source === 'GOOGLE_SHEETS').length;
+    auditService.logAction({action:'RECALCULATE_METRICS', user:opts.user?.username || 'Administrador',
+      center:opts.center || 'GLOBAL',
+      details:`Lectura validada de ${resyncedCount} archivos finales; ${metrics.metricsComplete ? 'completa' : 'con fuentes pendientes'}`});
+    return {...metrics, recalculated:true, resyncedCount, recalculatedAt:new Date().toISOString()};
   }
+
 }
 
 const metricsServiceInstance = new MetricsService();

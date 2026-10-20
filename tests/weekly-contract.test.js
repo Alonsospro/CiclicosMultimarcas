@@ -142,6 +142,7 @@ test('the actual weekly Apps Script validates headers and never includes K in co
 function metricsService(items) {
   const module = {exports:{}};
   const mocks = {
+    './metricsSourceService':{invalidate(){}},
     './inventoryContract':contract, './counterReliability':require('../src/services/counterReliability'),
     './storagePath':{getInventoriesDirectory:()=>'/inventories',getHistoryDirectory:()=>'/history',getUsersFilePath:()=>'/users',readJson:()=>[]},
     '../config':{getCenterCode:c=>c,findCenter:c=>({code:c,name:'Centro'}),isSameCenter:(a,b)=>a===b},
