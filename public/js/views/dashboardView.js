@@ -40,7 +40,7 @@ window.DashboardView = {
       const btn = document.getElementById('btn-dash-refresh');
       const icon = btn?.querySelector('i');
       if (icon) icon.classList.add('fa-spin');
-      this.loadDashboard(true).finally(() => {
+      this.loadDashboard().finally(() => {
         if (icon) icon.classList.remove('fa-spin');
       });
     });
@@ -407,6 +407,14 @@ window.DashboardView = {
       ' · ' + valid + (valid === 1 ? ' inventario disponible' : ' inventarios disponibles') + (pending ? ' · ' + pending + ' por revisar' : '') +
       (discovery ? ' · ' + discovery + (discovery === 1 ? ' consulta pendiente' : ' consultas pendientes') : '')) : 'No hay inventarios para los filtros seleccionados.';
     panel.appendChild(label);
+    const cachedSources = sources.filter(source => source.cached);
+    if (cachedSources.length) {
+      const notice = document.createElement('div');
+      notice.textContent = 'Se muestran cierres previamente verificados (caché máxima: 5 minutos).' +
+        (cachedSources.some(source => source.refreshing) ? ' Actualización en segundo plano en curso.' : '') +
+        ' Use Recalcular Métricas para exigir una lectura directa.';
+      panel.appendChild(notice);
+    }
     if (!sources.length) return;
     const details = document.createElement('details');
     details.open = false;
@@ -422,6 +430,12 @@ window.DashboardView = {
       line.textContent = '[' + (source.center || 'GLOBAL') + '] ' + (source.name || source.id || 'Lectura de métricas') + ' · ' +
         (source.status === 'valid' ? ((source.sheetName || 'Inventario activo') + ': ' + source.actualRows + ' filas / ' + source.actualSkus + ' SKU únicos') : (source.issues || []).join('; '));
       entry.appendChild(line);
+      if (source.cached && source.verifiedAt) {
+        const freshness = document.createElement('div');
+        freshness.textContent = 'Última verificación: ' + new Date(source.verifiedAt).toLocaleString() +
+          (source.refreshing ? ' · Actualizando en segundo plano' : ' · Lectura verificada en caché');
+        entry.appendChild(freshness);
+      }
       if (/^https:\/\/(docs|drive)\.google\.com\//.test(source.spreadsheetUrl || '')) {
         const link = document.createElement('a');
         link.href = source.spreadsheetUrl; link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Abrir archivo fuente';

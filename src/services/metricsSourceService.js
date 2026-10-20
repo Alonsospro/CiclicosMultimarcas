@@ -7,6 +7,9 @@ const model = require('./inventorySheetModel');
 const reliability = require('./counterReliability');
 
 const reads = new Map();
+const verified = new Map();
+const FRESH_MS = 30000;
+const MAX_CACHE_MS = 5 * 60000;
 const norm = value => String(value || '').trim().toLowerCase().replace(/\.json$/, '');
 const sheetKey = record => gas.extractSpreadsheetId(record.spreadsheetUrl || record.driveUrl || '') || record.driveFileId || '';
 const closed = record => record.isHistory || String(record.status).toUpperCase() === 'REVISADO';
@@ -14,28 +17,68 @@ const child = record => record.parentInventoryId || String(record.inventoryId ||
 const matchesId = (record, id) => [record.id, record.inventoryId, record.fileId, record.driveFileId, record.fileName, record.name, ...(record.aliases || [])].some(value => value && norm(value) === norm(id));
 
 class MetricsSourceService {
-  invalidate() { reads.clear(); this.historyCache = null; }
+  invalidate() { reads.clear(); verified.clear(); this.historyCache = null; this.historyPending = new Map(); this.generation = (this.generation || 0) + 1; }
+
+  background(work) {
+    this.queue ||= [];
+    const generation = this.generation;
+    this.queue.push(() => generation === this.generation ? work() : undefined);
+    this.drain();
+  }
+
+  drain() {
+    this.running ||= 0;
+    while (this.running < 3 && this.queue.length) {
+      const work = this.queue.shift();
+      this.running++;
+      Promise.resolve().then(work).catch(() => {}).finally(() => { this.running--; this.drain(); });
+    }
+  }
 
   async history(type, center) {
     center = ['GLOBAL','TODOS'].includes(center) ? 'TODOS' : center;
     const cacheKey = `${type}:${center}`;
     this.historyCache ||= new Map();
     const cached = this.historyCache.get(cacheKey);
-    if (cached && Date.now() - cached.at < 30000) return cached.value;
+    if (cached && Date.now() - cached.at < MAX_CACHE_MS) {
+      if (Date.now() - cached.at >= FRESH_MS && !cached.refreshing) {
+        cached.refreshing = true;
+        this.background(async () => {
+          try { await this.fetchHistory(type, center, cacheKey); }
+          finally { cached.refreshing = false; }
+        });
+      }
+      return cached.value;
+    }
     const broad = [this.historyCache.get(`${type}:TODOS`), this.historyCache.get('TODOS:TODOS')]
-      .find(entry => entry && Date.now() - entry.at < 30000);
+      .find(entry => entry && Date.now() - entry.at < FRESH_MS);
     if (broad) {
       const value = broad.value.filter(record => (type === 'TODOS' || record.type === type) &&
         (center === 'TODOS' || config.isSameCenter(record.center, center)));
       value.discoveryIssues = (broad.value.discoveryIssues || []).filter(issue => type === 'TODOS' || issue.type === type);
       return value;
     }
+    return this.fetchHistory(type, center, cacheKey);
+  }
+
+  async fetchHistory(type, center, cacheKey) {
+    this.historyPending ||= new Map();
+    if (this.historyPending.has(cacheKey)) return this.historyPending.get(cacheKey);
+    const generation = this.generation;
+    const pending = this.readHistory(type, center).then(value => {
+      if (generation === this.generation) this.historyCache.set(cacheKey, {at:Date.now(), value});
+      return value;
+    }).finally(() => { if (this.historyPending.get(cacheKey) === pending) this.historyPending.delete(cacheKey); });
+    this.historyPending.set(cacheKey, pending);
+    return pending;
+  }
+
+  async readHistory(type, center) {
     const types = type && type !== 'TODOS' ? [type] : config.inventoryTypes;
     const results = await Promise.allSettled(types.map(t => gas.getHistoryFromGAS(t, ['TODOS','GLOBAL'].includes(center) ? null : center)));
     const value = results.flatMap(r => r.status === 'fulfilled' && Array.isArray(r.value) ? r.value : []);
     value.discoveryIssues = results.flatMap((r, i) => r.status === 'rejected' ? [{type:types[i], center,
       kind:'discovery', status:'unavailable', name:'Historial de cierres', issues:[r.reason?.message || 'No se pudo consultar el historial']}]:[]);
-    this.historyCache.set(cacheKey, { at: Date.now(), value });
     return value;
   }
 
@@ -85,7 +128,8 @@ class MetricsSourceService {
     return inventories;
   }
 
-  async resolve(group, skipRead = false, {startDate, endDate} = {}) {
+  async resolve(group, skipRead = false, {startDate, endDate, refresh = false} = {}) {
+    const generation = this.generation;
     // Locally signed closures carry membership; a remote cache of rows is never that membership.
     const rank = r => !closed(r) ? 5 : (r.manifest ? 4 : (r.isHistory && String(r.fileId).startsWith('DRIVE-FILE-') && r.inventoryId ? 3 : (!r.isHistory ? 2 : 1)));
     group.sort((a, b) => rank(b) - rank(a) ||
@@ -115,13 +159,27 @@ class MetricsSourceService {
     const date = Date.parse(record.closedAt || record.createdAt);
     if (Number.isFinite(date) && ((startDate && date < Date.parse(startDate)) || (endDate && date > Date.parse(endDate)))) skipRead = true;
     if (skipRead) { validation.status = 'not_requested'; return record; }
+    const verifiedKey = linked ? JSON.stringify([record.driveFileId, record.center, record.type, record.spreadsheetUrl,
+      localManifest, linked.modifiedAt, primary.map(r => [r.id, r.inventoryId, r.closedAt])]) : null;
+    const previous = verifiedKey && verified.get(verifiedKey);
+    if (!refresh && previous && Date.now() - previous.at < MAX_CACHE_MS) {
+      if (Date.now() - previous.at >= FRESH_MS && !previous.refreshing) {
+        previous.refreshing = true;
+        this.background(async () => {
+          try { await this.resolve(group, false, {startDate, endDate, refresh:true}); }
+          finally { previous.refreshing = false; }
+        });
+      }
+      return {...previous.record, sourceValidation:{...previous.record.sourceValidation,
+        cached:true, verifiedAt:new Date(previous.at).toISOString(), refreshing:!!previous.refreshing}};
+    }
     try {
       if (!record.center) { const error = new Error('Falta el centro del inventario'); error.code = 'INVALID_SHEET'; throw error; }
       let items;
       if (linked) {
         const cacheKey = `${record.driveFileId}:${record.center}:${record.spreadsheetUrl}:${localManifest?.membershipHash || ''}:${linked.modifiedAt || ''}`;
         let cached = reads.get(cacheKey);
-        if (!cached || (!cached.pending && Date.now() - cached.at > 30000)) {
+        if (!cached || (refresh && !cached.pending) || (!cached.pending && Date.now() - cached.at > FRESH_MS)) {
           cached = { at: Date.now(), pending:true };
           cached.promise = gas.readInventorySpreadsheet(record).then(source => {
             cached.pending = false; cached.at = Date.now(); return source;
@@ -129,7 +187,10 @@ class MetricsSourceService {
           reads.set(cacheKey, cached);
         }
         let source;
-        try { source = await cached.promise; } catch (error) { reads.delete(cacheKey); throw error; }
+        try { source = await cached.promise; } catch (error) {
+          if (reads.get(cacheKey) === cached) reads.delete(cacheKey);
+          throw error;
+        }
         validation.sheetName = source.sheetName;
         validation.gid = source.gid;
         validation.readAt = source.readAt;
@@ -160,6 +221,15 @@ class MetricsSourceService {
     } catch (error) {
       validation.status = error.code === 'INVALID_SHEET' ? 'inconsistent' : 'unavailable';
       validation.issues.push(error.message);
+    }
+    if (verifiedKey && generation === this.generation) {
+      if (validation.status === 'valid') {
+        validation.verifiedAt = new Date().toISOString();
+        verified.set(verifiedKey, {at:Date.now(), record});
+      } else {
+        // A failed revalidation must not silently keep a closure marked as valid.
+        verified.delete(verifiedKey);
+      }
     }
     return record;
   }

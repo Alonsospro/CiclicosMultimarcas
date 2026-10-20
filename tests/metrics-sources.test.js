@@ -14,14 +14,15 @@ const url='https://docs.google.com/spreadsheets/d/copy_5100/edit#gid=123';
 function moduleAt(name,mocks){
   const module={exports:{}};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/services',name),'utf8'),{
-    module,console,Date,Map,Set,require:key=>Object.hasOwn(mocks,key)?mocks[key]:require(key)
+    module,console,Date:mocks.__Date || Date,Map,Set,require:key=>Object.hasOwn(mocks,key)?mocks[key]:require(key)
   });return module.exports;
 }
-function sourceFixture({active=[],history=[],remote=[],read}={}) {
+function sourceFixture({active=[],history=[],remote=[],read,clock=Date}={}) {
   const calls=[],files=new Map();
   active.forEach((r,i)=>files.set(`/inventories/${i}.json`,r));
   history.forEach((r,i)=>files.set(`/history/${i}.json`,r));
   const service=moduleAt('metricsSourceService.js',{
+    __Date:clock,
     '../config':config,'./inventorySheetModel':model,'./counterReliability':reliability,
     './storagePath':{getHistoryDirectory:()=>'/history',getInventoriesDirectory:()=>'/inventories',
       listFiles:dir=>[...files.keys()].filter(f=>f.startsWith(dir+'/')).map(f=>path.posix.basename(f)),readJson:p=>files.get(p.replaceAll('\\','/'))},
@@ -37,6 +38,48 @@ function dashboard(source){return moduleAt('metricsService.js',{
   './storagePath':{getInventoriesDirectory:()=>'/inventories',getHistoryDirectory:()=>'/history',getUsersFilePath:()=>'/users',readJson:()=>[]},
   './auditService':{getAuditLogs:()=>[],logAction(){}}
 });}
+
+test('verified closures return immediately while revalidation runs and forced invalidation bypasses them',async()=>{
+  let now=Date.now(), release, count=0;
+  class Clock extends Date { static now(){return now;} }
+  const archived={inventoryId:'INV-CACHE',type:'CICLICO',center:'5100',spreadsheetUrl:url};
+  const good={headers:contract.columns,rows:[contract.columns.map(k=>base[k]??'')],gid:123};
+  const f=sourceFixture({clock:Clock,history:[archived],read:()=>{
+    count++; return count===2 ? new Promise(resolve=>{release=resolve;}) : good;
+  }});
+  await f.service.load({type:'CICLICO',center:'5100'});
+  now+=31000;
+  const cached=await f.service.load({type:'CICLICO',center:'5100'});
+  assert.equal(cached[0].sourceValidation.cached,true);
+  assert.equal(cached[0].sourceValidation.refreshing,true);
+  assert.equal(cached[0].items.length,1);
+  assert.equal(count,2);
+  f.service.invalidate();
+  const direct=await f.service.load({type:'CICLICO',center:'5100'});
+  assert.equal(direct[0].sourceValidation.cached,undefined);
+  assert.equal(count,3);
+  release(good);
+});
+
+test('failed background validation removes the verified closure and cache expires after five minutes',async()=>{
+  let now=Date.now(), broken=false;
+  class Clock extends Date { static now(){return now;} }
+  const f=sourceFixture({clock:Clock,history:[{inventoryId:'INV-CACHE',type:'CICLICO',center:'5100',spreadsheetUrl:url}],
+    read:()=>({headers:contract.columns,rows:[contract.columns.map(k=>({...base,Costo_Unitario:broken?-1:5})[k]??'')],gid:123})});
+  await f.service.load({type:'CICLICO',center:'5100'});
+  now+=31000; broken=true;
+  const last=await f.service.load({type:'CICLICO',center:'5100'});
+  assert.equal(last[0].sourceValidation.cached,true);
+  // Flush background promises without waiting on real timers.
+  for(let i=0;i<20;i++)await Promise.resolve();
+  const invalid=await f.service.load({type:'CICLICO',center:'5100'});
+  assert.equal(invalid[0].sourceValidation.status,'inconsistent');
+  broken=false; f.service.invalidate();
+  await f.service.load({type:'CICLICO',center:'5100'});
+  now+=300001;
+  const expired=await f.service.load({type:'CICLICO',center:'5100'});
+  assert.equal(expired[0].sourceValidation.cached,undefined);
+});
 
 test('parent, history and child recount become one inventory with the exact final copy link',async()=>{
   const parent={id:'INV-5100-1',type:'CICLICO',center:'5100',status:'REVISADO',items:[base],spreadsheetUrl:url};

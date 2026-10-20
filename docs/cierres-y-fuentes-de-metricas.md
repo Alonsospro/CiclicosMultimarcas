@@ -30,6 +30,12 @@ Este cambio no modifica archivos históricos de Drive ni reconstruye automática
 
 ## Verificación
 
+### Caché de lecturas verificadas
+
+Los cierres ya leídos y validados se reutilizan por un máximo de cinco minutos por instancia. Después de treinta segundos, una consulta puede devolver el último resultado verificado e iniciar una revalidación en segundo plano, con hasta tres tareas de fondo concurrentes. El panel identifica las lecturas en caché y muestra su fecha de verificación en el detalle. Los cambios de fondo aparecen en la siguiente consulta una vez caducada la caché de cálculo (treinta segundos).
+
+La navegación y el botón de actualizar vista aprovechan esta caché; **Recalcular Métricas** la invalida y espera lecturas directas. Una revalidación fallida retira el cierre de la caché verificada. Los inventarios activos o reabiertos siguen leyendo sus observaciones actuales. El historial descubierto también se renueva en segundo plano dentro del mismo límite de cinco minutos. Una instancia nueva o una caché vencida debe esperar la primera lectura completa; esta mejora no añade una copia persistente en Firestore ni modifica los datos de inventario.
+
 `npm test` cubre los esquemas 40/43, los formatos, el enlace y la idempotencia, la verificación posterior a escritura, archivos antiguos, la exclusión de reconteos y archivos corruptos, el recálculo y la conservación de compensaciones y autoría. Las pruebas utilizan servicios simulados y no crean inventarios ni archivos en producción.
 
 `node scripts/build-apps-script.cjs` sincroniza el contrato compartido y genera el script semanal a partir del de 40 columnas.
