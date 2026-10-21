@@ -372,6 +372,7 @@ window.DashboardView = {
         titleEl.textContent = `[${selectedInventory.center}] ${selectedInventory.name || selectedInventory.id}`;
       }
       if (metaEl) {
+        metaEl.style.display = 'none';
         metaEl.textContent = `Tipo: ${selectedInventory.type} | Creado: ${dateStr} | Total Ítems: ${selectedInventory.totalItems || 0} | Estado: ${selectedInventory.status || 'En Proceso'}`;
         const sheetUrl = selectedInventory.spreadsheetUrl || selectedInventory.previousSpreadsheetUrl;
         if (/^https:\/\/docs\.google\.com\/spreadsheets\//.test(sheetUrl || '')) {
