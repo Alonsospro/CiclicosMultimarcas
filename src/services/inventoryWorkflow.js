@@ -1,7 +1,29 @@
 const contract = require('./inventoryContract');
 
 const state = value => contract.identity(value).replace(/_/g, ' ');
-const time = value => Date.parse(value) || 0;
+function time(value) {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : 0;
+  if (typeof value !== 'string') return 0;
+  const text = value.trim();
+  if (!text) return 0;
+
+  // Sheets returns dates in the spreadsheet locale (es_BO: d/M/yyyy).
+  // Date.parse interprets slash dates as US month/day and rejects dates such
+  // as 13/10/2026, making valid counts appear older than countNotBefore.
+  const localDate = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (localDate) {
+    const [, dayText, monthText, yearText, hourText = '0', minuteText = '0', secondText = '0'] = localDate;
+    const day = Number(dayText), month = Number(monthText), year = Number(yearText);
+    const hour = Number(hourText), minute = Number(minuteText), second = Number(secondText);
+    const parsed = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+    if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day ||
+        hour > 23 || minute > 59 || second > 59) return 0;
+    return parsed.getTime();
+  }
+
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 const hasQuantity = value => contract.has(value) && typeof value !== 'boolean' && Number.isSafeInteger(Number(value)) && Number(value) >= 0;
 const isFinalized = inv => inv.isFinalized === true || ['REVISADO', 'CERRADO', 'ARCHIVADO'].includes(inv.status);
 const countStage = inv => inv.phase === 'RECONTEO_2' || inv.recountRound === 2 ? 2
