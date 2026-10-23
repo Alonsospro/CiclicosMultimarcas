@@ -885,7 +885,9 @@ window.InventoryView = {
       };
 
       tbody.innerHTML = list.map(inv => {
-        const percent = inv.totalItems > 0 ? Math.round((inv.countedItems / inv.totalItems) * 100) : 0;
+        const stageCompleted = ['RECONTEO_COMPLETADO', 'PENDIENTE_JUSTIFICACION', 'REVISADO', 'CERRADO', 'FINALIZADO', 'FIRMADO'].includes(String(inv.status || '').toUpperCase());
+        const displayedCountedItems = stageCompleted ? inv.totalItems : inv.countedItems;
+        const percent = inv.totalItems > 0 ? Math.round((displayedCountedItems / inv.totalItems) * 100) : 0;
         let badgeClass = 'badge-neutral';
         if (inv.status === 'EN_PROGRESO') badgeClass = 'badge-info';
         if (inv.status === 'PENDIENTE_JUSTIFICACION') badgeClass = 'badge-warning';
@@ -905,7 +907,7 @@ window.InventoryView = {
                 <div class="inventory-progress-track">
                   <div style="width: ${percent}%; height: 100%; background: var(--primary);"></div>
                 </div>
-                <span class="inventory-progress-caption">${inv.countedItems}/${inv.totalItems} (${percent}%)</span>
+                <span class="inventory-progress-caption">${displayedCountedItems}/${inv.totalItems} (${percent}%)</span>
               </div>
             </td>
             <td class="inventory-actions" data-label="Acciones">

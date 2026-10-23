@@ -12,6 +12,29 @@ const gasService = require('./gasService');
 const metricsService = require('./metricsService');
 const snapshotService = require('./snapshotService');
 
+function mergeRecountIntoParent(parentItem, recountItem) {
+  const normalized = contract.normalize(recountItem);
+  const firstCount = {
+    Stock_Buen_Estado: contract.first(recountItem.Stock_Buen_Estado_1erConteo, recountItem.Stock_Fisico_1erConteo, parentItem.Stock_Buen_Estado),
+    Stock_Fisico: contract.first(recountItem.Stock_Fisico_1erConteo, recountItem.Stock_Buen_Estado_1erConteo, parentItem.Stock_Fisico),
+    Mal_estado: contract.first(recountItem.Mal_estado_1erConteo, parentItem.Mal_estado),
+    Stock_Total: contract.first(recountItem.Stock_Total_1erConteo, parentItem.Stock_Total),
+    Diferencia: contract.first(recountItem.Diferencia_1erConteo, parentItem.Diferencia),
+    Costo_Diferencia: contract.first(recountItem.Costo_Diferencia_1erConteo, parentItem.Costo_Diferencia),
+    Fecha_Ultimo_Conteo: contract.first(recountItem.Fecha_Ultimo_Conteo_1erConteo, parentItem.Fecha_Ultimo_Conteo)
+  };
+  if (!contract.has(firstCount.Stock_Total) && contract.has(firstCount.Stock_Buen_Estado)) {
+    firstCount.Stock_Total = Number(firstCount.Stock_Buen_Estado) + Number(firstCount.Mal_estado || 0);
+  }
+  if (contract.has(recountItem.Diferencia_1erConteo) && !contract.has(recountItem.Costo_Diferencia_1erConteo)) {
+    firstCount.Costo_Diferencia = Number(recountItem.Diferencia_1erConteo) * Number(parentItem.Costo_Unitario || recountItem.Costo_Unitario || 0);
+  }
+  Object.assign(parentItem, normalized, Object.fromEntries(
+    Object.entries(firstCount).filter(([, value]) => contract.has(value))
+  ));
+  return parentItem;
+}
+
 class InventoryService {
   constructor() {
     this.invDir = storagePath.getInventoriesDirectory();
@@ -126,12 +149,16 @@ class InventoryService {
           if (inv.type !== filterType) return;
         }
 
-        const isReconteoInv = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
-        const isItemCounted = it => !!it && workflow.hasCount(it, workflow.countStage(inv), inv.countNotBefore);
+        const countStage = workflow.countStage(inv);
+        const recountKeys = countStage > 0 ? workflow.recountKeys(inv) : new Set();
+        const progressItems = countStage > 0 && recountKeys.size
+          ? inv.items.filter(it => recountKeys.has(contract.member(it)))
+          : inv.items;
+        const isItemCounted = it => !!it && workflow.hasCount(it, countStage, inv.countNotBefore);
 
         // Generate summary stats for list view
-        let totalItems = inv.items.length;
-        let countedItems = inv.items.filter(isItemCounted).length;
+        let totalItems = progressItems.length;
+        let countedItems = progressItems.filter(isItemCounted).length;
 
         if (user.role === 'AUXILIAR') {
           const userMatches = (respStr) => {
@@ -649,11 +676,12 @@ class InventoryService {
         almacen:targetItem.Almacen,location:targetItem.Ubicacion,ubicacion1:targetItem.Ubicacion_1,
         ubicacion2:targetItem.Ubicacion_2,inventoryId:inv.id,itemId:targetItem.id});
       if(!synced.item)throw new Error('Google no devolvió la fila confirmada');
-      Object.assign(targetItem,contract.normalize(synced.item));delete inv.closeOperationId;this.saveInventory(inv);
+      const firstCountSnapshots=Object.fromEntries(Object.entries(targetItem).filter(([key])=>key.endsWith('_1erConteo')));
+      Object.assign(targetItem,contract.normalize(synced.item),firstCountSnapshots);delete inv.closeOperationId;this.saveInventory(inv);
       if(inv.parentInventoryId){
         const parent=this.getInventoryRaw(inv.parentInventoryId);
         const original=parent?.items.find(it=>contract.member(it)===contract.member(targetItem));
-        if(original){Object.assign(original,contract.normalize(synced.item));delete parent.closeOperationId;this.saveInventory(parent);}
+        if(original){mergeRecountIntoParent(original,targetItem);delete parent.closeOperationId;this.saveInventory(parent);}
       }
 
       auditService.logAction({
@@ -894,13 +922,14 @@ class InventoryService {
         justificationPhoto: resolvedJustPhotoBase64
       });
       if(!synced.item)throw new Error('Google no devolvió la fila confirmada');
-      Object.assign(targetItem,contract.normalize(synced.item));
+      const firstCountSnapshots=Object.fromEntries(Object.entries(targetItem).filter(([key])=>key.endsWith('_1erConteo')));
+      Object.assign(targetItem,contract.normalize(synced.item),firstCountSnapshots);
       if (isCountProvided) counterReliability.recordCount(inv, targetItem, workflow.countStage(inv), user, reason);
       delete inv.closeOperationId;this.saveInventory(inv);
       if(inv.parentInventoryId){
         const parent=this.getInventoryRaw(inv.parentInventoryId);
         const original=parent?.items.find(it=>contract.member(it)===contract.member(targetItem));
-        if(original){Object.assign(original,contract.normalize(synced.item));
+        if(original){mergeRecountIntoParent(original,targetItem);
           if (targetItem.counterEvidence) original.counterEvidence = counterReliability.clone(targetItem.counterEvidence);
           delete parent.closeOperationId;this.saveInventory(parent);}
       }
@@ -1115,7 +1144,7 @@ class InventoryService {
             parentInv.recountItemKeys = inv.items.map(contract.member);
             parentInv.items.forEach(pItem => {
               const recItem=inv.items.find(r=>contract.member(r)===contract.member(pItem));
-              if(recItem)Object.assign(pItem,contract.normalize(recItem),{id:pItem.id,Estado_Reconteo:'Recontado'});
+              if(recItem)Object.assign(mergeRecountIntoParent(pItem,recItem),{id:pItem.id,Estado_Reconteo:'Recontado'});
             });
             this.saveInventory(parentInv);
           }
@@ -1277,7 +1306,10 @@ class InventoryService {
       id: `REC-${it.id || idx}-${Date.now().toString(36)}`,
       Stock_Fisico_1erConteo: it.Stock_Fisico,
       Mal_estado_1erConteo: it.Mal_estado,
+      Stock_Total_1erConteo: it.Stock_Total,
       Diferencia_1erConteo: it.Diferencia,
+      Costo_Diferencia_1erConteo: it.Costo_Diferencia,
+      Fecha_Ultimo_Conteo_1erConteo: it.Fecha_Ultimo_Conteo,
       Stock_Fisico: null,
       Stock_Buen_Estado: null,
       Stock_Total: null,
@@ -1895,13 +1927,14 @@ class InventoryService {
 
       const synced=await gasService.upsertCountToGAS(inv.type,{...gasPayload,inventoryId:inv.id,itemId:targetItem.id});
       if(!synced.item)throw new Error('Google no devolvió la fila confirmada');
-      Object.assign(targetItem,contract.normalize(synced.item));
+      const firstCountSnapshots=Object.fromEntries(Object.entries(targetItem).filter(([key])=>key.endsWith('_1erConteo')));
+      Object.assign(targetItem,contract.normalize(synced.item),firstCountSnapshots);
       counterReliability.recordCount(inv, targetItem, requestedStage, user, reason);
       delete inv.closeOperationId;this.saveInventory(inv);
       if(inv.parentInventoryId){
         const parent=this.getInventoryRaw(inv.parentInventoryId);
         const original=parent?.items.find(it=>contract.member(it)===contract.member(targetItem));
-        if(original){Object.assign(original,contract.normalize(synced.item));
+        if(original){mergeRecountIntoParent(original,targetItem);
           if (targetItem.counterEvidence) original.counterEvidence = counterReliability.clone(targetItem.counterEvidence);
           delete parent.closeOperationId;this.saveInventory(parent);}
       }
