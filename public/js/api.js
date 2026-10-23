@@ -5,6 +5,7 @@ window.API = {
   },
 
   async request(endpoint, options = {}) {
+    const { timeoutMs, ...fetchOptions } = options;
     const url = `${window.AppConfig.apiBaseUrl}${endpoint}`;
     const headers = {
       ...(options.headers || {})
@@ -21,8 +22,9 @@ window.API = {
 
     try {
       const response = await fetch(url, {
-        ...options,
-        headers
+        ...fetchOptions,
+        headers,
+        ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {})
       });
 
       let data;
@@ -63,6 +65,12 @@ window.API = {
 
       return data;
     } catch (err) {
+      if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+        const timeoutError = new Error('La consulta está tardando demasiado. Verifique la conexión e inténtelo nuevamente.');
+        timeoutError.code = 'REQUEST_TIMEOUT';
+        console.error(`[API Timeout] ${endpoint}`);
+        throw timeoutError;
+      }
       console.error(`[API Error] ${endpoint}:`, err);
       throw err;
     }
@@ -272,7 +280,7 @@ window.API = {
     if (options.status) params.append('status', options.status);
     if (options.includeFinalized) params.append('includeFinalized', 'true');
     const query = params.toString() ? `?${params.toString()}` : '';
-    return this.request(`/justifications${query}`);
+    return this.request(`/justifications${query}`, { timeoutMs: 60000 });
   },
 
   syncAllFromSheets() {
@@ -339,7 +347,7 @@ window.API = {
 
   // Dashboard & Metrics endpoints
   getDashboardMetrics(params = {}) {
-    return this.request(`/dashboard/metrics${this.buildQueryString(params)}`);
+    return this.request(`/dashboard/metrics${this.buildQueryString(params)}`, { timeoutMs: 60000 });
   },
 
   recalculateDashboardMetrics(params = {}) {

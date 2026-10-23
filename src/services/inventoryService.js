@@ -1364,6 +1364,8 @@ class InventoryService {
       if (!inv || (inv.isReconteo && inv.parentInventoryId)) continue;
       if (centerFilter && !['TODOS', 'GLOBAL'].includes(centerFilter) && inv.center !== centerFilter) continue;
       if (user.role === 'ENCARGADO' && inv.center !== user.center) continue;
+      const finalizedByStatus = inv.isFinalized === true || ['REVISADO', 'CERRADO', 'ARCHIVADO'].includes(inv.status);
+      if (finalizedByStatus ? !includeFinalized : !['PENDIENTE_JUSTIFICACION', 'EN_RECONTEO', 'RECONTEO_COMPLETADO'].includes(inv.status)) continue;
       const plan = this.getReviewPlan(inv);
       if (plan.finalized ? !includeFinalized : !['PENDIENTE_JUSTIFICACION', 'EN_RECONTEO', 'RECONTEO_COMPLETADO'].includes(inv.status)) continue;
       if (options.status === 'REVISADO' && !plan.finalized) continue;
