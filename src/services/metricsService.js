@@ -131,7 +131,8 @@ class MetricsService {
 
     const inventories = await this.getAllInventoriesData({type:cleanType, center:cleanCenter, inventoryId:cleanInventoryId,
       startDate:isValidDate(effectiveStartDate) ? effectiveStartDate.toISOString() : null,
-      endDate:isValidDate(effectiveEndDate) ? effectiveEndDate.toISOString() : null});
+      endDate:isValidDate(effectiveEndDate) ? effectiveEndDate.toISOString() : null,
+      refresh: forceRefresh});
     // The selector, consolidation and reports share the same set of parent inventories.
     const eligible = inventories.filter(inv => {
       if (inv.parentInventoryId || String(inv.inventoryId || inv.id || '').startsWith('REC-')) return false;
@@ -1551,10 +1552,14 @@ class MetricsService {
   async recalculateMetrics(params = {}) {
     const opts = typeof params === 'string' ? {inventoryId:params} : (params || {});
     const metrics = await this.getDashboardMetrics({...opts, forceRefresh:true});
-    const resyncedCount = metrics.sourceDiagnostics.filter(source => source.status === 'valid' && source.source === 'GOOGLE_SHEETS').length;
-    auditService.logAction({action:'RECALCULATE_METRICS', user:opts.user?.username || 'Administrador',
-      center:opts.center || 'GLOBAL',
-      details:`Lectura validada de ${resyncedCount} archivos finales; ${metrics.metricsComplete ? 'completa' : 'con fuentes pendientes'}`});
+    const resyncedCount = (metrics.sourceDiagnostics || []).filter(source => source.status === 'valid' && source.source === 'GOOGLE_SHEETS').length;
+    try {
+      auditService.logAction({action:'RECALCULATE_METRICS', user:opts.user?.username || 'Administrador',
+        center:opts.center || 'GLOBAL',
+        details:`Lectura validada de ${resyncedCount} archivos finales; ${metrics.metricsComplete ? 'completa' : 'con fuentes pendientes'}`});
+    } catch (auditErr) {
+      console.warn('[metricsService] Warning logging recalculate audit:', auditErr.message);
+    }
     return {...metrics, recalculated:true, resyncedCount, recalculatedAt:new Date().toISOString()};
   }
 

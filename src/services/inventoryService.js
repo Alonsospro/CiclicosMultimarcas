@@ -1391,6 +1391,18 @@ class InventoryService {
       throw new Error('No tiene permisos para acceder a las justificaciones');
     const includeFinalized = options.includeFinalized === true || ['ALL', 'REVISADO'].includes(options.status);
     const tasks = [];
+    const allJustificationsByInv = new Map();
+    try {
+      const files = storagePath.listFiles(this.justDir).filter(f => f.endsWith('.json'));
+      files.forEach(f => {
+        const j = storagePath.readJson(path.join(this.justDir, f), null);
+        if (j && j.inventoryId) {
+          if (!allJustificationsByInv.has(j.inventoryId)) allJustificationsByInv.set(j.inventoryId, []);
+          allJustificationsByInv.get(j.inventoryId).push(j);
+        }
+      });
+    } catch (_) {}
+
     for (const file of this.getAllInventoryFiles()) {
       const inv = this.getInventoryRaw(path.basename(file, '.json'));
       if (!inv || (inv.isReconteo && inv.parentInventoryId)) continue;
@@ -1398,7 +1410,10 @@ class InventoryService {
       if (user.role === 'ENCARGADO' && inv.center !== user.center) continue;
       const finalizedByStatus = inv.isFinalized === true || ['REVISADO', 'CERRADO', 'ARCHIVADO'].includes(inv.status);
       if (finalizedByStatus ? !includeFinalized : !['PENDIENTE_JUSTIFICACION', 'EN_RECONTEO', 'RECONTEO_COMPLETADO'].includes(inv.status)) continue;
-      const plan = this.getReviewPlan(inv);
+      const child = (inv.recountInventoryId || inv.hasRecount) ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null;
+      const records = [...(allJustificationsByInv.get(inv.id) || []),
+        ...(child ? (allJustificationsByInv.get(child.id) || []) : [])];
+      const plan = workflow.plan(inv, child, records);
       if (plan.finalized ? !includeFinalized : !['PENDIENTE_JUSTIFICACION', 'EN_RECONTEO', 'RECONTEO_COMPLETADO'].includes(inv.status)) continue;
       if (options.status === 'REVISADO' && !plan.finalized) continue;
       tasks.push({
@@ -1744,10 +1759,40 @@ class InventoryService {
       Object.assign(item,found);item.locked=contract.has(found.Stock_Total);
       const state=found.Estado_Justificacion_2||found.Estado;
       item.corroboracion=state;item.corroborationStatus=state;item.isCuadra=state==='CUADRA';
+      if(contract.has(item.Stock_Total)||contract.has(item.Stock_Fisico)||contract.has(item.Stock_Buen_Estado)){
+        item.Fecha_Ultimo_Conteo=item.Fecha_Ultimo_Conteo||new Date().toISOString();
+      }
       updatedCount++;
     });
+    // Si el archivo en Drive es un cierre final ya generado o tiene manifiesto de cierre
+    const isFinalClosure = Boolean(
+      (inv.driveFileName && inv.driveFileName.includes('_FINAL_')) ||
+      (inv.spreadsheetUrl && inv.spreadsheetUrl.includes('_FINAL_')) ||
+      (inv.manifest && inv.closedAt)
+    );
+    if (isFinalClosure) {
+      inv.status = 'REVISADO';
+      inv.isFinalized = true;
+      delete inv.countNotBefore;
+      delete inv.firstReviewNotBefore;
+      delete inv.secondReviewNotBefore;
+      delete inv.reopenedPhase;
+      delete inv.reopenReason;
+      delete inv.reopenedAt;
+      delete inv.reopenedBy;
+      inv.recountRound = 0;
+      inv.hasRecount2 = false;
+      if (inv.recountInventoryId) {
+        const childRec = this.getInventoryRaw(inv.recountInventoryId);
+        if (childRec) {
+          childRec.status = 'REVISADO';
+          childRec.isFinalized = true;
+          this.saveInventory(childRec);
+        }
+      }
+    }
     inv.lastGasSyncAt=new Date().toISOString();this.saveInventory(inv);
-    return {success:true,inventoryId:inv.id,itemsUpdated:updatedCount,updatedCount,totalItems:inv.items.length,syncedAt:inv.lastGasSyncAt};
+    return {success:true,inventoryId:inv.id,itemsUpdated:updatedCount,updatedCount,totalItems:inv.items.length,syncedAt:inv.lastGasSyncAt,status:inv.status,isFinalized:inv.isFinalized};
   }
 
   async syncAllActiveInventoriesFromSheets(user) {

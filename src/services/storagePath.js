@@ -163,7 +163,9 @@ class StoragePath {
     const key = this.normalizeKey(filePath);
     const cloned = JSON.parse(JSON.stringify(data));
     const relPath = this.getRelativePath(filePath);
-    firebaseSyncService.syncToFirestore(relPath, path.dirname(relPath).replace(/\\/g, '/'), path.basename(filePath), cloned);
+    if (!this.readContext.getStore() && firebaseSyncService.state) {
+      firebaseSyncService.syncToFirestore(relPath, path.dirname(relPath).replace(/\\/g, '/'), path.basename(filePath), cloned);
+    }
     this.memoryStore.set(key, cloned);
     this.cacheTimestamps.set(key, Date.now());
 

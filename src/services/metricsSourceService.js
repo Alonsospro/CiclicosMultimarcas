@@ -17,7 +17,7 @@ const child = record => record.parentInventoryId || String(record.inventoryId ||
 const matchesId = (record, id) => [record.id, record.inventoryId, record.fileId, record.driveFileId, record.fileName, record.name, ...(record.aliases || [])].some(value => value && norm(value) === norm(id));
 
 class MetricsSourceService {
-  invalidate() { reads.clear(); verified.clear(); this.historyCache = null; this.historyPending = new Map(); this.generation = (this.generation || 0) + 1; }
+  invalidate() { reads.clear(); verified.clear(); this.historyCache = null; this.historyPending = new Map(); this.discoveryErrorCache?.clear(); this.generation = (this.generation || 0) + 1; }
 
   background(work) {
     this.queue ||= [];
@@ -75,14 +75,35 @@ class MetricsSourceService {
 
   async readHistory(type, center) {
     const types = type && type !== 'TODOS' ? [type] : config.inventoryTypes;
-    const results = await Promise.allSettled(types.map(t => gas.getHistoryFromGAS(t, ['TODOS','GLOBAL'].includes(center) ? null : center)));
+    const now = Date.now();
+    const toQuery = [];
+    const cachedIssues = [];
+    this.discoveryErrorCache ||= new Map();
+    types.forEach(t => {
+      const errKey = `${t}:${center}`;
+      const errCached = this.discoveryErrorCache.get(errKey);
+      if (errCached && now - errCached.at < 180000) {
+        cachedIssues.push(errCached.issue);
+      } else {
+        toQuery.push(t);
+      }
+    });
+
+    const results = await Promise.allSettled(toQuery.map(t => gas.getHistoryFromGAS(t, ['TODOS','GLOBAL'].includes(center) ? null : center)));
     const value = results.flatMap(r => r.status === 'fulfilled' && Array.isArray(r.value) ? r.value : []);
-    value.discoveryIssues = results.flatMap((r, i) => r.status === 'rejected' ? [{type:types[i], center,
-      kind:'discovery', status:'unavailable', name:'Historial de cierres', issues:[r.reason?.message || 'No se pudo consultar el historial']}]:[]);
+    const newIssues = results.flatMap((r, i) => {
+      if (r.status === 'rejected') {
+        const issue = { type: toQuery[i], center, kind: 'discovery', status: 'unavailable', name: 'Historial de cierres', issues: [r.reason?.message || 'No se pudo consultar el historial'] };
+        this.discoveryErrorCache.set(`${toQuery[i]}:${center}`, { at: Date.now(), issue });
+        return [issue];
+      }
+      return [];
+    });
+    value.discoveryIssues = [...cachedIssues, ...newIssues];
     return value;
   }
 
-  async load({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', startDate = null, endDate = null } = {}) {
+  async load({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', startDate = null, endDate = null, refresh = false } = {}) {
     const candidates = [];
     for (const [dir, isHistory] of [[storage.getHistoryDirectory(), true], [storage.getInventoriesDirectory(), false]]) {
       for (const file of storage.listFiles(dir).filter(f => f.endsWith('.json'))) {
@@ -121,7 +142,7 @@ class MetricsSourceService {
     await Promise.all(Array.from({length:Math.min(3, primaryGroups.length)}, async () => {
       while (next < primaryGroups.length) {
         const index = next++, group = primaryGroups[index];
-        inventories[index] = await this.resolve(group, inventoryId !== 'TODOS' && !group.some(record => matchesId(record, inventoryId)), {startDate,endDate});
+        inventories[index] = await this.resolve(group, inventoryId !== 'TODOS' && !group.some(record => matchesId(record, inventoryId)), {startDate, endDate, refresh});
       }
     }));
     inventories.discoveryIssues = remoteHistory.discoveryIssues || [];
@@ -136,7 +157,7 @@ class MetricsSourceService {
       ((Date.parse(b.manifest?.closedAt || b.closedAt || b.createdAt) || 0) - (Date.parse(a.manifest?.closedAt || a.closedAt || a.createdAt) || 0)));
     const primary = group.filter(record => !child(record));
     const anchor = primary[0];
-    const linked = closed(anchor) ? primary.find(r => closed(r) && sheetKey(r)) : null;
+    const linked = closed(anchor) ? primary.find(r => closed(r) && sheetKey(r)) : (primary.find(r => sheetKey(r)) || null);
     const record = { ...anchor, items: [], aliases: [...new Set(group.flatMap(r => [r.id, r.inventoryId, r.fileId, r.driveFileId, r.fileName]).filter(Boolean))] };
     if (linked) {
       record.spreadsheetUrl = group.find(r => sheetKey(r) === sheetKey(linked) && /[#&?]gid=\d+/.test(r.spreadsheetUrl || ''))?.spreadsheetUrl || linked.spreadsheetUrl || linked.driveUrl;
@@ -145,7 +166,7 @@ class MetricsSourceService {
       record.isHistory = group.some(closed);
       if (record.isHistory) record.status = 'REVISADO';
     } else if (!closed(anchor)) {
-      // An explicitly reopened inventory uses current observations, not its previous archive.
+      // An explicitly reopened inventory without a linked spreadsheet uses local observations.
       record.previousSpreadsheetUrl = anchor.spreadsheetUrl || anchor.driveUrl;
       delete record.spreadsheetUrl; delete record.driveUrl; delete record.driveFileId;
       record.closedAt = null;

@@ -675,9 +675,9 @@ class GasService {
     return result.photo||null;
   }
 
-  async getHistoryFromGAS(type='CICLICO',center=null) {
+  async getHistoryFromGAS(type='CICLICO',center=null,options={}) {
     const result=await gasRequest(this.getUrlForType(type),{action:'getHistory',type,
-      center:center&&!['TODOS','GLOBAL'].includes(center)?config.getCenterCode(center):null});
+      center:center&&!['TODOS','GLOBAL'].includes(center)?config.getCenterCode(center):null},{timeout:options.timeout||7000});
     if(!Array.isArray(result.history))throw new Error('Historial inválido');
     return result.history;
   }
