@@ -18,10 +18,13 @@ function createPersistenceMiddleware(storage, cloud) {
   const middleware = (req, res, next) => {
     const queuedAt = Date.now();
     const disconnected = () => req.aborted || res.destroyed;
-    const isFastRead = req.method === 'GET' && (
+    const isFastRead = (req.method === 'GET' && (
       req.path === '/inventories' || req.path.startsWith('/inventories/') ||
+      req.path === '/justifications' || req.path.startsWith('/justifications/') ||
+      req.path === '/dashboard/metrics' || req.path === '/dashboard/audit' ||
+      req.path === '/history' || req.path.startsWith('/history/') ||
       req.path === '/auth/me' || req.path === '/centers'
-    );
+    )) || (req.method === 'POST' && req.path === '/dashboard/recalculate');
     if (isFastRead) {
       (async () => {
         try {

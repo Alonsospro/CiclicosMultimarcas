@@ -17,9 +17,10 @@ function tokenForType(type) {
 }
 module.exports=async function request(url,payload,options={}) {
   const body=JSON.stringify({...payload,operationId:payload.operationId||randomUUID(),apiToken:tokenForType(payload.type)});
+  const timeoutMs = options.timeout || 45000;
   for(let attempt=0;attempt<3;attempt++){
     try{
-      const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body,signal:AbortSignal.timeout(45000)});
+      const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body,signal:AbortSignal.timeout(timeoutMs)});
       let result;
       try{result=JSON.parse(await response.text());}catch(_){throw new Error('Respuesta no JSON: Google no confirmó la operación.');}
       if(!response.ok||result.success!==true){
