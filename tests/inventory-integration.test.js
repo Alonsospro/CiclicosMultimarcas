@@ -197,3 +197,23 @@ test('a failed count never saves a parent recount',async()=>{
   await assert.rejects(service.updateCount({inventoryId:'REC-I',itemId:'I',stockFisico:11,malEstado:2,user:{role:'ADMIN',username:'test'}}),/Sheets down/);
   assert.equal(saves,0);assert.equal(records.get('P').items[0].Reconteo,undefined);
 });
+
+test('Sheet sync keeps blank master cells from erasing the first count and restores it from the recount snapshot',async()=>{
+  const blankMasterRow={SKU:'X',Almacen:'A',Ubicacion:'LOC',Costo_Unitario:5,Stock_Sistema:10};
+  const {service,records}=inventoryService({fetchProductsFromScript:async()=>[blankMasterRow]});
+  records.set('INV',{id:'INV',type:'CICLICO',center:'1120',status:'EN_RECONTEO',recountInventoryId:'REC-INV',items:[{
+    ...base,id:'I',Stock_Fisico:null,Stock_Buen_Estado:null,Mal_estado:null,Stock_Total:null,Diferencia:null,Costo_Diferencia:null
+  }]});
+  records.set('REC-INV',{id:'REC-INV',type:'CICLICO',center:'1120',parentInventoryId:'INV',items:[{
+    ...blankMasterRow,id:'REC-I',Stock_Total_1erConteo:10,Stock_Fisico_1erConteo:8,
+    Stock_Buen_Estado_1erConteo:8,Mal_estado_1erConteo:2,Diferencia_1erConteo:0,Costo_Diferencia_1erConteo:0,
+    Fecha_Ultimo_Conteo_1erConteo:'2026-10-21T10:00:00.000Z'
+  }]});
+  const result=await service.syncInventoryFromSheet({inventoryId:'INV',user:{role:'ADMIN',username:'admin'}});
+  const item=records.get('INV').items[0];
+  assert.equal(result.itemsUpdated,1);
+  assert.equal(item.Stock_Buen_Estado,8);
+  assert.equal(item.Mal_estado,2);
+  assert.equal(item.Stock_Total,10);
+  assert.equal(item.Diferencia,0);
+});

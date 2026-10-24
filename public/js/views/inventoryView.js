@@ -885,7 +885,7 @@ window.InventoryView = {
       };
 
       tbody.innerHTML = list.map(inv => {
-        const stageCompleted = ['RECONTEO_COMPLETADO', 'PENDIENTE_JUSTIFICACION', 'REVISADO', 'CERRADO', 'FINALIZADO', 'FIRMADO'].includes(String(inv.status || '').toUpperCase());
+        const stageCompleted = ['EN_RECONTEO', 'RECONTEO_COMPLETADO', 'PENDIENTE_JUSTIFICACION', 'REVISADO', 'CERRADO', 'FINALIZADO', 'FIRMADO'].includes(String(inv.status || '').toUpperCase());
         const displayedCountedItems = stageCompleted ? inv.totalItems : inv.countedItems;
         const percent = inv.totalItems > 0 ? Math.round((displayedCountedItems / inv.totalItems) * 100) : 0;
         let badgeClass = 'badge-neutral';

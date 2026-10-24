@@ -1750,20 +1750,51 @@ class InventoryService {
   async syncInventoryFromSheet({inventoryId,user}) {
     const inv=this.getInventoryRaw(inventoryId);
     if(!inv||!this.canModifyInventory(inv,user))throw new Error('Inventario fuera de su centro');
+    // En cuanto se habilita un reconteo, el hijo conserva una copia de la
+    // primera etapa. Úsala para recuperar el inventario principal si algún
+    // origen de sincronización le dejó esos campos vacíos.
+    if (inv.recountInventoryId) {
+      const child=this.getInventoryRaw(inv.recountInventoryId);
+      if (child?.items?.length) {
+        let recovered=false;
+        const firstStageFields=[
+          ['Stock_Fisico','Stock_Fisico_1erConteo'],['Stock_Buen_Estado','Stock_Buen_Estado_1erConteo'],
+          ['Mal_estado','Mal_estado_1erConteo'],['Stock_Total','Stock_Total_1erConteo'],
+          ['Diferencia','Diferencia_1erConteo'],['Costo_Diferencia','Costo_Diferencia_1erConteo'],
+          ['Fecha_Ultimo_Conteo','Fecha_Ultimo_Conteo_1erConteo']
+        ];
+        const childByMember=new Map(child.items.map(it=>[contract.member(it),it]));
+        for(const item of inv.items){
+          const saved=childByMember.get(contract.member(item));if(!saved)continue;
+          for(const [field,snapshot] of firstStageFields){
+            if(!contract.has(item[field])&&contract.has(saved[snapshot])){item[field]=saved[snapshot];recovered=true;}
+          }
+        }
+        if(recovered)this.saveInventory(inv);
+      }
+    }
     const rows=inv.spreadsheetUrl?await gasService.fetchSpreadsheetItems(inv.spreadsheetUrl,inv):await gasService.fetchProductsFromScript(inv.type,inv.center);
     const map=new Map();
     rows.forEach(raw=>{const item=contract.normalize(raw),key=contract.member(item);if(map.has(key))throw new Error('Identidad duplicada en Google Sheets');map.set(key,item);});
     let updatedCount=0;
     inv.items.forEach(item=>{
       const found=map.get(contract.member(item));if(!found)return;
-      Object.assign(item,found);item.locked=contract.has(found.Stock_Total);
+      // A center sheet is also used as the product master and may have empty
+      // count/review cells. An empty cell is not an instruction to erase the
+      // operational copy held by the inventory.
+      const incoming=Object.fromEntries(Object.entries(found).filter(([key,value])=>
+        contract.has(value) && (key!=='Stock_Sistema' || contract.has(found.Stock_Sistema))));
+      Object.assign(item,incoming);item.locked=contract.has(item.Stock_Total);
       const state=found.Estado_Justificacion_2||found.Estado;
-      item.corroboracion=state;item.corroborationStatus=state;item.isCuadra=state==='CUADRA';
+      if(state){item.corroboracion=state;item.corroborationStatus=state;item.isCuadra=state==='CUADRA';}
       if(contract.has(item.Stock_Total)||contract.has(item.Stock_Fisico)||contract.has(item.Stock_Buen_Estado)){
         item.Fecha_Ultimo_Conteo=item.Fecha_Ultimo_Conteo||new Date().toISOString();
       }
       updatedCount++;
     });
+    if (inv.items.length && !updatedCount) {
+      throw new Error(`Sheets devolvió ${rows.length} filas, pero ninguna coincide con los ítems del inventario ${inv.id}. No se aplicaron cambios.`);
+    }
     // Si el archivo en Drive es un cierre final ya generado o tiene manifiesto de cierre
     const isFinalClosure = Boolean(
       (inv.driveFileName && inv.driveFileName.includes('_FINAL_')) ||
