@@ -385,6 +385,10 @@ window.JustificationsView = {
       const isExpanded = this.expandedTaskIds.has(task.inventoryId);
       const isFinalized = task.status === 'REVISADO' || task.isFinalized === true;
       const isReconteoTask = !!(task.isReconteo || task.phase === 'RECONTEO' || task.hasRecount || String(task.inventoryId).startsWith('REC-') || task.status === 'RECONTEO_COMPLETADO');
+      const sourceUrl = task.spreadsheetUrl || task.driveUrl || task.previousSpreadsheetUrl || '';
+      const sourceName = task.driveFileName || (sourceUrl ? 'Archivo vinculado (nombre no guardado)' : `Hoja general ${task.type} · centro ${task.center}`);
+      const escapeHtml = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+      const safeSourceUrl = /^https:\/\/(docs|drive)\.google\.com\//i.test(sourceUrl) ? escapeHtml(sourceUrl) : '';
 
       const hasItemDiscrepancy = (it) => {
         const corr = String(it.corroborationStatus || it.corroboracion || it.Estado || '').toUpperCase().trim();
@@ -587,6 +591,12 @@ window.JustificationsView = {
                 <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0; font-family: var(--font-mono);">
                   ID: <strong style="color: var(--primary);">${task.inventoryId}</strong>
                 </p>
+                <div title="Archivo o fuente usado para sincronizar este inventario" style="display: inline-flex; align-items: center; gap: 0.4rem; max-width: 100%; padding: 4px 9px; border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 6px; background: rgba(56, 189, 248, 0.045); color: var(--text-muted); font-size: 0.74rem; opacity: 0.9;">
+                  <i class="fa-solid fa-file-excel" style="color: #38bdf8;"></i>
+                  <span>Fuente Sheets:</span>
+                  <strong style="color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(sourceName)}</strong>
+                  ${safeSourceUrl ? `<a href="${safeSourceUrl}" target="_blank" rel="noopener" style="white-space: nowrap; color: #38bdf8;">Abrir</a>` : ''}
+                </div>
                 ${totalDiffItems > 0 ? `
                   <div style="display: flex; align-items: center; gap: 6px; width: 140px; height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 4px; overflow: hidden;" title="Progreso de justificación: ${progressPercent}%">
                     <div id="card-progress-bar-${task.inventoryId}" style="height: 100%; width: ${progressPercent}%; background: ${progressPercent === 100 ? '#10b981' : '#f59e0b'}; transition: width 0.3s ease;"></div>

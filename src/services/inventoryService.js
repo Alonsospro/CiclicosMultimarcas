@@ -1431,6 +1431,8 @@ class InventoryService {
       tasks.push({
         inventoryId: inv.id, inventoryName: inv.name, type: inv.type, center: inv.center, status: inv.status,
         isFinalized: plan.finalized, closedAt: inv.closedAt || null, closedBy: inv.closedBy || null,
+        driveFileName: inv.driveFileName || null, spreadsheetUrl: inv.spreadsheetUrl || null,
+        driveUrl: inv.driveUrl || null, previousSpreadsheetUrl: inv.previousSpreadsheetUrl || null,
         phase: inv.phase || 'CONTEO', isReconteo: !!inv.isReconteo,
         hasRecount: plan.keys.size > 0, hasRecount2: !!inv.hasRecount2, recountRound: inv.recountRound || 1,
         parentInventoryId: inv.parentInventoryId || null, recountInventoryId: inv.recountInventoryId || `REC-${inv.id}`,
