@@ -91,16 +91,24 @@ function plan(inv, child, records = []) {
   const recountComplete = !keys.size || (inv.status === 'RECONTEO_COMPLETADO' && members.length === keys.size
     && (!child || ['RECONTEO_COMPLETADO', 'REVISADO'].includes(child.status))
     && members.every(item => hasCount(item, recountStage, inv.countNotBefore || inv.recountEnabledAt)));
+  const reopeningJustification = inv.reopenedPhase === 'JUSTIFICACION';
   const rows = (inv.items || []).map(item => {
     const first = review(item, 1, records, inv.firstReviewNotBefore);
     const second = review(item, 2, records, inv.secondReviewNotBefore);
     const recounted = keys.has(contract.member(item));
-    const round = recounted ? 2 : 1;
+    const latestRound = time(second.reviewedAt) >= time(first.reviewedAt) && time(second.reviewedAt) > 0 ? 2
+      : time(first.reviewedAt) > 0 ? 1 : 0;
+    const round = reopeningJustification ? (latestRound || 1) : (recounted ? 2 : 1);
     const current = round === 2 ? second : first;
-    const stage = round === 2 ? (inv.hasRecount2 || inv.recountRound === 2 ? 2 : 1) : 0;
-    const canJustify = !finalized && countComplete && (round === 1
-      ? inv.status === 'PENDIENTE_JUSTIFICACION' && !keys.size
-      : inv.status === 'RECONTEO_COMPLETADO' && recountComplete) && hasCount(item, stage, round === 2 ? (inv.countNotBefore || inv.recountEnabledAt) : inv.countNotBefore);
+    const stage = reopeningJustification
+      ? (recounted ? recountStage : 0)
+      : (round === 2 ? recountStage : 0);
+    const canJustify = !finalized && countComplete && (reopeningJustification
+      ? ['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO'].includes(inv.status) && recountComplete
+      : round === 1
+        ? inv.status === 'PENDIENTE_JUSTIFICACION' && !keys.size
+        : inv.status === 'RECONTEO_COMPLETADO' && recountComplete)
+      && hasCount(item, stage, stage ? (inv.countNotBefore || inv.recountEnabledAt) : inv.countNotBefore);
     return {...item, justificationRound: round, requiresSecondJustification: recounted,
       canJustify, isJustified: current.complete, reviewComplete: current.complete,
       reviewStatus: current.complete ? current.corroboracion : '',

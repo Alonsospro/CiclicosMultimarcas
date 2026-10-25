@@ -1763,11 +1763,13 @@ window.JustificationsView = {
       `;
     }
 
-    const phase = task.hasRecount2 ? 'RECONTEO_2' : task.hasRecount ? 'RECONTEO_1' : '1ER_CONTEO';
-    const firstRadio = document.querySelector('input[name="reopen-target-phase"][value="1ER_CONTEO"]');
-    if (firstRadio) firstRadio.disabled = !!task.hasRecount;
-    const defaultRadio = document.querySelector(`input[name="reopen-target-phase"][value="${phase}"]`);
-    if (defaultRadio) defaultRadio.checked = true;
+    const validPhases = ['1ER_CONTEO', 'RECONTEO_1', 'RECONTEO_2', 'JUSTIFICACION'];
+    const phase = validPhases.includes(task.reopenedPhase)
+      ? task.reopenedPhase
+      : task.hasRecount2 ? 'RECONTEO_2' : task.hasRecount ? 'RECONTEO_1' : '1ER_CONTEO';
+    document.querySelectorAll('input[name="reopen-target-phase"]').forEach(radio => { radio.disabled = false; });
+    const radios = document.querySelectorAll('input[name="reopen-target-phase"]');
+    radios.forEach(radio => { radio.checked = radio.value === phase; });
 
     const chkSync = document.getElementById('reopen-chk-sync-gas');
     if (chkSync) chkSync.checked = true;
@@ -1804,11 +1806,12 @@ window.JustificationsView = {
     const sisEl = document.getElementById('edit-count-stock-sis');
     if (sisEl) sisEl.textContent = String(item.Stock_Sistema ?? 0);
 
-    // Auto-select initial phase radio based on existing data
-    let targetPhase = '1ER_CONTEO';
-    if (item.Reconteo_2 !== undefined && item.Reconteo_2 !== null && String(item.Reconteo_2).trim() !== '') {
+    // Prefer the reopened stage so editing follows the stage the administrator selected.
+    let targetPhase = ['1ER_CONTEO', 'RECONTEO_1', 'RECONTEO_2'].includes(task.reopenedPhase)
+      ? task.reopenedPhase : '1ER_CONTEO';
+    if (!['1ER_CONTEO', 'RECONTEO_1', 'RECONTEO_2'].includes(task.reopenedPhase) && item.Reconteo_2 !== undefined && item.Reconteo_2 !== null && String(item.Reconteo_2).trim() !== '') {
       targetPhase = 'RECONTEO_2';
-    } else if (item.Reconteo_Fisico !== undefined && item.Reconteo_Fisico !== null && String(item.Reconteo_Fisico).trim() !== '') {
+    } else if (!['1ER_CONTEO', 'RECONTEO_1', 'RECONTEO_2'].includes(task.reopenedPhase) && item.Reconteo_Fisico !== undefined && item.Reconteo_Fisico !== null && String(item.Reconteo_Fisico).trim() !== '') {
       targetPhase = 'RECONTEO_1';
     }
 

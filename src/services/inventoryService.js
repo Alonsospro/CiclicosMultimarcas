@@ -788,16 +788,29 @@ class InventoryService {
         }
 
         const isReconteoMode = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
+        const isSecondRecount = inv.phase === 'RECONTEO_2' || inv.recountRound === 2;
 
         if (isCountProvided) {
           if (isReconteoMode) {
-            targetItem.Reconteo_Fisico = qty;
-            targetItem.Reconteo = qty; // Col Z (Buen Estado Reconteo 1)
-            targetItem.Reconteo_Mal_Estado = damagedQty;
-            targetItem.Malestado_Reconteo = damagedQty; // Col AA (Mal Estado Reconteo 1)
             const sys = Number(targetItem.Stock_Sistema || 0);
             const isNegativeStockMatch = (sys < 0 && qty === 0 && damagedQty === 0);
-            targetItem.Stock_Total_Reconteo = (qty + damagedQty); // Col Y (Total Reconteo 1)
+            if (isSecondRecount) {
+              targetItem.Reconteo_2 = qty;
+              targetItem.Malestado_Reconteo_2 = damagedQty;
+              targetItem.Stock_Total_Reconteo_2 = qty + damagedQty;
+              targetItem.Diferencia_Final_2 = targetItem.Stock_Total_Reconteo_2 - sys;
+              targetItem.Costo_Diferencia_Final_2 = targetItem.Diferencia_Final_2 * (targetItem.Costo_Unitario || 0);
+              targetItem.Fecha_Reconteo_2 = new Date().toISOString();
+            } else {
+              targetItem.Reconteo_Fisico = qty;
+              targetItem.Reconteo = qty; // Col Z (Buen Estado Reconteo 1)
+              targetItem.Reconteo_Mal_Estado = damagedQty;
+              targetItem.Malestado_Reconteo = damagedQty; // Col AA (Mal Estado Reconteo 1)
+              targetItem.Stock_Total_Reconteo = (qty + damagedQty); // Col Y (Total Reconteo 1)
+              targetItem.Diferencia_Final = targetItem.Stock_Total_Reconteo - sys;
+              targetItem.Costo_Diferencia_Final = targetItem.Diferencia_Final * (targetItem.Costo_Unitario || 0);
+              targetItem.Fecha_Reconteo = new Date().toISOString();
+            }
             // Preservar Stock_Fisico original del 1er conteo para nunca sobreescribir la columna M/N
             if (targetItem.Stock_Fisico_1erConteo === undefined || targetItem.Stock_Fisico_1erConteo === null) {
               targetItem.Stock_Fisico_1erConteo = targetItem.Stock_Fisico;
@@ -810,11 +823,10 @@ class InventoryService {
             }
             targetItem.Stock_Fisico = qty;
             targetItem.Mal_estado = damagedQty;
-            targetItem.Diferencia_Final = targetItem.Stock_Total_Reconteo - sys;
-            targetItem.Costo_Diferencia_Final = targetItem.Diferencia_Final * (targetItem.Costo_Unitario || 0);
+            targetItem.Diferencia_Final = isSecondRecount ? targetItem.Diferencia_Final_2 : targetItem.Diferencia_Final;
+            targetItem.Costo_Diferencia_Final = isSecondRecount ? targetItem.Costo_Diferencia_Final_2 : targetItem.Costo_Diferencia_Final;
             targetItem.Diferencia = targetItem.Diferencia_Final;
             targetItem.Costo_Diferencia = targetItem.Costo_Diferencia_Final;
-            targetItem.Fecha_Reconteo = new Date().toISOString();
             targetItem.Fecha_Ultimo_Conteo = new Date().toISOString();
             targetItem.Responsable = user.displayName || user.username;
             targetItem.Estado = locked !== false ? 'Recontado' : 'Pendiente';
@@ -1380,7 +1392,7 @@ class InventoryService {
   }
 
   getReviewPlan(inv) {
-    const child = (inv.recountInventoryId || inv.hasRecount) ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null;
+    const child = inv.hasRecount ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null;
     const records = [...this.getJustificationsForInventory(inv.id),
       ...(child ? this.getJustificationsForInventory(child.id) : [])];
     return workflow.plan(inv, child, records);
@@ -1410,7 +1422,7 @@ class InventoryService {
       if (user.role === 'ENCARGADO' && inv.center !== user.center) continue;
       const finalizedByStatus = inv.isFinalized === true || ['REVISADO', 'CERRADO', 'ARCHIVADO'].includes(inv.status);
       if (finalizedByStatus ? !includeFinalized : !['PENDIENTE_JUSTIFICACION', 'EN_RECONTEO', 'RECONTEO_COMPLETADO'].includes(inv.status)) continue;
-      const child = (inv.recountInventoryId || inv.hasRecount) ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null;
+      const child = inv.hasRecount ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null;
       const records = [...(allJustificationsByInv.get(inv.id) || []),
         ...(child ? (allJustificationsByInv.get(child.id) || []) : [])];
       const plan = workflow.plan(inv, child, records);
@@ -1450,7 +1462,7 @@ class InventoryService {
       if (parentInv) {
         primaryInv = parentInv;
       }
-    } else if (inv.hasRecount || inv.recountInventoryId) {
+    } else if (inv.hasRecount) {
       parentInv = inv;
       const recId = inv.recountInventoryId || `REC-${inv.id}`;
       childRecountInv = this.getInventoryRaw(recId);
@@ -1583,9 +1595,6 @@ class InventoryService {
         !['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO', 'REVISADO'].includes(inv.status)) {
       throw new Error('Debe finalizar y firmar el conteo o reconteo antes de reabrir su justificación.');
     }
-    if (['1ER_CONTEO', 'CONTEO'].includes(cleanPhase) && this.getReviewPlan(inv).keys.size) {
-      throw new Error('Este inventario ya tiene reconteo. Reabra esa etapa para corregir cantidades; el primer conteo se conserva como historial.');
-    }
     if (cleanPhase === 'RECONTEO_2' || cleanPhase === 'RECONTEO 2') {
       inv.status = 'EN_RECONTEO';
       inv.phase = 'RECONTEO_2';
@@ -1597,6 +1606,7 @@ class InventoryService {
       inv.status = 'EN_RECONTEO';
       inv.phase = 'RECONTEO';
       inv.hasRecount = true;
+      inv.hasRecount2 = false;
       inv.recountRound = 1;
       inv.reopenedPhase = 'RECONTEO_1';
     } else if (cleanPhase === 'JUSTIFICACION' || cleanPhase === 'JUSTIFICACIONES') {
@@ -1606,12 +1616,15 @@ class InventoryService {
       // 1er Conteo por defecto
       inv.status = 'EN_PROGRESO';
       inv.phase = 'CONTEO';
+      inv.hasRecount = false;
+      inv.hasRecount2 = false;
+      inv.recountRound = 0;
       inv.reopenedPhase = '1ER_CONTEO';
     }
 
     const reopenedAt = new Date().toISOString();
     if (cleanPhase === 'JUSTIFICACION' || cleanPhase === 'JUSTIFICACIONES') {
-      if (inv.hasRecount || inv.recountInventoryId) inv.status = 'RECONTEO_COMPLETADO';
+      if (inv.hasRecount) inv.status = 'RECONTEO_COMPLETADO';
     } else if (workflow.countStage(inv)) {
       const child = this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`);
       inv.recountItemKeys = [...workflow.recountKeys(inv, child)];
@@ -1709,7 +1722,7 @@ class InventoryService {
     }
 
     // Si tiene un inventario hijo de reconteo o padre, mantener coherencia de estados
-    if (inv.recountInventoryId) {
+    if (inv.recountInventoryId && (inv.hasRecount || inv.reopenedPhase === '1ER_CONTEO')) {
       const childRec = this.getInventoryRaw(inv.recountInventoryId);
       if (childRec) {
         childRec.status = inv.reopenedPhase === '1ER_CONTEO' ? 'SUSPENDIDO'
