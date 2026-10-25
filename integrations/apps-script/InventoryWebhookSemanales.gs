@@ -424,15 +424,18 @@ function findRowInSheet_(sh,p,rows){
   const war=InventoryContract.identity(p.almacen||p.warehouse||p.Almacen);
   const loc=InventoryContract.identity(p.originalLocation||(p.isNewLocation?'':p.location||p.ubicacion||p.Ubicacion));
   const data=rows|| (sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,SHEET_WIDTH).getValues():[]);
-  const matches=[];
-  data.forEach((row,i)=>{
-    if(sku?InventoryContract.identity(row[0])!==sku:!bar||InventoryContract.identity(row[1])!==bar)return;
-    if(war&&InventoryContract.identity(row[6])!==war)return;
-    if(loc&&!row.slice(3,6).some(v=>InventoryContract.identity(v)===loc))return;
-    matches.push({rowNumber:i+2,row});
-  });
-  if(matches.length>1)throw new Error('SKU ambiguo: indique almacén y ubicación');
-  return matches[0]||null;
+  const sameProduct=row=>sku?InventoryContract.identity(row[0])===sku:!!bar&&InventoryContract.identity(row[1])===bar;
+  const sameWarehouse=row=>!war||InventoryContract.identity(row[6])===war;
+  const sameLocation=row=>!loc||row.slice(3,6).some(value=>InventoryContract.identity(value)===loc);
+  const choose=matches=>{
+    if(matches.length>1)throw new Error('SKU ambiguo: indique almacén y ubicación');
+    return matches[0]||null;
+  };
+  const products=data.map((row,index)=>({rowNumber:index+2,row})).filter(entry=>sameProduct(entry.row));
+  if(war&&loc){const exact=choose(products.filter(entry=>sameWarehouse(entry.row)&&sameLocation(entry.row)));if(exact)return exact;}
+  if(loc){const byLocation=choose(products.filter(entry=>sameLocation(entry.row)));if(byLocation)return byLocation;}
+  if(war){const byWarehouse=choose(products.filter(entry=>sameWarehouse(entry.row)));if(byWarehouse)return byWarehouse;}
+  return choose(products);
 }
 function validateJustificationStage_(item,p){
   const context=p.workflow,round=Number(p.round||(p.isJustification2?2:1));
