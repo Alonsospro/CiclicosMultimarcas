@@ -1789,52 +1789,56 @@ class InventoryService {
     const rows=inv.spreadsheetUrl?await gasService.fetchSpreadsheetItems(inv.spreadsheetUrl,inv):await gasService.fetchProductsFromScript(inv.type,inv.center);
     const map=new Map();
     rows.forEach(raw=>{const item=contract.normalize(raw),key=contract.member(item);if(map.has(key))throw new Error('Identidad duplicada en Google Sheets');map.set(key,item);});
+    const rowsBySku=new Map();
+    rows.forEach(item=>{
+      const sku=contract.identity(item.SKU);if(!sku)return;
+      if(!rowsBySku.has(sku))rowsBySku.set(sku,[]);
+      rowsBySku.get(sku).push(item);
+    });
+    const linkedRecount=inv.recountInventoryId?this.getInventoryRaw(inv.recountInventoryId):null;
+    const linkedItemsByMember=new Map((linkedRecount?.items||[]).map(item=>[contract.member(item),item]));
+    const applySheetRow=(target,source)=>{
+      const incoming=Object.fromEntries(Object.entries(source).filter(([key,value])=>key!=='id'&&key!=='locked'&&contract.has(value)));
+      Object.assign(target,incoming);
+      target.locked=contract.has(target.Stock_Total);
+      const normalizeReviewState=value=>{
+        const state=String(value||'').trim().toUpperCase().replace(/_/g,' ');
+        return state==='CUADRA'?'CUADRA':state.includes('NO CUADRA')?'NO_CUADRA':'';
+      };
+      const state1=normalizeReviewState(source.Estado), state2=normalizeReviewState(source.Estado_Justificacion_2);
+      const date1=Date.parse(source.Fecha_Primera_Justificacion||'');
+      const date2=Date.parse(source.Fecha_Justificacion_2||'');
+      const latestState=state2&&(!state1||(!Number.isNaN(date2)&&(Number.isNaN(date1)||date2>=date1)))?state2:(state1||state2);
+      if(latestState){
+        target.corroboracion=latestState;
+        target.corroborationStatus=target.corroboracion;
+        target.isCuadra=latestState==='CUADRA';
+        target.requiereReconteo=latestState!=='CUADRA';
+      }
+    };
     let updatedCount=0;
     inv.items.forEach(item=>{
-      const found=map.get(contract.member(item));if(!found)return;
+      let found=map.get(contract.member(item));
+      if(!found){
+        const candidates=(rowsBySku.get(contract.identity(item.SKU))||[]).filter(row=>
+          (!contract.has(row.Almacen)||contract.identity(row.Almacen)===contract.identity(item.Almacen))&&
+          (!contract.has(row.Ubicacion)||contract.identity(row.Ubicacion)===contract.identity(item.Ubicacion)));
+        if(candidates.length===1)found=candidates[0];
+      }
+      if(!found)return;
       // A center sheet is also used as the product master and may have empty
       // count/review cells. An empty cell is not an instruction to erase the
       // operational copy held by the inventory.
-      const incoming=Object.fromEntries(Object.entries(found).filter(([key,value])=>
-        contract.has(value) && (key!=='Stock_Sistema' || contract.has(found.Stock_Sistema))));
-      Object.assign(item,incoming);item.locked=contract.has(item.Stock_Total);
-      const state=found.Estado_Justificacion_2||found.Estado;
-      if(state){item.corroboracion=state;item.corroborationStatus=state;item.isCuadra=state==='CUADRA';}
-      if(contract.has(item.Stock_Total)||contract.has(item.Stock_Fisico)||contract.has(item.Stock_Buen_Estado)){
-        item.Fecha_Ultimo_Conteo=item.Fecha_Ultimo_Conteo||new Date().toISOString();
-      }
+      applySheetRow(item,found);
+      const linkedItem=linkedItemsByMember.get(contract.member(item));
+      if(linkedItem)applySheetRow(linkedItem,found);
       updatedCount++;
     });
+    if(linkedRecount&&updatedCount)this.saveInventory(linkedRecount);
     if (inv.items.length && !updatedCount) {
       throw new Error(`Sheets devolvió ${rows.length} filas, pero ninguna coincide con los ítems del inventario ${inv.id}. No se aplicaron cambios.`);
     }
-    // Si el archivo en Drive es un cierre final ya generado o tiene manifiesto de cierre
-    const isFinalClosure = Boolean(
-      (inv.driveFileName && inv.driveFileName.includes('_FINAL_')) ||
-      (inv.spreadsheetUrl && inv.spreadsheetUrl.includes('_FINAL_')) ||
-      (inv.manifest && inv.closedAt)
-    );
-    if (isFinalClosure) {
-      inv.status = 'REVISADO';
-      inv.isFinalized = true;
-      delete inv.countNotBefore;
-      delete inv.firstReviewNotBefore;
-      delete inv.secondReviewNotBefore;
-      delete inv.reopenedPhase;
-      delete inv.reopenReason;
-      delete inv.reopenedAt;
-      delete inv.reopenedBy;
-      inv.recountRound = 0;
-      inv.hasRecount2 = false;
-      if (inv.recountInventoryId) {
-        const childRec = this.getInventoryRaw(inv.recountInventoryId);
-        if (childRec) {
-          childRec.status = 'REVISADO';
-          childRec.isFinalized = true;
-          this.saveInventory(childRec);
-        }
-      }
-    }
+    // Sincronizar datos nunca debe cerrar ni alterar la etapa actual del inventario.
     inv.lastGasSyncAt=new Date().toISOString();this.saveInventory(inv);
     return {success:true,inventoryId:inv.id,itemsUpdated:updatedCount,updatedCount,totalItems:inv.items.length,syncedAt:inv.lastGasSyncAt,status:inv.status,isFinalized:inv.isFinalized};
   }
