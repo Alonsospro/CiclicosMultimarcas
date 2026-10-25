@@ -103,12 +103,12 @@ function plan(inv, child, records = []) {
     const stage = reopeningJustification
       ? (recounted ? recountStage : 0)
       : (round === 2 ? recountStage : 0);
-    const canJustify = !finalized && countComplete && (reopeningJustification
-      ? ['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO'].includes(inv.status) && recountComplete
-      : round === 1
+    const canJustify = !finalized && (reopeningJustification
+      ? ['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO'].includes(inv.status)
+      : countComplete && (round === 1
         ? inv.status === 'PENDIENTE_JUSTIFICACION' && !keys.size
         : inv.status === 'RECONTEO_COMPLETADO' && recountComplete)
-      && hasCount(item, stage, stage ? (inv.countNotBefore || inv.recountEnabledAt) : inv.countNotBefore);
+        && hasCount(item, stage, stage ? (inv.countNotBefore || inv.recountEnabledAt) : inv.countNotBefore));
     return {...item, justificationRound: round, requiresSecondJustification: recounted,
       canJustify, isJustified: current.complete, reviewComplete: current.complete,
       reviewStatus: current.complete ? current.corroboracion : '',
