@@ -16,10 +16,13 @@ const fields = {
   Estado: ['estado'], corroboracion: ['corroboracion', 'corroborationStatus'],
   Fecha_Primera_Justificacion: ['fecha_primera_justificacion'], Razon: ['razon'],
   Comentario_Justificacion: ['comentario_justificacion'], Revisado_Por: ['responsable_justificacion', 'revisado_por'],
+  Responsable_Justificacion: ['responsable_justificacion', 'revisado_por'],
   Fecha_Reconteo: ['fecha_reconteo'], Stock_Total_Reconteo: ['stock_total_reconteo'],
   Reconteo_Fisico: ['reconteo', 'reconteo_fisico'], Reconteo_Mal_Estado: ['malestado_reconteo', 'reconteo_mal_estado'],
   Diferencia_Final: ['diferencia_final'], Fecha_Justificacion_2: ['fecha_justificacion_2'],
-  Estado_Justificacion_2: ['estado_justificacion_2'], Fecha_Reconteo_2: ['fecha_reconteo_2'],
+  Estado_Justificacion_2: ['estado_justificacion_2'], Razon_Justificacion_2: ['razon_justificacion_2'],
+  Comentario_Justificacion_2: ['comentario_justificacion_2'], Responsable_Justificacion_2: ['responsable_justificacion_2'],
+  Fecha_Reconteo_2: ['fecha_reconteo_2'],
   Stock_Total_Reconteo_2: ['stock_total_reconteo_2'], Reconteo_2: ['reconteo_2', 'reconteo_fisico_2'],
   Malestado_Reconteo_2: ['malestado_reconteo_2', 'reconteo_mal_estado_2'], Diferencia_Final_2: ['diferencia_final_2']
 };

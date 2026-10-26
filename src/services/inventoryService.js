@@ -1818,6 +1818,49 @@ class InventoryService {
     };
   }
 
+  importSheetJustification(inv, item, round) {
+    const second = round === 2;
+    const stateField = second ? 'Estado_Justificacion_2' : 'Estado';
+    const dateField = second ? 'Fecha_Justificacion_2' : 'Fecha_Primera_Justificacion';
+    const reasonField = second ? 'Razon_Justificacion_2' : 'Razon';
+    const commentField = second ? 'Comentario_Justificacion_2' : 'Comentario_Justificacion';
+    const reviewerField = second ? 'Responsable_Justificacion_2' : 'Responsable_Justificacion';
+    const rawState = String(item[stateField] || '').trim().toUpperCase().replace(/_/g, ' ');
+    const corroboracion = rawState === 'CUADRA' ? 'CUADRA' : rawState.includes('NO CUADRA') ? 'NO CUADRA' : '';
+    if (!corroboracion) return false;
+
+    const rawDate = item[dateField];
+    let reviewedAt = rawDate instanceof Date ? rawDate.toISOString() : String(rawDate || '').trim();
+    const localDate = reviewedAt.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (localDate) {
+      const [, day, month, year, hour = '0', minute = '0', secondValue = '0'] = localDate;
+      const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(secondValue)));
+      if (parsed.getUTCFullYear() === Number(year) && parsed.getUTCMonth() === Number(month) - 1 && parsed.getUTCDate() === Number(day)) reviewedAt = parsed.toISOString();
+    } else if (reviewedAt && Number.isFinite(Date.parse(reviewedAt))) {
+      reviewedAt = new Date(reviewedAt).toISOString();
+    }
+
+    const id = 'JUST-' + createHash('sha256').update(JSON.stringify([inv.id, contract.member(item), round])).digest('hex');
+    const filePath = path.join(this.justDir, id + '.json');
+    const previous = storagePath.readJson(filePath, null) || {};
+    const record = {
+      ...previous, id, inventoryId: inv.id, itemId: item.id, sku: item.SKU, almacen: item.Almacen,
+      ubicacion: item.Ubicacion, round, corroboracion, isCuadra: corroboracion === 'CUADRA',
+      reasonType: item[reasonField] || previous.reasonType || 'AJUSTE_INVENTARIO',
+      justification: String(item[commentField] ?? '').trim() || previous.justification || '',
+      reviewedBy: item[reviewerField] || previous.reviewedBy || '',
+      reviewedAt: reviewedAt || previous.reviewedAt || '',
+      fechaPrimeraJustificacion: item.Fecha_Primera_Justificacion || previous.fechaPrimeraJustificacion || '',
+      fechaJustificacion2: item.Fecha_Justificacion_2 || previous.fechaJustificacion2 || '',
+      photoUrl: previous.photoUrl || (second ? item.foto_justificacion_2 : item.foto_justificacion) || null,
+      driveUrl: previous.driveUrl || (second ? item.foto_justificacion_2 : item.foto_justificacion) || null,
+      center: inv.center, type: inv.type, status: 'REVISADO', importedFromSheets: true
+    };
+    if (contract.isWeekly(item)) record.justifiedQuantity = item[second ? 'Cantidad_Justificada_2' : 'Cantidad_Justificada_1'] ?? previous.justifiedQuantity;
+    storagePath.writeJson(filePath, record);
+    return true;
+  }
+
   async syncInventoryFromSheet({inventoryId,user}) {
     const inv=this.getInventoryRaw(inventoryId);
     if(!inv||!this.canModifyInventory(inv,user))throw new Error('Inventario fuera de su centro');
@@ -1888,8 +1931,10 @@ class InventoryService {
       // count/review cells. An empty cell is not an instruction to erase the
       // operational copy held by the inventory.
       applySheetRow(item,found);
+      this.importSheetJustification(inv,item,1);
+      this.importSheetJustification(inv,item,2);
       const linkedItem=linkedItemsByMember.get(contract.member(item));
-      if(linkedItem)applySheetRow(linkedItem,found);
+      if(linkedItem){applySheetRow(linkedItem,found);this.importSheetJustification(inv,linkedItem,1);this.importSheetJustification(inv,linkedItem,2);}
       updatedCount++;
     });
     if(linkedRecount&&updatedCount)this.saveInventory(linkedRecount);

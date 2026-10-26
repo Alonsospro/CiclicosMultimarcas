@@ -905,8 +905,8 @@ window.JustificationsView = {
                         : (finalDiffQty2 !== null ? (finalDiffQty2 * Number(item.Costo_Unitario || 0)) : null));
 
                       const itemCorr = item.reviewStatus || '';
-                      const isCuadra = item.reviewComplete && itemCorr === 'CUADRA';
-                      const isNoCuadra = item.reviewComplete && itemCorr === 'NO CUADRA';
+                      const isCuadra = itemCorr === 'CUADRA';
+                      const isNoCuadra = itemCorr === 'NO CUADRA';
 
                       const itemWar = item.Almacen || item.almacen || item.warehouse || '';
                       const itemLoc = item.Ubicacion || '';

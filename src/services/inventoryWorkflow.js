@@ -110,8 +110,10 @@ function plan(inv, child, records = []) {
         && hasCount(item, stage, stage ? (inv.countNotBefore || inv.recountEnabledAt) : inv.countNotBefore));
     return {...item, justificationRound: round, requiresSecondJustification: recounted,
       canJustify, isJustified: current.complete, reviewComplete: current.complete,
-      reviewStatus: current.complete ? current.corroboracion : '',
-      justificationDetails: current.complete ? current : null,
+      // Keep imported decisions visible in the review form even when they are
+      // incomplete; closure still depends on reviewComplete below.
+      reviewStatus: current.corroboracion,
+      justificationDetails: current.corroboracion ? current : null,
       justificationHistory: [first, second].filter(r => time(r.reviewedAt)),
       needsInitialReview: initialDiscrepancy(item) || time(first.reviewedAt) > 0};
   }).filter(item => item.needsInitialReview || item.requiresSecondJustification);
