@@ -66,7 +66,11 @@ window.DashboardView = {
 
     document.getElementById('dash-filter-start-date')?.addEventListener('change', () => this.loadDashboard());
     document.getElementById('dash-filter-end-date')?.addEventListener('change', () => this.loadDashboard());
-    document.getElementById('dash-filter-week')?.addEventListener('change', () => this.loadDashboard());
+    document.getElementById('dash-filter-week')?.addEventListener('change', () => {
+      const inventory = document.getElementById('dash-filter-inventory');
+      if (inventory) inventory.value = 'TODOS';
+      this.loadDashboard();
+    });
     document.getElementById('dash-filter-month')?.addEventListener('change', () => this.loadDashboard());
 
     document.getElementById('dash-filter-type')?.addEventListener('change', () => {
@@ -618,11 +622,8 @@ window.DashboardView = {
       </div>
       <div>
         <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-main);">
-          Inventarios agrupados por numeración
+          Consolidados de semanas
         </h4>
-        <p style="margin: 0; font-size: 0.78rem; color: var(--text-muted);">
-          Las fechas se conservan como registro. El agrupamiento usa el número final del código de inventario (-1, -2, etc.).
-        </p>
       </div>
     `;
     header.appendChild(titleBox);
@@ -652,7 +653,7 @@ window.DashboardView = {
       const btnAll = document.createElement('button');
       btnAll.type = 'button';
       btnAll.className = 'btn btn-secondary btn-xs';
-      btnAll.innerHTML = '<i class="fa-solid fa-arrows-split-up-and-left"></i> Ver todas las numeraciones';
+      btnAll.innerHTML = '<i class="fa-solid fa-layer-group"></i> Ver todas';
       btnAll.onclick = () => {
         if (currentInvSelect) {
           currentInvSelect.value = 'TODOS';
@@ -673,136 +674,29 @@ window.DashboardView = {
     grid.setAttribute('role', 'region');
     grid.setAttribute('aria-label', 'Consolidados semanales');
 
-    groups.forEach(g => {
+    const accents = ['#0ea5e9', '#8b5cf6', '#f97316', '#22c55e', '#ec4899', '#14b8a6'];
+    groups.forEach((g, index) => {
       const isCurrentGroupActive = selectedInvVal === `GRUPO:${g.groupId}`;
       const weekLabel = this.getInventoryWeekLabel(g.groupId);
-      const groupCard = document.createElement('div');
-      groupCard.className = 'metric-kpi-card weekly-groups__item';
-      groupCard.style.cssText = `
-        background: ${isCurrentGroupActive ? 'rgba(56, 189, 248, 0.12)' : 'rgba(15, 23, 42, 0.5)'};
-        border: 1px solid ${isCurrentGroupActive ? '#38bdf8' : 'rgba(255, 255, 255, 0.1)'};
-        border-radius: var(--radius-md);
-        padding: 0.85rem 1rem;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        gap: 0.65rem;
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = `weekly-groups__tile${isCurrentGroupActive ? ' is-active' : ''}`;
+      tile.setAttribute('aria-pressed', String(isCurrentGroupActive));
+      tile.setAttribute('aria-label', `Ver consolidado ${weekLabel}, ${g.inventoryCount} inventarios`);
+      tile.style.setProperty('--week-accent', accents[index % accents.length]);
+      tile.innerHTML = `
+        <span class="weekly-groups__tile-icon"><i class="fa-solid fa-layer-group"></i></span>
+        <span class="weekly-groups__tile-name">${weekLabel}</span>
+        <span class="weekly-groups__tile-count">${g.inventoryCount} inventarios</span>
+        <span class="weekly-groups__tile-check"><i class="fa-solid fa-check"></i></span>
       `;
-
-      // Render full rich KPI card
-      const m = g.metrics || {};
-      const eriColor = (m.eriItemFinal >= 95) ? '#10b981' : (m.eriItemFinal >= 90 ? '#f59e0b' : '#ef4444');
-      const eriMonColor = (m.eriMonetarioFinal >= 95) ? '#10b981' : (m.eriMonetarioFinal >= 90 ? '#f59e0b' : '#ef4444');
-      const diffColor = (m.totalFinalDiffCost === 0) ? '#10b981' : (m.totalFinalDiffCost > 0 ? '#38bdf8' : '#ef4444');
-      const diffLabel = m.totalFinalDiffCost > 0 ? 'Sobrante' : (m.totalFinalDiffCost < 0 ? 'Faltante' : 'Exacto');
-
-      // Top info
-      const topInfo = document.createElement('div');
-      topInfo.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: 800; font-size: 0.85rem; border: 1px solid rgba(56, 189, 248, 0.4); padding: 0.2rem 0.55rem;">
-              ${weekLabel}
-            </span>
-            <strong style="color: var(--text-main); font-size: 1rem;">Consolidado ${weekLabel}</strong>
-          </div>
-          ${isCurrentGroupActive
-            ? '<span class="badge badge-success" style="font-size: 0.75rem;"><i class="fa-solid fa-circle-check"></i> Activo</span>'
-            : `<span class="badge badge-neutral" style="font-size: 0.72rem;">${g.inventoryCount} inventarios</span>`}
-        </div>
-
-        <!-- KPI Mini Grid -->
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.45rem; margin-bottom: 0.65rem;">
-          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-sm); padding: 0.45rem 0.5rem; text-align: center;">
-            <span style="font-size: 0.68rem; color: var(--text-muted); display: block; text-transform: uppercase;">ERI Ítems</span>
-            <strong style="font-size: 1.15rem; color: ${eriColor}; font-weight: 800;">${(m.eriItemFinal ?? 100).toFixed(1)}%</strong>
-            <span style="font-size: 0.65rem; color: var(--text-dim); display: block;">1er: ${(m.eriItemInicial ?? 100).toFixed(1)}%</span>
-          </div>
-
-          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-sm); padding: 0.45rem 0.5rem; text-align: center;">
-            <span style="font-size: 0.68rem; color: var(--text-muted); display: block; text-transform: uppercase;">ERU Ubicación</span>
-            <strong style="font-size: 1.15rem; color: #38bdf8; font-weight: 800;">${(m.eruPercent ?? 100).toFixed(1)}%</strong>
-            <span style="font-size: 0.65rem; color: var(--text-dim); display: block;">Exactitud</span>
-          </div>
-
-          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-sm); padding: 0.45rem 0.5rem; text-align: center;">
-            <span style="font-size: 0.68rem; color: var(--text-muted); display: block; text-transform: uppercase;">ERI Monetario</span>
-            <strong style="font-size: 1.15rem; color: ${eriMonColor}; font-weight: 800;">${(m.eriMonetarioFinal ?? 100).toFixed(1)}%</strong>
-            <span style="font-size: 0.65rem; color: var(--text-dim); display: block;">Valor</span>
-          </div>
-        </div>
-
-        <!-- Physical & Financial Row -->
-        <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-sm); padding: 0.45rem 0.65rem; font-size: 0.76rem; display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.65rem;">
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: var(--text-muted);">Balance físico:</span>
-            <span><strong style="color: #10b981;">${m.itemsCuadradosFinal ?? 0}</strong> cuadrados / <strong style="color: ${m.discrepanciasFinal > 0 ? '#ef4444' : '#10b981'};">${m.discrepanciasFinal ?? 0}</strong> disc.</span>
-          </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: var(--text-muted);">Impacto neto:</span>
-            <span style="font-weight: 700; color: ${diffColor};">Bs. ${Math.abs(m.totalFinalDiffCost || 0).toLocaleString('es-BO', {minimumFractionDigits: 2, maximumFractionDigits: 2})} <span style="font-size: 0.7rem; font-weight: normal;">(${diffLabel})</span></span>
-          </div>
-        </div>
-
-        <!-- Centers & Inventories Tagged -->
-        <div style="margin-bottom: 0.2rem;">
-          <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
-            <span>Centros incluidos (${(g.centers || []).length}):</span>
-            <span>${(g.totalItems || 0).toLocaleString('es-BO')} existencias</span>
-          </div>
-          <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.35rem;">
-            ${(g.centers || []).map(c => `<span class="badge badge-neutral" style="font-size: 0.68rem; padding: 0.1rem 0.35rem; font-weight: 600;">Centro ${c}</span>`).join('')}
-          </div>
-          <div style="display: flex; flex-wrap: wrap; gap: 0.25rem;">
-            ${(g.inventories || []).map(inv => `<span style="font-size: 0.68rem; color: #94a3b8; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); padding: 0.1rem 0.35rem; border-radius: 3px; font-family: monospace;">[${inv.center}] ${inv.name || inv.id}</span>`).join('')}
-          </div>
-        </div>
-      `;
-      groupCard.appendChild(topInfo);
-
-      // Actions
-      const actionsDiv = document.createElement('div');
-      actionsDiv.style.cssText = 'display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.6rem;';
-
-      const btnSelect = document.createElement('button');
-      btnSelect.type = 'button';
-      btnSelect.className = `btn ${isCurrentGroupActive ? 'btn-secondary' : 'btn-primary'} btn-xs`;
-      btnSelect.style.cssText = 'flex: 1; font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.65rem;';
-      btnSelect.innerHTML = isCurrentGroupActive
-        ? '<i class="fa-solid fa-check"></i> Mostrando esta semana'
-        : '<i class="fa-solid fa-chart-pie"></i> Ver ' + weekLabel;
-      btnSelect.onclick = () => {
-        if (currentInvSelect) {
-          currentInvSelect.value = 'TODOS';
-        }
+      tile.onclick = () => {
+        if (currentInvSelect) currentInvSelect.value = 'TODOS';
         const numberSelect = document.getElementById('dash-filter-week');
         if (numberSelect) numberSelect.value = `GRUPO:${g.groupId}`;
         this.loadDashboard();
       };
-      actionsDiv.appendChild(btnSelect);
-
-      const btnPdf = document.createElement('button');
-      btnPdf.type = 'button';
-      btnPdf.className = 'btn btn-secondary btn-xs';
-      btnPdf.title = `Imprimir informe PDF de ${weekLabel}`;
-      btnPdf.style.cssText = 'font-weight: 600; font-size: 0.78rem; padding: 0.4rem 0.65rem; display: inline-flex; align-items: center; gap: 0.35rem;';
-      btnPdf.innerHTML = '<i class="fa-solid fa-file-pdf" style="color: #ef4444;"></i> PDF';
-      btnPdf.onclick = () => {
-        if (!isCurrentGroupActive && currentInvSelect) {
-          currentInvSelect.value = 'TODOS';
-          const numberSelect = document.getElementById('dash-filter-week');
-          if (numberSelect) numberSelect.value = `GRUPO:${g.groupId}`;
-          this.loadDashboard().then(() => {
-            setTimeout(() => this.printReport(), 250);
-          });
-        } else {
-          this.printReport();
-        }
-      };
-      actionsDiv.appendChild(btnPdf);
-
-      groupCard.appendChild(actionsDiv);
-      grid.appendChild(groupCard);
+      grid.appendChild(tile);
     });
 
     card.appendChild(grid);
