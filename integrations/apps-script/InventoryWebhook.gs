@@ -481,6 +481,16 @@ function findRowInSheet_(sh,p,rows){
   if(war){const byWarehouse=choose(products.filter(entry=>sameWarehouse(entry.row)));if(byWarehouse)return byWarehouse;}
   return choose(products);
 }
+function findJustificationRow_(sh,p,rows){
+  const sku=InventoryContract.identity(p.sku||p.SKU),bar=InventoryContract.identity(p.barcode||p.codigoBarras||p.Codigo_Barras);
+  const war=InventoryContract.identity(p.almacen||p.warehouse||p.Almacen);
+  const data=rows|| (sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,SHEET_WIDTH).getValues():[]);
+  const products=data.map((row,index)=>({rowNumber:index+2,row})).filter(({row})=>
+    sku?InventoryContract.identity(row[0])===sku:!!bar&&InventoryContract.identity(row[1])===bar);
+  const matches=war?products.filter(({row})=>InventoryContract.identity(row[6])===war):products;
+  if(matches.length>1)throw new Error('SKU y almacén ambiguos: se requiere una sola fila para guardar la justificación');
+  return matches[0]||null;
+}
 function validateJustificationStage_(item,p){
   const context=p.workflow,round=Number(p.round||(p.isJustification2?2:1));
   if(!context||context.version!==1||context.round!==round)throw new Error('Falta el contexto de revisión. Actualice la app web antes de justificar.');
@@ -496,7 +506,7 @@ function upsertCount_(p,batch){
   if(SHEET_LAYOUT===InventoryContract.weeklyVersion&&p.schemaVersion!==SHEET_LAYOUT)throw new Error('Actualice la appweb para usar semanales de 43 columnas.');
   if(!p.sku&&!p.SKU&&!p.barcode&&!p.Codigo_Barras)throw new Error('Falta SKU o código de barras');
   const sh=batch?.sheet||getCenterSheet_(p.center||p.centro);
-  let found=findRowInSheet_(sh,p,batch?.rows),created=false,original;
+  let found=p.action==='saveJustification'?findJustificationRow_(sh,p,batch?.rows):findRowInSheet_(sh,p,batch?.rows),created=false,original;
   if(!found){
     if(SHEET_LAYOUT===InventoryContract.weeklyVersion)throw new Error('El producto debe existir en el maestro semanal; distribuya primero BD_BASE.');
     if(p.action==='saveJustification'||(String(p.type).toUpperCase()!=='BARRIDO'&&p.allowNewItem!==true))throw new Error('Ítem no encontrado');

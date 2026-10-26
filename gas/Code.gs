@@ -425,10 +425,9 @@ function saveJustificationToSheet_(payload) {
 
   const sh = getCenterSheet_(center);
   const warehouse = String(payload.almacen || payload.warehouse || payload.Almacen || '').trim();
-  const location = String(payload.location || payload.ubicacion || payload.Ubicacion || '').trim();
 
   // Búsqueda única en memoria
-  const found = findRowInSheet_(sh, sku, '', location, warehouse);
+  const found = findJustificationRow_(sh, sku, '', warehouse);
   if (!found) {
     throw new Error(`Ítem ${sku} no encontrado en centro ${center}`);
   }
@@ -760,6 +759,23 @@ function findRowInSheet_(sheet, sku, barcode, location, warehouse) {
   }
 
   return null;
+}
+
+function findJustificationRow_(sheet, sku, barcode, warehouse) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  const data = sheet.getRange(2, 1, lastRow - 1, 40).getValues();
+  const sTarget = norm_(sku), bTarget = norm_(barcode), wTarget = norm_(warehouse);
+  const matches = [];
+  data.forEach((row, index) => {
+    const sameProduct = (sTarget && norm_(row[COL.SKU - 1]) === sTarget) ||
+      (bTarget && norm_(row[COL.Codigo_Barras - 1]) === bTarget);
+    if (!sameProduct) return;
+    if (wTarget && norm_(row[COL.Almacen - 1]) !== wTarget) return;
+    matches.push({rowNumber: index + 2, row});
+  });
+  if (matches.length > 1) throw new Error('SKU y almacén ambiguos: se requiere una sola fila para guardar la justificación');
+  return matches[0] || null;
 }
 
 function findExactRow_(sheet, sku, barcode, location, warehouse) {
