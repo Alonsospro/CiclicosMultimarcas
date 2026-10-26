@@ -446,6 +446,10 @@ window.DashboardView = {
     return '';
   },
 
+  getInventoryWeekLabel(value) {
+    return /^\d+$/.test(String(value)) ? `Semana ${Number(value)}` : 'Sin numeración';
+  },
+
   updateInventoryNumberDropdown(availableInventories = []) {
     const select = document.getElementById('dash-filter-week');
     if (!select) return;
@@ -458,7 +462,7 @@ window.DashboardView = {
     select.replaceChildren(new Option('Todas las numeraciones', 'TODOS'));
     numbers.forEach(number => {
       const count = availableInventories.filter(inv => (inv.groupId || this.getInventoryIdentifier(inv.id || inv.name)) === number).length;
-      select.appendChild(new Option(`Numeración -${number} (${count} inventarios)`, `GRUPO:${number}`));
+      select.appendChild(new Option(`${this.getInventoryWeekLabel(number)} (${count} inventarios)`, `GRUPO:${number}`));
     });
     select.value = [...select.options].some(option => option.value === previousValue) ? previousValue : 'TODOS';
   },
@@ -481,7 +485,7 @@ window.DashboardView = {
         groupsMap.set(key, {
           groupId: key,
           suffix,
-          label: suffix ? `Ciclo / Grupo ${suffix} (Terminación -${suffix})` : 'Otros inventarios',
+          label: suffix ? this.getInventoryWeekLabel(suffix) : 'Otros inventarios',
           items: []
         });
       }
@@ -512,7 +516,7 @@ window.DashboardView = {
 
         if (group.suffix) {
           const groupOption = new Option(
-            `📊 Consolidado Grupo ${group.suffix} (${group.items.length} inventarios)`,
+            `📊 Consolidado ${this.getInventoryWeekLabel(group.suffix)} (${group.items.length} inventarios)`,
             `GRUPO:${group.suffix}`
           );
           groupOption.style.fontWeight = 'bold';
@@ -552,11 +556,12 @@ window.DashboardView = {
       banner.style.display = 'flex';
       if (selectedInventory.isGroup) {
         if (titleEl) {
-          titleEl.innerHTML = `<i class="fa-solid fa-layer-group" style="color: #38bdf8;"></i> [Grupo ${selectedInventory.groupId}] Consolidado Terminación -${selectedInventory.groupId} (${selectedInventory.inventoryCount} inventarios)`;
+          const weekLabel = this.getInventoryWeekLabel(selectedInventory.groupId);
+          titleEl.innerHTML = `<i class="fa-solid fa-layer-group" style="color: #38bdf8;"></i> Consolidado ${weekLabel} (${selectedInventory.inventoryCount} inventarios)`;
         }
         if (metaEl) {
           metaEl.style.display = 'block';
-          metaEl.textContent = `Alcance: ${selectedInventory.inventoryCount} centros de inventario | Total Ítems: ${selectedInventory.totalItems || 0} | Filtrado por código terminación -${selectedInventory.groupId}`;
+          metaEl.textContent = `Alcance: ${selectedInventory.inventoryCount} inventarios | Total Ítems: ${selectedInventory.totalItems || 0} | Agrupado por numeración de inventario`;
         }
       } else {
         const dateStr = selectedInventory.createdAt ? new Date(selectedInventory.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
@@ -622,6 +627,26 @@ window.DashboardView = {
     `;
     header.appendChild(titleBox);
 
+    const headerActions = document.createElement('div');
+    headerActions.className = 'weekly-groups__controls';
+    const scrollRibbon = amount => card.querySelector('.weekly-groups__ribbon')?.scrollBy({left: amount, behavior: 'smooth'});
+    const scrollLeft = document.createElement('button');
+    scrollLeft.type = 'button';
+    scrollLeft.className = 'btn btn-secondary btn-xs';
+    scrollLeft.setAttribute('aria-label', 'Desplazar semanas hacia la izquierda');
+    scrollLeft.title = 'Desplazar hacia la izquierda';
+    scrollLeft.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
+    scrollLeft.onclick = () => scrollRibbon(-360);
+    headerActions.appendChild(scrollLeft);
+    const scrollRight = document.createElement('button');
+    scrollRight.type = 'button';
+    scrollRight.className = 'btn btn-secondary btn-xs';
+    scrollRight.setAttribute('aria-label', 'Desplazar semanas hacia la derecha');
+    scrollRight.title = 'Desplazar hacia la derecha';
+    scrollRight.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
+    scrollRight.onclick = () => scrollRibbon(360);
+    headerActions.appendChild(scrollRight);
+
     const isGroupOrSingleSelected = selectedInvVal !== 'TODOS';
     if (isGroupOrSingleSelected) {
       const btnAll = document.createElement('button');
@@ -636,19 +661,23 @@ window.DashboardView = {
         if (numberSelect) numberSelect.value = 'TODOS';
         this.loadDashboard();
       };
-      header.appendChild(btnAll);
+      headerActions.appendChild(btnAll);
     }
+    header.appendChild(headerActions);
 
     card.appendChild(header);
 
-    // Grid of group cards
+    // Horizontal ribbon: forward scrolling moves later weeks from right to left.
     const grid = document.createElement('div');
-    grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.85rem;';
+    grid.className = 'weekly-groups__ribbon';
+    grid.setAttribute('role', 'region');
+    grid.setAttribute('aria-label', 'Consolidados semanales');
 
     groups.forEach(g => {
       const isCurrentGroupActive = selectedInvVal === `GRUPO:${g.groupId}`;
+      const weekLabel = this.getInventoryWeekLabel(g.groupId);
       const groupCard = document.createElement('div');
-      groupCard.className = 'metric-kpi-card';
+      groupCard.className = 'metric-kpi-card weekly-groups__item';
       groupCard.style.cssText = `
         background: ${isCurrentGroupActive ? 'rgba(56, 189, 248, 0.12)' : 'rgba(15, 23, 42, 0.5)'};
         border: 1px solid ${isCurrentGroupActive ? '#38bdf8' : 'rgba(255, 255, 255, 0.1)'};
@@ -673,9 +702,9 @@ window.DashboardView = {
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: 800; font-size: 0.85rem; border: 1px solid rgba(56, 189, 248, 0.4); padding: 0.2rem 0.55rem;">
-              Terminación -${g.suffix || g.groupId}
+              ${weekLabel}
             </span>
-            <strong style="color: var(--text-main); font-size: 1rem;">Ciclo / Grupo ${g.groupId}</strong>
+            <strong style="color: var(--text-main); font-size: 1rem;">Consolidado ${weekLabel}</strong>
           </div>
           ${isCurrentGroupActive
             ? '<span class="badge badge-success" style="font-size: 0.75rem;"><i class="fa-solid fa-circle-check"></i> Activo</span>'
@@ -740,8 +769,8 @@ window.DashboardView = {
       btnSelect.className = `btn ${isCurrentGroupActive ? 'btn-secondary' : 'btn-primary'} btn-xs`;
       btnSelect.style.cssText = 'flex: 1; font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.65rem;';
       btnSelect.innerHTML = isCurrentGroupActive
-        ? '<i class="fa-solid fa-check"></i> Mostrando este Grupo'
-        : '<i class="fa-solid fa-chart-pie"></i> Ver Consolidado Grupo ' + g.groupId;
+        ? '<i class="fa-solid fa-check"></i> Mostrando esta semana'
+        : '<i class="fa-solid fa-chart-pie"></i> Ver ' + weekLabel;
       btnSelect.onclick = () => {
         if (currentInvSelect) {
           currentInvSelect.value = 'TODOS';
@@ -755,7 +784,7 @@ window.DashboardView = {
       const btnPdf = document.createElement('button');
       btnPdf.type = 'button';
       btnPdf.className = 'btn btn-secondary btn-xs';
-      btnPdf.title = `Imprimir Informe PDF para Grupo ${g.groupId}`;
+      btnPdf.title = `Imprimir informe PDF de ${weekLabel}`;
       btnPdf.style.cssText = 'font-weight: 600; font-size: 0.78rem; padding: 0.4rem 0.65rem; display: inline-flex; align-items: center; gap: 0.35rem;';
       btnPdf.innerHTML = '<i class="fa-solid fa-file-pdf" style="color: #ef4444;"></i> PDF';
       btnPdf.onclick = () => {

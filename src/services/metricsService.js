@@ -302,7 +302,7 @@ class MetricsService {
         groupsMap.set(key, {
           groupId: key,
           suffix,
-          label: suffix ? `Ciclo / Conteo ${suffix} (Terminación -${suffix})` : 'Otros inventarios',
+          label: suffix ? `Semana ${Number(suffix) || suffix}` : 'Inventarios sin numeración',
           inventories: [],
           rawInventories: [],
           totalItems: 0,
@@ -343,7 +343,7 @@ class MetricsService {
       : (isGroupFilter && selected.length > 0
           ? {
               id: cleanInventoryId,
-              name: `Consolidado Grupo ${groupSuffix} (Terminación -${groupSuffix})`,
+              name: `Consolidado Semana ${Number(groupSuffix) || groupSuffix}`,
               center: cleanCenter !== 'TODOS' ? cleanCenter : 'Todos los centros',
               type: cleanType !== 'TODOS' ? cleanType : 'Cíclico',
               totalItems: selected.reduce((sum, inv) => sum + (inv.totalItems ?? (inv.items || []).length ?? 0), 0),
