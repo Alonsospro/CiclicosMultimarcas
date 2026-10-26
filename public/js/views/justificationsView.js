@@ -1024,9 +1024,15 @@ window.JustificationsView = {
                               <button ${item.canJustify ? '' : 'disabled'} class="btn btn-secondary btn-xs" onclick="window.JustificationsView.openJustifyModal('${task.inventoryId}', '${item.SKU}', '${itemKey}', ${itemIdx})" style="width: 100%;">
                                 <i class="fa-solid fa-pen-to-square"></i> ${!item.canJustify ? 'Solo lectura' : (item.reviewComplete ? 'Editar explicación' : 'Justificar')}
                               </button>
-                              <button type="button" class="btn btn-outline-info btn-xs" onclick="window.JustificationsView.openReopenModal('${task.inventoryId}')" title="Reabra la etapa para modificar cantidades y volver a justificar el resultado." style="width: 100%; padding: 2px 4px; font-size: 0.72rem; display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
-                                <i class="fa-solid fa-calculator"></i> Reabrir cantidades
-                              </button>
+                              ${['EN_PROGRESO', 'EN_RECONTEO'].includes(task.status) ? `
+                                <button type="button" class="btn btn-outline-warning btn-xs" onclick="window.JustificationsView.openEditCountModal('${task.inventoryId}', '${item.SKU}', '${itemKey}', ${itemIdx})" title="Modificar conteo físico directamente para este ítem" style="width: 100%; padding: 2px 4px; font-size: 0.72rem; display: inline-flex; align-items: center; justify-content: center; gap: 3px; font-weight: 700;">
+                                  <i class="fa-solid fa-pen-to-square"></i> Actualizar conteo
+                                </button>
+                              ` : `
+                                <button type="button" class="btn btn-outline-info btn-xs" onclick="window.JustificationsView.openReopenModal('${task.inventoryId}')" title="Reabra la etapa para modificar cantidades y volver a justificar el resultado." style="width: 100%; padding: 2px 4px; font-size: 0.72rem; display: inline-flex; align-items: center; justify-content: center; gap: 3px;">
+                                  <i class="fa-solid fa-calculator"></i> Reabrir cantidades
+                                </button>
+                              `}
                             </div>
                           </td>
                         </tr>
@@ -1179,6 +1185,13 @@ window.JustificationsView = {
   openJustifyModal(inventoryId, sku, itemKey, index) {
     const task = this.tasks.find(t => t.inventoryId === inventoryId);
     if (!task || !task.items) return;
+    const skuMatches = (a, b) => {
+      const normA = String(a || '').trim().toUpperCase();
+      const normB = String(b || '').trim().toUpperCase();
+      if (!normA || !normB) return false;
+      if (normA === normB) return true;
+      return normA.replace(/^JD[_-]?/i, '') === normB.replace(/^JD[_-]?/i, '');
+    };
     let itemIndex = -1;
     if (typeof index === 'number' && index >= 0 && index < task.items.length) {
       itemIndex = index;
@@ -1190,8 +1203,11 @@ window.JustificationsView = {
         return `${cleanSkuId}_${cleanWarId || 'war'}_${cleanLocId || 'loc'}_${idx}` === itemKey;
       });
     }
-    if (itemIndex === -1) {
-      itemIndex = task.items.findIndex(i => i.SKU === sku);
+    if (itemIndex === -1 && sku) {
+      itemIndex = task.items.findIndex(i => skuMatches(i.SKU, sku));
+    }
+    if (itemIndex === -1 && typeof index === 'number') {
+      itemIndex = index;
     }
     this.openJustifyModalAtIndex(inventoryId, itemIndex >= 0 ? itemIndex : 0);
   },
@@ -1643,7 +1659,17 @@ window.JustificationsView = {
     const task = this.tasks?.find(t => t.inventoryId === inventoryId);
     const isReconteoTask = !!(task && (task.hasRecount || task.status === 'EN_RECONTEO' || task.isReconteo || String(task.inventoryId).startsWith('REC-')));
 
-    const selectedItem = task?.items?.find(item => item.id === itemId);
+    const skuMatches = (a, b) => {
+      const normA = String(a || '').trim().toUpperCase();
+      const normB = String(b || '').trim().toUpperCase();
+      if (!normA || !normB) return false;
+      if (normA === normB) return true;
+      return normA.replace(/^JD[_-]?/i, '') === normB.replace(/^JD[_-]?/i, '');
+    };
+    const selectedItem = (itemId && task?.items?.find(item => String(item.id) === String(itemId)))
+      || (typeof itemIdx === 'number' && itemIdx >= 0 && task?.items?.[itemIdx])
+      || task?.items?.find(item => skuMatches(item.SKU, sku) && (!almacen || String(item.Almacen || '').trim().toUpperCase() === String(almacen).trim().toUpperCase()))
+      || task?.items?.find(item => skuMatches(item.SKU, sku));
     if (!selectedItem?.canJustify) {
       window.Toast.warning('La justificación no está habilitada para esta etapa. Actualice la lista.');
       return false;
@@ -1793,7 +1819,25 @@ window.JustificationsView = {
   openEditCountModal(inventoryId, sku, itemKey, itemIdx) {
     const task = this.tasks?.find(t => t.inventoryId === inventoryId);
     if (!task) return;
-    const item = (task.items || [])[itemIdx] || (task.items || []).find(i => String(i.SKU) === String(sku));
+    const skuMatches = (a, b) => {
+      const normA = String(a || '').trim().toUpperCase();
+      const normB = String(b || '').trim().toUpperCase();
+      if (!normA || !normB) return false;
+      if (normA === normB) return true;
+      return normA.replace(/^JD[_-]?/i, '') === normB.replace(/^JD[_-]?/i, '');
+    };
+    let item = (typeof itemIdx === 'number' && itemIdx >= 0 && (task.items || [])[itemIdx]) || null;
+    if (!item && itemKey) {
+      item = (task.items || []).find((it, idx) => {
+        const cleanSkuId = String(it.SKU).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const cleanWarId = String(it.Almacen || it.almacen || it.warehouse || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const cleanLocId = String(it.Ubicacion || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+        return `${cleanSkuId}_${cleanWarId || 'war'}_${cleanLocId || 'loc'}_${idx}` === itemKey;
+      });
+    }
+    if (!item && sku) {
+      item = (task.items || []).find(i => skuMatches(i.SKU, sku));
+    }
     if (!item) {
       window.Toast.danger('No se encontró el ítem a editar');
       return;
@@ -1801,20 +1845,35 @@ window.JustificationsView = {
 
     this.currentEditingCountItem = { inventoryId, item, itemKey, itemIdx };
 
-    document.getElementById('edit-count-inv-id').value = inventoryId;
-    document.getElementById('edit-count-sku').value = item.SKU;
-    document.getElementById('edit-count-item-id').value = item.id || '';
-    document.getElementById('edit-count-location').value = item.Ubicacion || '';
-    document.getElementById('edit-count-almacen').value = item.Almacen || item.almacen || item.warehouse || '';
+    const invIdInput = document.getElementById('edit-count-inv-id');
+    if (invIdInput) invIdInput.value = inventoryId;
+    const skuInput = document.getElementById('edit-count-sku');
+    if (skuInput) skuInput.value = item.SKU;
+    const itemIdInput = document.getElementById('edit-count-item-id');
+    if (itemIdInput) itemIdInput.value = item.id || '';
+    const locInput = document.getElementById('edit-count-location');
+    if (locInput) locInput.value = item.Ubicacion || '';
+    const almInput = document.getElementById('edit-count-almacen');
+    if (almInput) almInput.value = item.Almacen || item.almacen || item.warehouse || '';
 
-    const skuDescEl = document.getElementById('edit-count-sku-desc');
-    if (skuDescEl) skuDescEl.textContent = `${item.SKU} - ${item.Descripcion || ''}`;
+    // Update display cards (handles both index.html structure and alternate IDs)
+    const skuDisplayEl = document.getElementById('edit-count-sku-display') || document.getElementById('edit-count-sku-desc');
+    if (skuDisplayEl) skuDisplayEl.textContent = item.SKU;
 
-    const alUbEl = document.getElementById('edit-count-almacen-ub');
-    if (alUbEl) alUbEl.textContent = `${item.Almacen || 'Principal'} / ${item.Ubicacion || '-'}`;
+    const descDisplayEl = document.getElementById('edit-count-desc-display');
+    if (descDisplayEl) descDisplayEl.textContent = item.Descripcion || 'Sin descripción';
 
-    const sisEl = document.getElementById('edit-count-stock-sis');
+    const alDisplayEl = document.getElementById('edit-count-almacen-display') || document.getElementById('edit-count-almacen-ub');
+    if (alDisplayEl) alDisplayEl.textContent = item.Almacen || 'Principal';
+
+    const locDisplayEl = document.getElementById('edit-count-loc-display');
+    if (locDisplayEl) locDisplayEl.textContent = item.Ubicacion || '-';
+
+    const sisEl = document.getElementById('edit-count-sys-display') || document.getElementById('edit-count-stock-sis');
     if (sisEl) sisEl.textContent = String(item.Stock_Sistema ?? 0);
+
+    const costEl = document.getElementById('edit-count-cost-display');
+    if (costEl) costEl.textContent = window.AppConfig ? window.AppConfig.formatCurrency(item.Costo_Unitario || 0) : `Bs. ${Number(item.Costo_Unitario || 0).toFixed(2)}`;
 
     // Prefer the reopened stage so editing follows the stage the administrator selected.
     let targetPhase = ['1ER_CONTEO', 'RECONTEO_1', 'RECONTEO_2'].includes(task.reopenedPhase)

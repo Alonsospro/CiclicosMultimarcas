@@ -56,12 +56,13 @@ const CFG = {
   defaultSheetName: 'Inventario',
   headerRow: 1,
   dataStartRow: 2,
-  driveRoots: {
-    'CICLICO': '11N39_pZhy5iT8p7Y-zD9_C-V9eM7f0c1',
-    'GENERAL': '1A9876543210ZYXWVUTSRQPONMLKJIHGF',
-    'EXPRESS': '1B1234567890ABCDEFGHJKLMNPQRSTUVWX',
-    'BARRIDO': '11N39_pZhy5iT8p7Y-zD9_C-V9eM7f0c1'
-  }
+  // Carpetas existentes proporcionadas para evidencias; cada una contiene fecha/centro.
+  photoRoots: {
+    malestado: '1q0rRvFpiFXDlXuX97odyz-bVcGZIxwEm',
+    justificaciones: '1tBlqX8MXyfD6SjQ6aLoViCDqYd_8MK54'
+  },
+  // Configurar ROOT_CICLICO, ROOT_BARRIDO, ROOT_MENSUAL, etc. en propiedades.
+  driveRoots: {}
 };
 
 const COL = {
@@ -151,1605 +152,625 @@ const DEFAULT_HEADERS = [
   'Costo Diferencia Final 2'      // AN (40)
 ];
 
-function onOpen() {
-  const ui = SpreadsheetApp.getUi();
-  ui.createMenu('📦 Inventarios')
-    .addItem('Distribuir BD_BASE a Centros', 'distribuirBaseACentros')
-    .addItem('Asegurar 40 Columnas en Hojas', 'asegurarTodasLasColumnas')
-    .addToUi();
-}
-
-function doGet(e) {
-  try {
-    const p = (e && e.parameter) || {};
-    const action = p.action || 'ping';
-
-    if (action === 'ping') {
-      return json_({
-        success: true,
-        message: 'GAS Inventory Webhook activo (40 columnas)',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    if (action === 'getItems' || action === 'getProducts' || action === 'readItems') {
-      const center = p.center || p.centro || CFG.defaultCenterIfMissing;
-      const sh = getCenterSheet_(center);
-      const rows = readRowsAsObjects_(sh);
-      return json_({ success: true, status: 'success', center, total: rows.length, items: rows, products: rows, rows: rows });
-    }
-
-    if (action === 'getHistory' || action === 'listFinalFiles') {
-      const type = p.type || 'CICLICO';
-      const center = p.center || null;
-      const history = getHistory_(type, center);
-      return json_({ success: true, count: history.length, history: history });
-    }
-
-    if (action === 'diagnostic') {
-      const ss = SpreadsheetApp.getActiveSpreadsheet();
-      const sheets = ss.getSheets().map(s => ({ name: s.getName(), rows: s.getLastRow(), cols: s.getLastColumn() }));
-      return json_({
-        success: true,
-        spreadsheetName: ss.getName(),
-        spreadsheetId: ss.getId(),
-        sheets,
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    if (action === 'getLogos' || action === 'listLogos') {
-      const folderId = '1ZECgK7i8DAqXH0K3quRqaIlcnbpF7nSe';
-      const folder = DriveApp.getFolderById(folderId);
-      const files = folder.getFiles();
-      const logos = [];
-      while (files.hasNext()) {
-        const f = files.next();
-        logos.push({
-          id: f.getId(),
-          name: f.getName(),
-          url: f.getUrl(),
-          downloadUrl: 'https://drive.google.com/uc?export=download&id=' + f.getId()
-        });
-      }
-      return json_({ success: true, count: logos.length, logos: logos });
-    }
-
-    if (action === 'getReferencePhoto') {
-      const sku = String(p.sku || '').trim();
-      const photo = getReferencePhotoBySku_(sku);
-      return json_({ success: true, sku, photo });
-    }
-
-    return json_({ success: false, error: `Accion GET no soportada: ${action}` });
-  } catch (err) {
-    return json_({ success: false, error: err.message, stack: err.stack });
+// Canonical quantities: Stock_Fisico is GOOD stock; Stock_Total includes damaged stock.
+// Canonical quantities: Stock_Fisico is GOOD stock; Stock_Total includes damaged stock.
+const InventoryContract = (() => {
+  const columns = ["SKU","Codigo_Barras","Descripcion","Ubicacion","Ubicacion_1","Ubicacion_2","Almacen","Clasificacion_ABC","Unidad","Costo_Unitario","Stock_Sistema","Stock_Total","Stock_Buen_Estado","Mal_estado","Diferencia","Costo_Diferencia","Fecha_Ultimo_Conteo","Responsable","Fecha_Primera_Justificacion","Estado","Razon","Comentario_Justificacion","Responsable_Justificacion","Fecha_Reconteo","Stock_Total_Reconteo","Reconteo","Malestado_Reconteo","Diferencia_Final","Costo_Diferencia_Final","Fecha_Justificacion_2","Estado_Justificacion_2","Razon_Justificacion_2","Comentario_Justificacion_2","Responsable_Justificacion_2","Fecha_Reconteo_2","Stock_Total_Reconteo_2","Reconteo_2","Malestado_Reconteo_2","Diferencia_Final_2","Costo_Diferencia_Final_2"];
+  const has = v => v !== undefined && v !== null && String(v).trim() !== '';
+  const first = (...v) => v.find(has);
+  const identity = v => String(v ?? '').trim().toUpperCase();
+  function number(v, label, fallback = 0) {
+    if (!has(v)) return fallback;
+    if (typeof v === 'boolean' || !Number.isFinite(Number(v))) throw new Error('Número inválido: ' + label);
+    return Number(v);
   }
-}
-
-function getHistory_(type, center) {
-  const results = [];
-  try {
-    const rootFolder = getRootFolderForType_(type || 'CICLICO');
-    const targetCenters = center ? [center] : ['1120', '1300', 'WARNES', '1100', '1200'];
-
-    targetCenters.forEach(c => {
-      try {
-        const cFolders = rootFolder.getFoldersByName(c);
-        while (cFolders.hasNext()) {
-          const cFolder = cFolders.next();
-          const snapFolders = cFolder.getFoldersByName('Archivos Finales');
-          while (snapFolders.hasNext()) {
-            const sFolder = snapFolders.next();
-            const files = sFolder.getFiles();
-            while (files.hasNext()) {
-              const f = files.next();
-              results.push({
-                fileId: f.getId(),
-                fileName: f.getName(),
-                driveUrl: f.getUrl(),
-                spreadsheetUrl: f.getUrl(),
-                center: c,
-                type: type || 'CICLICO',
-                closedAt: f.getDateCreated().toISOString(),
-                closedBy: 'GAS / Drive',
-                source: 'GOOGLE_DRIVE'
-              });
-            }
-          }
-        }
-      } catch (e) {}
+  function quantity(v, label) {
+    const n = number(v, label);
+    if (!Number.isSafeInteger(n) || n < 0) throw new Error('Cantidad inválida: ' + label);
+    return n;
+  }
+  function date(v) {
+    const d = has(v) ? new Date(v) : new Date();
+    if (!Number.isFinite(d.getTime())) throw new Error('Fecha inválida');
+    return d.toISOString();
+  }
+  const stages = [
+    ['Stock_Buen_Estado','Mal_estado','Stock_Total','Diferencia','Costo_Diferencia','Fecha_Ultimo_Conteo'],
+    ['Reconteo','Malestado_Reconteo','Stock_Total_Reconteo','Diferencia_Final','Costo_Diferencia_Final','Fecha_Reconteo'],
+    ['Reconteo_2','Malestado_Reconteo_2','Stock_Total_Reconteo_2','Diferencia_Final_2','Costo_Diferencia_Final_2','Fecha_Reconteo_2']
+  ];
+  function normalize(raw) {
+    const r = {...raw};
+    r.SKU = identity(first(raw.SKU, raw.sku));
+    r.Almacen = String(first(raw.Almacen, raw.almacen, raw.warehouse) ?? '').trim();
+    r.Ubicacion = String(first(raw.Ubicacion, raw.ubicacion, raw.location) ?? '').trim();
+    r.Stock_Sistema = number(first(raw.Stock_Sistema, raw.stockSistema), 'Stock_Sistema');
+    r.Costo_Unitario = number(first(raw.Costo_Unitario, raw.costoUnitario), 'Costo_Unitario');
+    r.Reconteo = first(raw.Reconteo, raw.Reconteo_Fisico) ?? null;
+    r.Malestado_Reconteo = first(raw.Malestado_Reconteo, raw.Reconteo_Mal_Estado) ?? null;
+    if (!has(r.Stock_Buen_Estado)) {
+      r.Stock_Buen_Estado = has(r.Stock_Total)
+        ? number(r.Stock_Total, 'Stock_Total') - number(r.Mal_estado, 'Mal_estado')
+        : first(raw.Stock_Fisico, raw.stockFisico) ?? null;
+    }
+    for (const [good,bad,total,diff,cost] of stages) {
+      if (!has(r[good]) && !has(r[total])) { r[good]=null; r[bad]=has(r[bad])?quantity(r[bad],bad):null; r[total]=null; continue; }
+      r[bad] = quantity(r[bad], bad);
+      r[good] = quantity(has(r[good]) ? r[good] : number(r[total],total)-r[bad],good);
+      const sum=r[good]+r[bad];
+      if (!Number.isSafeInteger(sum)) throw new Error('Total fuera de rango: '+total);
+      if (has(r[total]) && quantity(r[total],total)!==sum) throw new Error('Total inconsistente: '+total);
+      r[total]=sum;
+      r[diff]=has(r[diff])?number(r[diff],diff):sum-r.Stock_Sistema;
+      r[cost]=r[diff]*r.Costo_Unitario;
+    }
+    r.Stock_Fisico=r.Stock_Buen_Estado;
+    r.Reconteo_Fisico=r.Reconteo;
+    r.Reconteo_Mal_Estado=r.Malestado_Reconteo;
+    return r;
+  }
+  function status(p) {
+    const raw=identity(first(p.corroboracion,p.corroboration,p.estadoJustificacion2,p.estadoJustificacion,p.estado,p.status)).replace(/_/g,' ');
+    if (p.isCuadra===false || raw==='NO CUADRA') return 'NO CUADRA';
+    if (p.isCuadra===true || raw==='CUADRA') return 'CUADRA';
+    throw new Error('Indique CUADRA o NO CUADRA');
+  }
+  function update(original,p) {
+    const r=normalize(original);
+    const rec2=p.isReconteo2===true || ['RECONTEO_2','RECONTEO 2'].includes(identity(p.countPhase));
+    const rec1=!rec2 && (p.isReconteo===true || ['RECONTEO','RECONTEO_1','RECONTEO 1'].includes(identity(p.countPhase)));
+    const inputs=[
+      [first(p.stockBuenEstado,p.stockFisico),p.malEstado,p.stockTotal,p.fechaUltimoConteo],
+      [first(p.reconteo,p.reconteoFisico,p.RECONTEO),first(p.malestadoReconteo,p.reconteoMalEstado,p.MALESTADO_RECONTEO),p.stockTotalReconteo,p.fechaReconteo],
+      [first(p.reconteo2,p.RECONTEO_2),first(p.malestadoReconteo2,p.MALESTADO_RECONTEO_2),p.stockTotalReconteo2,p.fechaReconteo2]
+    ];
+    let countChanged=false;
+    inputs.forEach((values,i)=>{
+      if ((i===0 && (rec1||rec2)) || (i===1 && rec2)) return;
+      const [g,b,t,d]=values;
+      if (![g,b,t].some(has)) return;
+      countChanged=true;
+      const [good,bad,total,,,when]=stages[i];
+      const badQty=quantity(has(b)?b:r[bad],bad);
+      const goodQty=has(g)?quantity(g,good):(has(t)?quantity(number(t,total)-badQty,good):quantity(r[good],good));
+      const sum=goodQty+badQty;
+      if (!Number.isSafeInteger(sum) || (has(t)&&quantity(t,total)!==sum)) throw new Error('Total inconsistente: '+total);
+      r[good]=goodQty;r[bad]=badQty;r[total]=sum;r[when]=date(d);
+      if(i===0 && has(first(p.responsable,p.username))) r.Responsable=first(p.responsable,p.username);
     });
-  } catch (err) {}
-  return results;
-}
-
-function doPost(e) {
-  const lock = LockService.getScriptLock();
-  const locked = lock.tryLock(10000);
-  if (!locked) {
-    return json_({ success: false, error: 'Servidor ocupado. Intenta de nuevo.' });
+    for (const [field,alias] of [['Ubicacion_1','ubicacion1'],['Ubicacion_2','ubicacion2']]) {
+      if(Object.prototype.hasOwnProperty.call(p,alias)||Object.prototype.hasOwnProperty.call(p,field))
+        r[field]=String(p[alias]??p[field]??'').trim();
+    }
+    if(p.isNewLocation){
+      const loc=String(first(p.newLocation,p.location)??'').trim();
+      if(!loc) throw new Error('Falta la nueva ubicación');
+      const locations=[r.Ubicacion,r.Ubicacion_1,r.Ubicacion_2].map(identity);
+      if(!locations.includes(identity(loc))){
+        if(!has(r.Ubicacion_1))r.Ubicacion_1=loc;
+        else if(!has(r.Ubicacion_2))r.Ubicacion_2=loc;
+        else throw new Error('Máximo de dos ubicaciones adicionales');
+      }
+    }
+    const locations=[r.Ubicacion,r.Ubicacion_1,r.Ubicacion_2].filter(has).map(identity);
+    if(new Set(locations).size!==locations.length)throw new Error('Ubicaciones duplicadas');
+    const justification=p.action==='saveJustification'||[p.isCuadra,p.corroboracion,p.corroboration,p.estadoJustificacion,p.estadoJustificacion2].some(has);
+    let resolved=false;
+    if(justification){
+      const round=Number(p.round??p.justificationRound??(p.isJustification2?2:1));
+      if(![1,2].includes(round))throw new Error('Ronda de justificación inválida');
+      const state=status(p);
+      const originalStock=first(p.originalStockSistema,p.stockSistemaOriginal,r.Stock_Sistema_Original,r.Stock_Sistema);
+      r.Stock_Sistema_Original=number(originalStock,'Stock_Sistema_Original');
+      if(state==='CUADRA'){
+        const latest=[r.Stock_Total_Reconteo_2,r.Stock_Total_Reconteo,r.Stock_Total].find(has);
+        if(!has(latest))throw new Error('No se puede justificar sin conteo');
+        r.Stock_Sistema=latest;resolved=true;
+      }else r.Stock_Sistema=r.Stock_Sistema_Original;
+      const second=round===2;
+      r[second?'Fecha_Justificacion_2':'Fecha_Primera_Justificacion']=date(first(second?p.fechaJustificacion2:p.fechaPrimeraJustificacion,p.fecha));
+      r[second?'Estado_Justificacion_2':'Estado']=state;
+      r[second?'Razon_Justificacion_2':'Razon']=first(second?p.razonJustificacion2:null,p.razon,p.reasonType,p.razonJustificacion)??'AJUSTE_INVENTARIO';
+      r[second?'Comentario_Justificacion_2':'Comentario_Justificacion']=first(second?p.comentarioJustificacion2:null,p.comentarioJustificacion,p.justification)??'';
+      const reviewer=first(second?p.responsableJustificacion2:null,p.responsableJustificacion,p.reviewedBy,p.reviewer);
+      if(has(reviewer))r[second?'Responsable_Justificacion_2':'Responsable_Justificacion']=reviewer;
+    }
+    if(countChanged||justification)for(const [, ,total,diff,cost] of stages){
+      if(has(r[total])){r[diff]=resolved?0:r[total]-r.Stock_Sistema;r[cost]=r[diff]*r.Costo_Unitario;}
+    }
+    return normalize(r);
   }
+  function finalItem(raw){
+    const r=normalize(raw);
+    if(!r.SKU||!r.Almacen||!has(r.Stock_Total))throw new Error('Cierre incompleto: SKU, almacén y primer conteo son obligatorios');
+    return Object.fromEntries(columns.map(k=>[k,r[k]??'']));
+  }
+  function member(r){return JSON.stringify([identity(r.SKU||r.sku),identity(r.Almacen||r.almacen||r.warehouse),identity(r.Ubicacion||r.ubicacion||r.location)]);}
+  return {columns,stages,has,first,identity,number,quantity,date,normalize,status,update,finalItem,member};
+})();
 
-  try {
-    const raw = (e && e.postData && e.postData.contents) || '{}';
-    const body = JSON.parse(raw);
-    const action = body.action || '';
 
-    if (action === 'ping') {
-      return json_({ success: true, message: 'GAS POST webhook activo', timestamp: new Date().toISOString() });
+
+function onOpen(){
+  SpreadsheetApp.getUi().createMenu('📦 Inventarios')
+    .addItem('Actualizar maestros desde BD_BASE (conservar conteos)','distribuirBaseACentros')
+    .addItem('Verificar columnas','asegurarTodasLasColumnas').addToUi();
+}
+function json_(data){return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);}
+function property_(key){return PropertiesService.getScriptProperties().getProperty(key);}
+function spreadsheet_(){const id=property_('INVENTORY_SPREADSHEET_ID');const ss=id?SpreadsheetApp.openById(id):SpreadsheetApp.getActiveSpreadsheet();if(!ss)throw new Error('Configure INVENTORY_SPREADSHEET_ID');return ss;}
+function authenticate_(p){
+  const expected=property_('APPS_SCRIPT_TOKEN');
+  if(!expected||String(p.apiToken||'')!==expected)throw new Error('Acceso no autorizado');
+}
+function doGet(e){
+  const p=(e&&e.parameter)||{};
+  if(!p.action||p.action==='ping')return json_({success:true,version:2,message:'Inventarios API',timestamp:new Date().toISOString()});
+  try{authenticate_(p);return json_(dispatchRead_(p));}catch(e){return json_({success:false,error:e.message});}
+}
+function doPost(e){
+  let lock;
+  try{
+    const body=JSON.parse(e?.postData?.contents||'{}');authenticate_(body);
+    const readActions=['ping','getItems','getProducts','readItems','getHistory','listFinalFiles','readFinalInventory','getReferencePhoto','getLogos','listLogos','diagnostic'];
+    if(readActions.includes(body.action))return json_(dispatchRead_(body));
+    // Photos use a separate user lock so Drive uploads cannot block inventory writes.
+    if(body.action==='savePhoto'||body.action==='uploadPhoto'){
+      const photoLock=LockService.getUserLock();
+      if(!photoLock.tryLock(25000))return json_({success:false,retryable:true,error:'Servidor ocupado al guardar la foto. Reintente con el mismo operationId.'});
+      try{
+        const result=savePhotoDirectly_(body);
+        return json_({success:true,action:body.action,...result});
+      }finally{photoLock.releaseLock();}
     }
-
-    if (action === 'savePhoto' || action === 'uploadPhoto') {
-      const result = savePhotoDirectly_(body);
-      return json_({ success: true, action, ...result });
+    lock=LockService.getScriptLock();
+    if(!lock.tryLock(25000))return json_({success:false,retryable:true,error:'Servidor ocupado. Reintente con el mismo operationId.'});
+    const clean={...body};delete clean.apiToken;
+    // A close retry can have a new wall-clock date; its immutable rows/identity determine the operation.
+    if(clean.action==='createFinalFile'&&clean.driveRecord){clean.driveRecord={...clean.driveRecord};delete clean.driveRecord.closedAt;}
+    const fingerprint=hash_(JSON.stringify(clean)),id=String(body.operationId||'');
+    if(!id)throw new Error('Falta operationId');
+    const previous=readOperation_(id);
+    if(previous){if(previous.hash!==fingerprint)throw new Error('operationId reutilizado con datos diferentes');return json_(previous.result);}
+    let result;
+    switch(body.action){
+      case 'upsertCount':result=upsertCount_(body);break;
+      case 'batchUpsertCounts':result=batchUpsertCounts_(body);break;
+      case 'saveJustification':result=upsertCount_({...body,action:'saveJustification'});break;
+      case 'deleteAdditionalLocation':case 'deleteItem':result=deleteAdditionalLocation_(body);break;
+      case 'createFinalFile':result=createFinalFile_(body);break;
+      default:throw new Error('Acción no soportada: '+body.action);
     }
-
-    if (action === 'upsertCount') {
-      const result = upsertCount_(body);
-      return json_({ success: true, action, ...result });
+    result={success:true,action:body.action,...result};
+    SpreadsheetApp.flush();
+    if(result.success)confirmOperation_(id,fingerprint,result);
+    return json_(result);
+  }catch(e){return json_({success:false,error:e.message});}
+  finally{if(lock?.hasLock())lock.releaseLock();}
+}
+function dispatchRead_(p){
+  switch(p.action){
+    case 'ping':return {success:true,version:2};
+    case 'getItems':case 'getProducts':case 'readItems':{
+      const items=readRowsAsObjects_(getCenterSheet_(p.center||p.centro));
+      return {success:true,center:p.center,items,total:items.length};
     }
-
-    if (action === 'batchUpsertCounts') {
-      const result = batchUpsertCounts_(body);
-      return json_({ success: true, action, ...result });
+    case 'getHistory':case 'listFinalFiles':{const history=getHistory_(p.type,p.center);return {success:true,history,count:history.length};}
+    case 'readFinalInventory':return {success:true,...readFinalInventory_(p)};
+    case 'getReferencePhoto':return {success:true,photo:getReferencePhotoBySku_(p.sku)};
+    case 'getLogos':case 'listLogos':{
+      const folder=DriveApp.getFolderById(property_('LOGOS_FOLDER_ID')||'1ZECgK7i8DAqXH0K3quRqaIlcnbpF7nSe');
+      const it=folder.getFiles(),logos=[];while(it.hasNext()){const f=it.next();logos.push({id:f.getId(),name:f.getName(),url:f.getUrl(),downloadUrl:'https://drive.google.com/uc?export=download&id='+f.getId()});}return {success:true,logos};
     }
-
-    if (action === 'saveJustification') {
-      const result = saveJustificationToSheet_(body);
-      return json_({ success: true, action, ...result });
-    }
-
-    if (action === 'deleteAdditionalLocation' || action === 'deleteItem') {
-      const result = deleteAdditionalLocation_(body);
-      return json_({ success: true, action, ...result });
-    }
-
-    if (action === 'createFinalFile') {
-      const result = createFinalFile_(body);
-      return json_({ success: true, action, ...result });
-    }
-
-    if (action === 'getReferencePhoto') {
-      const sku = String(body.sku || '').trim();
-      const photo = getReferencePhotoBySku_(sku);
-      return json_({ success: true, sku, photo });
-    }
-
-    if (action === 'distribuirBaseACentros') {
-      distribuirBaseACentros();
-      return json_({ success: true, message: 'Distribución completada' });
-    }
-
-    return json_({ success: false, error: `Accion POST no soportada: ${action}` });
-  } catch (err) {
-    return json_({ success: false, error: err.message, stack: err.stack });
-  } finally {
+    case 'diagnostic':return {success:true,version:2,sheets:spreadsheet_().getSheets().filter(s=>/^\d{4}$/.test(s.getName())).map(s=>({name:s.getName(),rows:s.getLastRow(),cols:s.getLastColumn()}))};
+    default:throw new Error('Acción de lectura no soportada');
+  }
+}
+function hash_(value){return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,String(value)).map(b=>('0'+((b+256)%256).toString(16)).slice(-2)).join('');}
+function operationSheet_(){const ss=spreadsheet_();let sh=ss.getSheetByName('_NIBOL_SYNC');if(!sh){sh=ss.insertSheet('_NIBOL_SYNC');sh.appendRow(['Operacion','Resultado','Fecha','RequestHash']);sh.hideSheet();}return sh;}
+function readOperation_(id){
+  const sh=operationSheet_();if(sh.getLastRow()<2)return null;
+  const cell=sh.getRange(2,1,sh.getLastRow()-1,1).createTextFinder(id).matchEntireCell(true).useRegularExpression(false).findNext();
+  if(!cell)return null;const r=sh.getRange(cell.getRow(),1,1,4).getValues()[0];return {hash:r[3],result:JSON.parse(r[1])};
+}
+function confirmOperation_(id,hash,result){const value=JSON.stringify(result);if(value.length>45000)throw new Error('Respuesta demasiado grande para confirmar la operación');operationSheet_().appendRow([id,value,new Date(),hash]);}
+function getCenterSheet_(center,ss){
+  const clean=String(center||'').trim();if(!/^\d{4}$/.test(clean))throw new Error('Centro inválido: '+clean);
+  const targetSs=ss||spreadsheet_();
+  let sh=targetSs.getSheetByName(clean);
+  if(!sh&&ss)sh=targetSs.getSheets()[0];
+  if(!sh)throw new Error('No existe la pestaña del centro '+clean);
+  validateHeaders_(sh);return sh;
+}
+function ensureColumns_(sh){
+  if(sh.getMaxColumns()<40)sh.insertColumnsAfter(sh.getMaxColumns(),40-sh.getMaxColumns());
+  if(!sh.getLastRow())sh.getRange(1,1,1,40).setValues([DEFAULT_HEADERS]);
+  validateHeaders_(sh);
+}
+function headerKey_(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');}
+function validateHeaders_(sh){
+  if(sh.getMaxColumns()<40)throw new Error('La hoja '+sh.getName()+' requiere 40 columnas; no se migran datos por posición automáticamente');
+  const headers=sh.getRange(1,1,1,40).getDisplayValues()[0];
+  DEFAULT_HEADERS.forEach((h,i)=>{if(headerKey_(headers[i])!==headerKey_(h))throw new Error('Encabezado inesperado en '+sh.getName()+', columna '+(i+1)+': se esperaba '+h);});
+}
+function rowToObject_(row){const obj=Object.fromEntries(InventoryContract.columns.map((k,i)=>[k,row[i]]));return InventoryContract.normalize(obj);}
+function readRowsAsObjects_(sh){validateHeaders_(sh);return sh.getLastRow()<2?[]:sh.getRange(2,1,sh.getLastRow()-1,40).getValues().filter(r=>r.some(v=>v!==''&&v!==null)).map(rowToObject_);}
+function rowValues_(item){return InventoryContract.columns.map(k=>k.startsWith('Fecha_')&&InventoryContract.has(item[k])?new Date(InventoryContract.date(item[k])):(item[k]??''));}
+function findRowInSheet_(sh,p,rows){
+  const sku=InventoryContract.identity(p.sku||p.SKU),bar=InventoryContract.identity(p.barcode||p.codigoBarras||p.Codigo_Barras);
+  const war=InventoryContract.identity(p.almacen||p.warehouse||p.Almacen);
+  const loc=InventoryContract.identity(p.originalLocation||(p.isNewLocation?'':p.location||p.ubicacion||p.Ubicacion));
+  const cleanSku=sku.replace(/^JD[_-]?/i, '');
+  const data=rows|| (sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,40).getValues():[]);
+  const matches=[];
+  data.forEach((row,i)=>{
+    const rSku=InventoryContract.identity(row[0]);
+    const sameSku=sku && (rSku===sku || (cleanSku && rSku.replace(/^JD[_-]?/i, '')===cleanSku));
+    if(sku ? !sameSku : (!bar || InventoryContract.identity(row[1])!==bar)) return;
+    if(war&&InventoryContract.identity(row[6])!==war)return;
+    if(loc&&!row.slice(3,6).some(v=>InventoryContract.identity(v)===loc))return;
+    matches.push({rowNumber:i+2,row});
+  });
+  if(matches.length>1)throw new Error('SKU ambiguo: indique almacén y ubicación');
+  return matches[0]||null;
+}
+function findJustificationRow_(sh,p,rows){
+  const sku=InventoryContract.identity(p.sku||p.SKU),bar=InventoryContract.identity(p.barcode||p.codigoBarras||p.Codigo_Barras);
+  const war=InventoryContract.identity(p.almacen||p.warehouse||p.Almacen);
+  const loc=InventoryContract.identity(p.location||p.ubicacion||p.Ubicacion);
+  const cleanSku=sku.replace(/^JD[_-]?/i, '');
+  const data=rows|| (sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,40).getValues():[]);
+  const matches=[];
+  data.forEach((row,i)=>{
+    const rSku=InventoryContract.identity(row[0]);
+    const sameSku=sku && (rSku===sku || (cleanSku && rSku.replace(/^JD[_-]?/i, '')===cleanSku));
+    const sameProduct=sameSku || (bar && InventoryContract.identity(row[1])===bar);
+    if(!sameProduct) return;
+    if(war&&InventoryContract.identity(row[6])!==war) return;
+    matches.push({rowNumber:i+2,row});
+  });
+  if(matches.length>1&&loc){
+    const exactLoc=matches.filter(m=>m.row.slice(3,6).some(v=>InventoryContract.identity(v)===loc));
+    if(exactLoc.length===1) return exactLoc[0];
+  }
+  return matches[0]||null;
+}
+function upsertCount_(p,batch){
+  if(!p.sku&&!p.SKU&&!p.barcode&&!p.Codigo_Barras)throw new Error('Falta SKU o código de barras');
+  let sh=batch?.sheet||getCenterSheet_(p.center||p.centro);
+  let found=p.action==='saveJustification'?findJustificationRow_(sh,p,batch?.rows):findRowInSheet_(sh,p,batch?.rows),created=false,original;
+  if(!found && (p.spreadsheetUrl || p.driveUrl)){
     try {
-      lock.releaseLock();
+      const copySs = SpreadsheetApp.openByUrl(p.spreadsheetUrl || p.driveUrl);
+      const copySh = copySs.getSheetByName(p.center || p.centro) || copySs.getSheets()[0];
+      if (copySh) {
+        const foundInCopy = p.action==='saveJustification'?findJustificationRow_(copySh,p):findRowInSheet_(copySh,p);
+        if (foundInCopy) {
+          sh = copySh;
+          found = foundInCopy;
+        }
+      }
     } catch (_) {}
   }
+  if(!found){
+    if(p.action==='saveJustification'||(String(p.type).toUpperCase()!=='BARRIDO'&&p.allowNewItem!==true))throw new Error('Ítem no encontrado');
+    if(!p.almacen&&!p.warehouse&&!p.Almacen)throw new Error('Falta almacén');
+    original={SKU:p.sku||p.SKU,Codigo_Barras:p.barcode||p.Codigo_Barras||p.sku,Descripcion:p.descripcion||p.Descripcion||'',
+      Ubicacion:p.location||p.Ubicacion||'PRINCIPAL',Almacen:p.almacen||p.warehouse||p.Almacen,Clasificacion_ABC:p.clasificacionAbc||'C',
+      Unidad:p.unidad||'PZA',Costo_Unitario:p.costoUnitario??0,Stock_Sistema:p.stockSistema??0};
+    found={rowNumber:sh.getLastRow()+1};created=true;
+  }else original=rowToObject_(found.row);
+  if(p.action==='saveJustification'||[p.isCuadra,p.corroboracion,p.corroboration,p.estadoJustificacion,p.estadoJustificacion2].some(InventoryContract.has)){
+    p={...p,originalStockSistema:originalStock_(p,original)};
+  }
+  const item=InventoryContract.update(original,p);
+  // Validate/save evidence first. A failed photo must not leave an unconfirmed stock write.
+  const photoSaved=p.action==='saveJustification'?null:savePhotoIfAny_(p,p.center,p.type,item.SKU,'malestado');
+  const justPhotoSaved=savePhotoIfAny_(p,p.center,p.type,item.SKU,'justificaciones');
+  if(found.rowNumber>sh.getMaxRows())sh.insertRowsAfter(sh.getMaxRows(),1);
+  if(created)sh.getRange(found.rowNumber,1,1,40).setValues([rowValues_(item)]);
+  else {sh.getRange(found.rowNumber,5,1,2).setValues([[item.Ubicacion_1||'',item.Ubicacion_2||'']]);sh.getRange(found.rowNumber,11,1,30).setValues([rowValues_(item).slice(10)]);}
+  if(batch){if(created)batch.rows.push(rowValues_(item));else batch.rows[found.rowNumber-2]=rowValues_(item);}
+  return {center:p.center,row:found.rowNumber,sku:item.SKU,isNewItem:created,item,stockSistemaReescrito:item.Stock_Sistema,photoSaved,justPhotoSaved};
+}
+function batchUpsertCounts_(p){
+  if(!Array.isArray(p.updates)||p.updates.length>200)throw new Error('Lote inválido (máximo 200)');
+  const sheet=getCenterSheet_(p.center),batch={sheet,rows:sheet.getLastRow()>1?sheet.getRange(2,1,sheet.getLastRow()-1,40).getValues():[]};
+  const failedItems=[];let updatedCount=0,createdCount=0;
+  p.updates.forEach((it,index)=>{try{const r=upsertCount_({...it,center:p.center,type:p.type},batch);if(r.isNewItem)createdCount++;else updatedCount++;}catch(e){failedItems.push({index,sku:it.sku||it.SKU,error:e.message});}});
+  return {success:failedItems.length===0,total:p.updates.length,updatedCount,createdCount,failedItems};
+}
+function deleteAdditionalLocation_(p){
+  const sh=getCenterSheet_(p.center),found=findRowInSheet_(sh,{...p,location:p.originalLocation||''});
+  if(!found)throw new Error('Ítem no encontrado');
+  const row=found.row,loc=InventoryContract.identity(p.location),slot=Number(p.slot||p.locationSlot||0);
+  if(slot&&! [1,2].includes(slot))throw new Error('Slot inválido');
+  const pos=slot?slot+3:[4,5].find(i=>loc&&InventoryContract.identity(row[i])===loc);
+  if(pos===undefined||!row[pos]||(loc&&InventoryContract.identity(row[pos])!==loc))throw new Error('Ubicación adicional no encontrada');
+  if(pos===4){row[4]=row[5]||'';row[5]='';}else row[5]='';
+  sh.getRange(found.rowNumber,5,1,2).setValues([[row[4],row[5]]]);
+  return {cleared:true,sku:row[0],ubicacion1:row[4],ubicacion2:row[5]};
 }
 
-/**
- * Registra o actualiza el conteo físico de un ítem.
- * REGLA NUEVA:
- * Si se envía una nueva ubicación para un ítem existente, NO crea una nueva fila.
- * En su lugar guarda en Col E (Ubicación 1) o Col F (Ubicación 2).
- */
-function upsertCount_(payload) {
-  const center = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
-  const sku = String(payload.sku || payload.SKU || '').trim();
-  const barcode = String(payload.barcode || payload.codigoBarras || payload.Codigo_Barras || '').trim();
-  const location = String(payload.location || payload.ubicacion || payload.Ubicacion || '').trim();
-  const warehouse = String(payload.almacen || payload.warehouse || payload.Almacen || '').trim();
 
-  if (!sku && !barcode) {
-    throw new Error('upsertCount requiere al menos sku o barcode');
-  }
-
-  const sh = getCenterSheet_(center);
-
-  // Búsqueda en una sola lectura de memoria
-  let targetRow = findRowInSheet_(sh, sku, barcode, location, warehouse);
-  let isNewDiscovery = false;
-
-  // Si el ítem no existe en absoluto en el Sheet, se agrega una sola fila con 37 columnas
-  if (!targetRow) {
-    const newRowNumber = appendNewItem_(sh, payload);
-    targetRow = { rowNumber: newRowNumber };
-    isNewDiscovery = true;
-  } else {
-    // Si ya existe, actualiza reutilizando la fila leída
-    updateExistingRow_(sh, targetRow.rowNumber, payload, targetRow.row);
-  }
-
-  const invType = payload.type || (payload.inventoryId && String(payload.inventoryId).includes('BARRIDO') ? 'BARRIDO' : 'CICLICO');
-  const photoSaved = saveDamagedPhotoIfAny_(payload, center, invType, sku || barcode);
-  const justPhotoSaved = saveJustificationPhotoIfAny_(payload, center, invType, sku || barcode);
-
-  return {
-    center,
-    row: targetRow.rowNumber,
-    sku,
-    barcode,
-    isNewLocation: false, // Ya no genera filas paralelas
-    isNewItem: isNewDiscovery,
-    photoSaved,
-    justPhotoSaved
-  };
+function type_(value){const t=String(value||'CICLICO').toUpperCase().trim();const aliases={SEMANAL:'CICLICO',SEMANALES:'CICLICO',MENSUAL:'GENERAL',MENSUALES:'GENERAL'};return aliases[t]||t;}
+function driveFolderId_(value,label){
+  const raw=String(value||'').trim();
+  if(!raw)throw new Error('Configure '+label+' con el ID de una carpeta de Google Drive');
+  const fromUrl=raw.match(/drive\.google\.com\/(?:drive\/)?folders\/([a-zA-Z0-9_-]+)/i)
+    ||raw.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+  const id=fromUrl?fromUrl[1]:raw;
+  if(!/^[a-zA-Z0-9_-]{10,}$/.test(id))throw new Error(label+' debe ser un ID de carpeta o enlace de carpeta válido de Drive');
+  return id;
 }
-
-function batchUpsertCounts_(payload) {
-  const center = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
-  const updates = Array.isArray(payload.updates) ? payload.updates : [];
-  const sh = getCenterSheet_(center);
-  ensureColumns_(sh);
-
-  let updatedCount = 0;
-  let createdCount = 0;
-
-  updates.forEach(item => {
-    try {
-      const res = upsertCount_({
-        center,
-        type: payload.type,
-        ...item
+function getDriveFolder_(value,label){
+  const id=driveFolderId_(value,label);
+  try{return DriveApp.getFolderById(id);}
+  catch(err){throw new Error(label+' ('+id+') no existe o la cuenta que ejecuta Apps Script no tiene acceso. Verifique el ID y comparta la carpeta con esa cuenta.');}
+}
+function getRootFolderForType_(type){
+  const rawType=String(type||'CICLICO').toUpperCase().trim(),normalized=type_(rawType);
+  const key='ROOT_'+rawType;
+  const id=property_(key)||property_('ROOT_'+normalized);
+  if(!id)throw new Error('Falta '+key+' en Propiedades del script. Pegue el ID de la carpeta raíz de fotos/cierres.');
+  return getDriveFolder_(id,key);
+}
+function getOrCreateFolder_(parent,name){if(!String(name).trim())throw new Error('Nombre de carpeta vacío');const it=parent.getFoldersByName(String(name));return it.hasNext()?it.next():parent.createFolder(String(name));}
+function manifestFor_(p,sh,items){
+  const record=p.driveRecord||{},members=items.map(InventoryContract.member).sort();
+  return {version:2,inventoryId:record.inventoryId||p.inventoryId,operationId:p.operationId,center:String(p.center),type:p.type||'CICLICO',
+    gid:sh.getSheetId(),sheetName:sh.getName(),closedAt:record.closedAt||new Date().toISOString(),itemCount:items.length,
+    skuCount:new Set(items.map(it=>it.SKU)).size,membershipHash:hash_(JSON.stringify(members)),members};
+}
+function createFinalFile_(p){
+  const record=p.driveRecord||{},items=(record.items||p.items||[]).map(InventoryContract.finalItem);
+  if(!items.length)throw new Error('No se puede crear un cierre vacío');
+  getCenterSheet_(p.center);
+  const members=items.map(InventoryContract.member);
+  if(new Set(members).size!==members.length)throw new Error('Identidades duplicadas en el cierre');
+  // Rows already contain both rounds and the confirmed calculations. Do not reinterpret CUADRA during export.
+  const folder=getOrCreateFolder_(getOrCreateFolder_(getRootFolderForType_(p.type),String(p.center)),'Archivos Finales');
+  const payloadHash=hash_(JSON.stringify({items,inventoryId:record.inventoryId,center:p.center,type:p.type,justifications:record.justifications||[]}));
+  const existing=folder.getFiles();
+  while(existing.hasNext()){
+    const f=existing.next();let m;try{m=JSON.parse(f.getDescription()||'{}');}catch(_){continue;}
+    if(m.operationId===p.operationId){
+      if(m.payloadHash!==payloadHash)throw new Error('Cierre repetido con contenido diferente');
+      if(m.complete)return m.result;
+    }
+  }
+  let copy;
+  try{
+    const stamp=Utilities.formatDate(new Date(),Session.getScriptTimeZone()||'America/La_Paz','yyyyMMdd_HHmmss');
+    copy=DriveApp.getFileById(spreadsheet_().getId()).makeCopy('Inventario_'+p.type+'_'+p.center+'_FINAL_'+stamp,folder);
+    const ss=SpreadsheetApp.openById(copy.getId()),sh=getCenterSheet_(p.center,ss);
+    ss.getSheets().forEach(s=>{if(s.getSheetId()!==sh.getSheetId())ss.deleteSheet(s);});
+    if(sh.getMaxRows()<items.length+1)sh.insertRowsAfter(sh.getMaxRows(),items.length+1-sh.getMaxRows());
+    if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,40).clearContent();
+    sh.getRange(1,1,1,40).setValues([DEFAULT_HEADERS]);
+    [10,11,12,13,14,15,16,25,26,27,28,29,36,37,38,39,40].forEach(c=>sh.getRange(2,c,items.length,1).setNumberFormat('0.##########'));
+    sh.getRange(2,1,items.length,40).setValues(items.map(rowValues_));
+    if(sh.getMaxColumns()>40)sh.deleteColumns(41,sh.getMaxColumns()-40);
+    const manifest=manifestFor_(p,sh,items),summary={...manifest};delete summary.members;
+    const meta=ss.insertSheet('__INVENTORY_MANIFEST');
+    if(meta.getMaxRows()<members.length+1)meta.insertRowsAfter(meta.getMaxRows(),members.length+1-meta.getMaxRows());
+    meta.getRange(1,1).setValue(JSON.stringify(summary));meta.getRange(2,1,members.length,1).setValues(manifest.members.map(m=>[m]));meta.hideSheet();
+    // Preserve complete evidence metadata, including round and exact item identity.
+    const justifications=record.justifications||[];
+    if(justifications.length){
+      const evidence=ss.insertSheet('__JUSTIFICATIONS');
+      if(evidence.getMaxRows()<justifications.length+1)evidence.insertRowsAfter(evidence.getMaxRows(),justifications.length+1-evidence.getMaxRows());
+      evidence.getRange(1,1).setValue('Justificaciones y evidencia');
+      const entries=justifications.map(j=>{
+        const saved=savePhotoIfAny_({...j,action:'saveJustification',photoJustificacion:j.photoBase64||j.photoUrl||j.driveUrl},p.center,p.type,j.sku||j.SKU,'justificaciones');
+        const cleaned={...j};delete cleaned.photoBase64;
+        if(saved)cleaned.driveFileId=saved.id;
+        const text=JSON.stringify(cleaned);if(text.length>45000)throw new Error('Justificación demasiado extensa');
+        return [text];
       });
-      if (res.isNewItem) createdCount++;
-      else updatedCount++;
-    } catch (e) {}
-  });
-
-  return { center, total: updates.length, updatedCount, createdCount };
+      evidence.getRange(2,1,entries.length,1).setValues(entries);evidence.hideSheet();
+    }
+    SpreadsheetApp.flush();
+    const result={fileId:copy.getId(),fileName:copy.getName(),spreadsheetUrl:copy.getUrl()+'#gid='+sh.getSheetId(),
+      folderId:folder.getId(),center:p.center,type:p.type,itemsSynced:items.length,manifest:summary};
+    copy.setDescription(JSON.stringify({complete:true,operationId:p.operationId,payloadHash,inventoryManifest:summary,result}));
+    return result;
+  }catch(e){if(copy)copy.setTrashed(true);throw e;}
+}
+function allowedRoots_(){
+  const props=PropertiesService.getScriptProperties().getProperties();
+  const configured=Object.entries(props).filter(([k])=>k.startsWith('ROOT_')).map(([k,v])=>driveFolderId_(v,k));
+  return [...new Set([...configured,...Object.values(CFG.driveRoots).filter(Boolean).map(v=>driveFolderId_(v,'CFG.driveRoots'))])];
+}
+function belongsToRoot_(file,rootIds){
+  const queue=[],parents=file.getParents(),seen=new Set();while(parents.hasNext())queue.push(parents.next());
+  while(queue.length){const f=queue.shift();if(rootIds.includes(f.getId()))return true;if(seen.has(f.getId()))continue;seen.add(f.getId());
+    const pp=f.getParents();while(pp.hasNext())queue.push(pp.next());}return false;
+}
+function readFinalInventory_(p){
+  const id=String(p.spreadsheetId||'');if(!/^[a-zA-Z0-9_-]+$/.test(id))throw new Error('Identificador inválido');
+  const file=DriveApp.getFileById(id),parents=file.getParents();let final=false;
+  while(parents.hasNext())if(parents.next().getName()==='Archivos Finales')final=true;
+  if(!final||!belongsToRoot_(file,allowedRoots_()))throw new Error('Archivo fuera de las carpetas de cierres autorizadas');
+  const ss=SpreadsheetApp.openById(id),meta=ss.getSheetByName('__INVENTORY_MANIFEST');
+  if(!meta){
+    if(!/^\d{4}$/.test(String(p.center||'')))throw new Error('Cierre antiguo: indique el centro exacto');
+    const legacy=p.gid!==undefined?ss.getSheets().find(s=>String(s.getSheetId())===String(p.gid)):ss.getSheetByName(String(p.center));
+    if(!legacy||legacy.getName()!==String(p.center))throw new Error('La pestaña no corresponde al centro');
+    validateHeaders_(legacy);
+    return {headers:DEFAULT_HEADERS,rows:legacy.getLastRow()>1?legacy.getRange(2,1,legacy.getLastRow()-1,40).getValues():[],
+      manifest:null,legacy:true,sheetName:legacy.getName(),gid:legacy.getSheetId(),spreadsheetId:id,
+      spreadsheetTimeZone:ss.getSpreadsheetTimeZone(),modifiedAt:file.getLastUpdated().toISOString()};
+  }
+  const manifest=JSON.parse(meta.getRange(1,1).getValue());
+  if(p.center&&String(p.center)!==String(manifest.center))throw new Error('Centro incorrecto');
+  if(p.gid!==undefined&&String(p.gid)!==String(manifest.gid))throw new Error('Pestaña incorrecta');
+  const sh=ss.getSheets().find(s=>s.getSheetId()===Number(manifest.gid));if(!sh)throw new Error('Pestaña del cierre ausente');
+  validateHeaders_(sh);
+  const rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,40).getValues():[];
+  manifest.members=meta.getLastRow()>1?meta.getRange(2,1,meta.getLastRow()-1,1).getValues().map(r=>r[0]):[];
+  const actual=rows.map(rowToObject_).map(InventoryContract.member).sort();
+  if(actual.length!==manifest.itemCount||JSON.stringify(actual)!==JSON.stringify(manifest.members.slice().sort()))throw new Error('El contenido del cierre no coincide con su manifiesto');
+  return {headers:DEFAULT_HEADERS,rows,manifest,sheetName:sh.getName(),gid:sh.getSheetId(),spreadsheetId:id,spreadsheetTimeZone:ss.getSpreadsheetTimeZone(),modifiedAt:file.getLastUpdated().toISOString()};
+}
+function getHistory_(type,center){
+  const root=getRootFolderForType_(type),centers=[];
+  if(center)centers.push(String(center));else{const it=root.getFolders();while(it.hasNext()){const f=it.next();if(/^\d{4}$/.test(f.getName()))centers.push(f.getName());}}
+  const history=[];
+  centers.forEach(c=>{const cs=root.getFoldersByName(c);while(cs.hasNext()){const fs=cs.next().getFoldersByName('Archivos Finales');while(fs.hasNext()){const files=fs.next().getFiles();while(files.hasNext()){
+    const f=files.next();let metadata;try{metadata=JSON.parse(f.getDescription()||'{}');}catch(_){continue;}
+    const m=metadata.inventoryManifest;if(!m||metadata.complete===false)continue;
+    if(type&&String(m.type)!==String(type))continue;
+    history.push({fileId:f.getId(),fileName:f.getName(),driveUrl:f.getUrl(),spreadsheetUrl:f.getUrl()+'#gid='+m.gid,
+      inventoryId:m.inventoryId,center:c,type:m.type,closedAt:m.closedAt,modifiedAt:f.getLastUpdated().toISOString(),manifest:m,totalItems:m.itemCount,source:'GOOGLE_DRIVE'});
+  }}}});
+  return history;
 }
 
-/**
- * Guarda la justificación en el Sheet.
- * REGLA NUEVA:
- * Si se marca como "CUADRA", se reescribe la Columna K (Stock_Sistema) con el Stock Físico
- * y la diferencia queda en 0.
- */
-function saveJustificationToSheet_(payload) {
-  const center = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
-  const sku = String(payload.sku || payload.SKU || '').trim();
-  const razon = String(payload.razon || payload.reasonType || payload.razonJustificacion || payload.Razon || 'AJUSTE_INVENTARIO').trim();
-  const comentarioJust = String(payload.comentarioJustificacion || payload.justification || payload.comentariosJustificacion || payload.Comentario_Justificacion || '').trim();
-  const reviewer = String(payload.reviewedBy || payload.responsableJustificacion || payload.responsable || '').trim();
-  const corroboracion = String(payload.corroboracion || payload.corroboration || '').toUpperCase();
-  const rawCorroboracion = String(payload.corroboracion || payload.corroboration || payload.status || payload.estado || '').trim().toUpperCase();
-  const isNoCuadra = rawCorroboracion.includes('NO') || payload.isCuadra === false;
-  const isCuadra = !isNoCuadra && (rawCorroboracion === 'CUADRA' || payload.isCuadra === true);
 
-  if (!sku) throw new Error('saveJustification requiere sku');
-
-  const sh = getCenterSheet_(center);
-  const warehouse = String(payload.almacen || payload.warehouse || payload.Almacen || '').trim();
-
-  // Búsqueda única en memoria
-  const found = findJustificationRow_(sh, sku, '', warehouse);
-  if (!found) {
-    throw new Error(`Ítem ${sku} no encontrado en centro ${center}`);
-  }
-
-  const row = found.row;
-
-  const stockFisico = hasValue_(payload.stockFisico) ? num_(payload.stockFisico) : num_(row[COL.Stock_Total - 1]);
-  const costoUnitario = num_(row[COL.Costo_Unitario - 1]);
-  const isRound2 = payload.round === 2 || payload.justificationRound === 2 || !!payload.isJustification2;
-  const estadoJustificacion = isCuadra ? 'CUADRA' : 'NO CUADRA';
-
-  // Si se marca como CUADRA en la Columna T, reescribir Columna K (Stock_Sistema) con el último conteo físico
-  if (isCuadra) {
-    let stockFisicoCuadra = num_(row[COL.Stock_Total - 1]);
-    if (hasValue_(row[COL.Stock_Total_Reconteo_2 - 1]) && num_(row[COL.Stock_Total_Reconteo_2 - 1]) > 0) {
-      stockFisicoCuadra = num_(row[COL.Stock_Total_Reconteo_2 - 1]);
-    } else if (hasValue_(row[COL.Stock_Total_Reconteo - 1]) && num_(row[COL.Stock_Total_Reconteo - 1]) > 0) {
-      stockFisicoCuadra = num_(row[COL.Stock_Total_Reconteo - 1]);
-    } else if (hasValue_(payload.stockFisico)) {
-      stockFisicoCuadra = num_(payload.stockFisico);
-    }
-    row[COL.Stock_Sistema - 1] = stockFisicoCuadra; // Col K (11)
-    row[COL.Diferencia - 1] = 0;                    // Col O (15) = 0
-    row[COL.Costo_Diferencia - 1] = 0;              // Col P (16) = 0
-    if (hasValue_(row[COL.Stock_Total_Reconteo - 1]) || hasValue_(row[COL.Reconteo - 1])) {
-      row[COL.Diferencia_Final - 1] = 0;            // Col AB (28) = 0
-      row[COL.Costo_Diferencia_Final - 1] = 0;      // Col AC (29) = 0
-    }
-    if (hasValue_(row[COL.Stock_Total_Reconteo_2 - 1]) || hasValue_(row[COL.Reconteo_2 - 1])) {
-      row[COL.Diferencia_Final_2 - 1] = 0;          // Col AM (39) = 0
-      row[COL.Costo_Diferencia_Final_2 - 1] = 0;    // Col AN (40) = 0
-    }
-  } else {
-    // Si NO CUADRA, NUNCA reescribir Columna K con el stock físico.
-    // Si se envía el stock original de sistema, restaurarlo en Columna K
-    if (hasValue_(payload.originalStockSistema)) {
-      row[COL.Stock_Sistema - 1] = num_(payload.originalStockSistema);
-    } else if (hasValue_(payload.stockSistemaOriginal)) {
-      row[COL.Stock_Sistema - 1] = num_(payload.stockSistemaOriginal);
-    }
-    const currentStockSis = num_(row[COL.Stock_Sistema - 1]);
-    const currentPhys = hasValue_(row[COL.Stock_Total - 1]) ? num_(row[COL.Stock_Total - 1]) : stockFisico;
-    const dif = currentPhys - currentStockSis;
-    row[COL.Diferencia - 1] = dif;
-    row[COL.Costo_Diferencia - 1] = dif * costoUnitario;
-  }
-
-  if (isRound2) {
-    row[COL.Fecha_Justificacion_2 - 1] = payload.fechaJustificacion2 ? new Date(payload.fechaJustificacion2) : (payload.fecha ? new Date(payload.fecha) : new Date());
-    row[COL.Estado_Justificacion_2 - 1] = estadoJustificacion;
-    row[COL.Razon_Justificacion_2 - 1] = razon;
-    row[COL.Comentario_Justificacion_2 - 1] = comentarioJust;
-    if (reviewer) row[COL.Responsable_Justificacion_2 - 1] = reviewer;
-  } else {
-    row[COL.Fecha_Primera_Justificacion - 1] = payload.fechaPrimeraJustificacion ? new Date(payload.fechaPrimeraJustificacion) : (payload.fecha ? new Date(payload.fecha) : new Date());
-    row[COL.Estado - 1] = estadoJustificacion;
-    row[COL.Razon - 1] = razon;
-    row[COL.Comentario_Justificacion - 1] = comentarioJust;
-    if (reviewer) row[COL.Responsable_Justificacion - 1] = reviewer;
-  }
-
-  // Escribir columnas D a AN (4 a 40 -> 37 columnas) manteniendo A-C intactos
-  const colsDToEnd = row.slice(3, 40);
-  sh.getRange(found.rowNumber, 4, 1, 37).setValues([colsDToEnd]);
-
-  const justPhotoSaved = saveJustificationPhotoIfAny_(payload, center, payload.type, sku);
-
-  return {
-    center,
-    row: found.rowNumber,
-    sku,
-    razon,
-    comentarioJustificacion: comentarioJust,
-    stockSistemaReescrito: isCuadra ? stockFisico : null,
-    justPhotoSaved,
-    updated: true
-  };
+function photoDateTag_(value){
+  const tz=Session.getScriptTimeZone()||'America/La_Paz';
+  if(!value)return Utilities.formatDate(new Date(),tz,'yyyy-MM-dd');
+  const raw=String(value).trim();
+  // A date-only value represents a calendar day, not midnight UTC.
+  const dateOnly=raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(dateOnly)return dateOnly[1]+'-'+dateOnly[2]+'-'+dateOnly[3];
+  const parsed=new Date(value);
+  if(!Number.isFinite(parsed.getTime()))throw new Error('Fecha de foto inválida');
+  return Utilities.formatDate(parsed,tz,'yyyy-MM-dd');
 }
-
-function createFinalFile_(payload) {
-  const centerCode = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
-  const type = String(payload.type || 'CICLICO').toUpperCase();
-  const driveRecord = payload.driveRecord || {};
-
-  const rootFolder = getRootFolderForType_(type);
-  const centerFolder = getOrCreateFolder_(rootFolder, centerCode);
-  const snapshotFolder = getOrCreateFolder_(centerFolder, 'Archivos Finales');
-
-  const activeSs = SpreadsheetApp.getActiveSpreadsheet();
-  const fileName = buildFinalSpreadsheetName_(type, centerCode);
-
-  const copyFile = DriveApp.getFileById(activeSs.getId()).makeCopy(fileName, snapshotFolder);
-  const copySs = SpreadsheetApp.openById(copyFile.getId());
-  const sh = getCenterSheetFromSs_(copySs, centerCode);
-  ensureColumns_(sh);
-
-  const incomingItems = (Array.isArray(driveRecord.items) && driveRecord.items.length)
-    ? driveRecord.items
-    : (Array.isArray(payload.items) ? payload.items : []);
-
-  if (incomingItems.length) {
-    syncFromDriveRecordItems_(sh, incomingItems, centerCode, type);
-  }
-
-  const justifications = Array.isArray(driveRecord.justifications)
-    ? driveRecord.justifications
-    : (Array.isArray(payload.justifications) ? payload.justifications : []);
-  const justifSaved = saveJustificationPhotosBatch_(justifications, centerCode, type);
-
-  if (justifications.length) {
-    applyJustificationsToSheet_(sh, justifications);
-  }
-
-  return {
-    fileId: copyFile.getId(),
-    fileName: copyFile.getName(),
-    spreadsheetUrl: copyFile.getUrl(),
-    folderId: snapshotFolder.getId(),
-    center: centerCode,
-    type,
-    itemsSynced: incomingItems.length,
-    justificationsSaved: justifSaved
-  };
+function savePhotoDirectly_(p){
+  const category=String(p.category||p.photoType||'malestado').toLowerCase().includes('just')?'justificaciones':'malestado';
+  const photo=savePhotoIfAny_(p,p.center,p.type,p.sku||p.SKU||p.barcode,category);
+  if(!photo)throw new Error('Falta una imagen válida');
+  return {photo,category,sku:p.sku,center:p.center};
 }
-
-function applyJustificationsToSheet_(sheet, justifications) {
-  if (!justifications || !justifications.length) return;
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return;
-
-  ensureColumns_(sheet);
-  const numCols = Math.max(sheet.getLastColumn(), 40);
-  const range = sheet.getRange(2, 1, lastRow - 1, 40);
-  const values = range.getValues();
-
-  const justMap = new Map();
-  justifications.forEach(j => {
-    const sku = norm_(j.sku || j.SKU || '');
-    const war = norm_(j.almacen || j.warehouse || j.Almacen || '');
-    if (sku) {
-      const data = {
-        razon: String(j.reasonType || j.razon || j.Razon || j.razonJustificacion || 'AJUSTE_INVENTARIO'),
-        comentario: String(j.justification || j.comentario || j.Comentario_Justificacion || j.comentarioJustificacion || ''),
-        reviewer: String(j.reviewedBy || j.responsableJustificacion || ''),
-        corroboracion: String(j.corroboracion || j.corroboration || '').toUpperCase(),
-        round: j.round || j.justificationRound || 1
-      };
-      if (war) {
-        justMap.set(`${sku}___${war}`, data);
-      }
-      if (!justMap.has(sku)) {
-        justMap.set(sku, data);
-      }
-    }
-  });
-
-  let modified = false;
-  for (let i = 0; i < values.length; i++) {
-    const rowSku = norm_(values[i][COL.SKU - 1]);
-    const rowWar = COL.Almacen ? norm_(values[i][COL.Almacen - 1]) : '';
-    const keyWithWar = rowWar ? `${rowSku}___${rowWar}` : rowSku;
-    const justData = justMap.get(keyWithWar) || justMap.get(rowSku);
-    if (justData) {
-      const stockFisico = num_(values[i][COL.Stock_Total - 1]);
-      const estadoJust = justData.corroboracion === 'CUADRA' ? 'CUADRA' : 'NO CUADRA';
-
-      if (justData.corroboracion === 'CUADRA') {
-        values[i][COL.Stock_Sistema - 1] = stockFisico;
-        values[i][COL.Diferencia - 1] = 0;
-        values[i][COL.Costo_Diferencia - 1] = 0;
-      }
-
-      if (justData.round === 2) {
-        values[i][COL.Fecha_Justificacion_2 - 1] = new Date();
-        values[i][COL.Estado_Justificacion_2 - 1] = estadoJust;
-        values[i][COL.Razon_Justificacion_2 - 1] = justData.razon;
-        values[i][COL.Comentario_Justificacion_2 - 1] = justData.comentario;
-        if (justData.reviewer) {
-          values[i][COL.Responsable_Justificacion_2 - 1] = justData.reviewer;
-        }
-      } else {
-        values[i][COL.Fecha_Primera_Justificacion - 1] = new Date();
-        values[i][COL.Estado - 1] = estadoJust;
-        values[i][COL.Razon - 1] = justData.razon;
-        values[i][COL.Comentario_Justificacion - 1] = justData.comentario;
-        if (justData.reviewer) {
-          values[i][COL.Responsable_Justificacion - 1] = justData.reviewer;
-        }
-      }
-      modified = true;
-    }
-  }
-
-  if (modified) {
-    const updateRange = sheet.getRange(2, 4, lastRow - 1, 37);
-    const updateValues = values.map(row => row.slice(3, 40));
-    updateRange.setValues(updateValues);
-  }
-}
-
-function getCenterSheet_(center) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  return getCenterSheetFromSs_(ss, center);
-}
-
-function getCenterSheetFromSs_(ss, center) {
-  const cleanCenter = String(center || '').trim();
-  let sh = ss.getSheetByName(cleanCenter);
-  if (sh) return sh;
-
-  const sheets = ss.getSheets();
-  for (let i = 0; i < sheets.length; i++) {
-    const name = sheets[i].getName().trim();
-    if (name.toUpperCase().indexOf(cleanCenter.toUpperCase()) !== -1) {
-      return sheets[i];
-    }
-  }
-
-  sh = ss.getSheetByName(CFG.defaultSheetName);
-  if (sh) return sh;
-
-  return ss.getSheets()[0];
-}
-
-function ensureColumns_(sheet) {
-  const maxCols = sheet.getMaxColumns();
-  if (maxCols < 40) {
-    sheet.insertColumnsAfter(maxCols, 40 - maxCols);
-    if (sheet.getLastRow() >= 1) {
-      sheet.getRange(1, 1, 1, 40).setValues([DEFAULT_HEADERS]);
-    }
-  }
-}
-
-function asegurarTodasLasColumnas() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheets = ss.getSheets();
-  sheets.forEach(sh => {
-    if (sh.getName() !== 'BD_BASE') {
-      const maxCols = sh.getMaxColumns();
-      if (maxCols < 40) {
-        sh.insertColumnsAfter(maxCols, 40 - maxCols);
-      }
-      if (sh.getLastRow() >= 1) {
-        const headerRange = sh.getRange(1, 1, 1, 40);
-        const headers = headerRange.getValues()[0];
-        let needsUpdate = false;
-        for (let c = 0; c < DEFAULT_HEADERS.length; c++) {
-          if (!headers[c] || headers[c] !== DEFAULT_HEADERS[c]) {
-            headers[c] = DEFAULT_HEADERS[c];
-            needsUpdate = true;
-          }
-        }
-        if (needsUpdate) headerRange.setValues([headers]);
-      }
-    }
-  });
-  SpreadsheetApp.getUi().alert('40 Columnas verificadas y configuradas en todas las hojas.');
-}
-
-/**
- * Búsqueda de alta velocidad: lee los datos de la hoja una sola vez en memoria
- * y aplica prioridades de coincidencia sin llamadas redundantes a Google Sheets.
- */
-function findRowInSheet_(sheet, sku, barcode, location, warehouse) {
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return null;
-
-  const data = sheet.getRange(2, 1, lastRow - 1, 40).getValues();
-  const sTarget = norm_(sku);
-  const bTarget = norm_(barcode);
-  const lTarget = norm_(location);
-  const wTarget = norm_(warehouse);
-
-  // 1. Coincidencia exacta SKU/Barcode + Ubicación + Almacén
-  if (wTarget && lTarget) {
-    for (let i = 0; i < data.length; i++) {
-      const r = data[i];
-      const matchSku = (sTarget && norm_(r[COL.SKU - 1]) === sTarget) || (bTarget && norm_(r[COL.Codigo_Barras - 1]) === bTarget);
-      if (!matchSku) continue;
-      const locD = norm_(r[COL.Ubicacion - 1]);
-      const locE = norm_(r[COL.Ubicacion_1 - 1]);
-      const locF = norm_(r[COL.Ubicacion_2 - 1]);
-      const matchLoc = locD === lTarget || locE === lTarget || locF === lTarget;
-      const rWarehouse = COL.Almacen ? norm_(r[COL.Almacen - 1]) : '';
-      const matchWar = !rWarehouse || rWarehouse === wTarget;
-
-      if (matchLoc && matchWar) {
-        return { rowNumber: i + 2, row: r };
-      }
-    }
-  }
-
-  // 2. Coincidencia por SKU/Barcode + Ubicación
-  if (lTarget) {
-    for (let i = 0; i < data.length; i++) {
-      const r = data[i];
-      const matchSku = (sTarget && norm_(r[COL.SKU - 1]) === sTarget) || (bTarget && norm_(r[COL.Codigo_Barras - 1]) === bTarget);
-      if (!matchSku) continue;
-      const locD = norm_(r[COL.Ubicacion - 1]);
-      const locE = norm_(r[COL.Ubicacion_1 - 1]);
-      const locF = norm_(r[COL.Ubicacion_2 - 1]);
-      const matchLoc = locD === lTarget || locE === lTarget || locF === lTarget;
-
-      if (matchLoc) {
-        return { rowNumber: i + 2, row: r };
-      }
-    }
-  }
-
-  // 3. Coincidencia por SKU/Barcode + Almacén
-  if (wTarget && COL.Almacen) {
-    for (let i = 0; i < data.length; i++) {
-      const r = data[i];
-      const matchSku = (sTarget && norm_(r[COL.SKU - 1]) === sTarget) || (bTarget && norm_(r[COL.Codigo_Barras - 1]) === bTarget);
-      if (matchSku && norm_(r[COL.Almacen - 1]) === wTarget) {
-        return { rowNumber: i + 2, row: r };
-      }
-    }
-  }
-
-  // 4. Fallback: Primera coincidencia por SKU o Código de Barras
-  for (let i = 0; i < data.length; i++) {
-    const r = data[i];
-    const matchSku = (sTarget && norm_(r[COL.SKU - 1]) === sTarget) || (bTarget && norm_(r[COL.Codigo_Barras - 1]) === bTarget);
-    if (matchSku) {
-      return { rowNumber: i + 2, row: r };
-    }
-  }
-
-  return null;
-}
-
-function findJustificationRow_(sheet, sku, barcode, warehouse) {
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return null;
-  const data = sheet.getRange(2, 1, lastRow - 1, 40).getValues();
-  const sTarget = norm_(sku), bTarget = norm_(barcode), wTarget = norm_(warehouse);
-  const matches = [];
-  data.forEach((row, index) => {
-    const sameProduct = (sTarget && norm_(row[COL.SKU - 1]) === sTarget) ||
-      (bTarget && norm_(row[COL.Codigo_Barras - 1]) === bTarget);
-    if (!sameProduct) return;
-    if (wTarget && norm_(row[COL.Almacen - 1]) !== wTarget) return;
-    matches.push({rowNumber: index + 2, row});
-  });
-  if (matches.length > 1) throw new Error('SKU y almacén ambiguos: se requiere una sola fila para guardar la justificación');
-  return matches[0] || null;
-}
-
-function findExactRow_(sheet, sku, barcode, location, warehouse) {
-  return findRowInSheet_(sheet, sku, barcode, location, warehouse);
-}
-
-function findBySkuBarcode_(sheet, sku, barcode, warehouse) {
-  return findRowInSheet_(sheet, sku, barcode, '', warehouse);
-}
-
-/**
- * Actualiza la fila existente con los datos del conteo y/o justificación.
- * Si se envían ubicaciones adicionales, las guarda en Col E (Ubicación 1) o Col F (Ubicación 2).
- */
-function updateExistingRow_(sheet, rowNumber, data, existingRow) {
-  const row = existingRow || sheet.getRange(rowNumber, 1, 1, 40).getValues()[0];
-
-  // COLUMNAS PROTEGIDAS (NO MODIFICAR NUNCA):
-  // A (1): SKU
-  // B (2): Codigo_Barras
-  // C (3): Descripcion
-  // D (4): Ubicacion (UBICACIÓN ORIGINAL)
-  // G (7): Almacen
-  // H (8): Clasificacion_ABC
-  // I (9): Unidad
-  // J (10): Costo_Unitario
-  const costoUnitario = num_(row[COL.Costo_Unitario - 1]);
-  let stockSistema = num_(row[COL.Stock_Sistema - 1]);
-
-  // E (5): Ubicacion 1 (UBICACIÓN EXTRA 1)
-  if (hasValue_(data.ubicacion1 || data.Ubicacion_1)) {
-    row[COL.Ubicacion_1 - 1] = String(data.ubicacion1 || data.Ubicacion_1).trim();
-  }
-  // F (6): Ubicacion 2 (UBICACIÓN EXTRA 2)
-  if (hasValue_(data.ubicacion2 || data.Ubicacion_2)) {
-    row[COL.Ubicacion_2 - 1] = String(data.ubicacion2 || data.Ubicacion_2).trim();
-  }
-  if (data.isNewLocation && data.newLocation) {
-    const nLoc = String(data.newLocation).trim();
-    if (!row[COL.Ubicacion_1 - 1]) {
-      row[COL.Ubicacion_1 - 1] = nLoc;
-    } else if (!row[COL.Ubicacion_2 - 1] && norm_(row[COL.Ubicacion_1 - 1]) !== norm_(nLoc)) {
-      row[COL.Ubicacion_2 - 1] = nLoc;
-    }
-  }
-
-  // Detección de Justificación
-  const isRound2 = data.round === 2 || data.justificationRound === 2 || !!data.isJustification2;
-  const rawEstado = String(data.estadoJustificacion || data.estado || data.corroboracion || data.corroboration || '').trim().toUpperCase();
-  const isNoCuadra = rawEstado.includes('NO') || data.isCuadra === false || String(data.corroboracion || '').toUpperCase().includes('NO');
-  const isCuadra = !isNoCuadra && (data.corroboracion === 'CUADRA' || data.corroboration === 'CUADRA' || data.isCuadra === true || rawEstado === 'CUADRA');
-
-  const hasJust1 = !isRound2 && (
-    hasValue_(data.estadoJustificacion) ||
-    hasValue_(data.estado) ||
-    hasValue_(data.corroboracion) ||
-    hasValue_(data.isCuadra) ||
-    hasValue_(data.razon) ||
-    hasValue_(data.reasonType) ||
-    hasValue_(data.Razon) ||
-    hasValue_(data.comentarioJustificacion) ||
-    hasValue_(data.justification) ||
-    hasValue_(data.Comentario_Justificacion) ||
-    hasValue_(data.responsableJustificacion) ||
-    hasValue_(data.reviewedBy) ||
-    hasValue_(data.fechaPrimeraJustificacion) ||
-    data.action === 'saveJustification'
+function savePhotoIfAny_(p,center,type,sku,category){
+  const isJust=p.action==='saveJustification'||String(p.category||p.photoType||'').toLowerCase().includes('just');
+  let value;
+  if(category==='justificaciones')value=p.photoJustificacion||p.justificationPhoto||(isJust?(p.photoBase64||p.photoUrl||p.photo):null);
+  else if(!isJust)value=p.photoBase64||p.foto_mal_estado||p.photoUrl||p.photo;
+  if(!value)return null;
+  if(typeof value!=='string')throw new Error('Imagen inválida');
+  const specificPhotoKey=category==='justificaciones'?'PHOTOS_JUSTIFICATIONS_ROOT_ID':'PHOTOS_MALESTADO_ROOT_ID';
+  const specificPhotoRoot=property_(specificPhotoKey)||CFG.photoRoots[category];
+  const photoRoot=property_('PHOTOS_ROOT_ID');
+  const roots=allowedRoots_().concat(
+    Object.entries(CFG.photoRoots).map(([kind,id])=>driveFolderId_(property_(kind==='justificaciones'?'PHOTOS_JUSTIFICATIONS_ROOT_ID':'PHOTOS_MALESTADO_ROOT_ID')||id,'PHOTOS_'+kind.toUpperCase()+'_ROOT_ID')),
+    specificPhotoRoot?[driveFolderId_(specificPhotoRoot,specificPhotoKey)]:[],
+    photoRoot?[driveFolderId_(photoRoot,'PHOTOS_ROOT_ID')]:[]
   );
-
-  // K (11): Stock_Sistema (STOCK DE SISTEMA) - solo se modifica si en la justificación se marca como cuadra en la columna T
-  if (hasJust1) {
-    if (isCuadra) {
-      let stockFisicoCuadra = num_(row[COL.Stock_Total - 1]);
-      if (hasValue_(row[COL.Stock_Total_Reconteo_2 - 1]) && num_(row[COL.Stock_Total_Reconteo_2 - 1]) > 0) {
-        stockFisicoCuadra = num_(row[COL.Stock_Total_Reconteo_2 - 1]);
-      } else if (hasValue_(row[COL.Stock_Total_Reconteo - 1]) && num_(row[COL.Stock_Total_Reconteo - 1]) > 0) {
-        stockFisicoCuadra = num_(row[COL.Stock_Total_Reconteo - 1]);
-      } else if (hasValue_(data.stockTotal)) {
-        stockFisicoCuadra = num_(data.stockTotal);
-      } else if (hasValue_(data.stockFisico)) {
-        stockFisicoCuadra = num_(data.stockFisico);
-      }
-      row[COL.Stock_Sistema - 1] = stockFisicoCuadra;
-      stockSistema = stockFisicoCuadra;
-      row[COL.Diferencia - 1] = 0;
-      row[COL.Costo_Diferencia - 1] = 0;
-      if (hasValue_(row[COL.Stock_Total_Reconteo - 1]) || hasValue_(row[COL.Reconteo - 1])) {
-        row[COL.Diferencia_Final - 1] = 0;
-        row[COL.Costo_Diferencia_Final - 1] = 0;
-      }
-      if (hasValue_(row[COL.Stock_Total_Reconteo_2 - 1]) || hasValue_(row[COL.Reconteo_2 - 1])) {
-        row[COL.Diferencia_Final_2 - 1] = 0;
-        row[COL.Costo_Diferencia_Final_2 - 1] = 0;
-      }
-    } else {
-      // SI NO CUADRA, NUNCA reescribir Col K con el stock físico.
-      // Si se envía el stock original, restaurarlo en Col K
-      if (hasValue_(data.originalStockSistema)) {
-        row[COL.Stock_Sistema - 1] = num_(data.originalStockSistema);
-        stockSistema = num_(data.originalStockSistema);
-      } else if (hasValue_(data.stockSistemaOriginal)) {
-        row[COL.Stock_Sistema - 1] = num_(data.stockSistemaOriginal);
-        stockSistema = num_(data.stockSistemaOriginal);
-      }
-      const stTotal = num_(row[COL.Stock_Total - 1]);
-      const dif = stTotal - stockSistema;
-      row[COL.Diferencia - 1] = dif;
-      row[COL.Costo_Diferencia - 1] = dif * costoUnitario;
-    }
+  if(value.startsWith('https://')){
+    const match=value.match(/^https:\/\/(?:drive\.google\.com|lh3\.googleusercontent\.com)\/(?:file\/d\/|d\/|.*[?&]id=)([-\w]+)/);
+    if(!match)throw new Error('La foto debe ser base64 o una referencia válida de Drive');
+    const f=DriveApp.getFileById(match[1]);
+    if(!f.getMimeType().startsWith('image/')||!belongsToRoot_(f,roots))throw new Error('Foto fuera de la carpeta autorizada');
+    return {id:f.getId(),name:f.getName(),url:f.getUrl(),mimeType:f.getMimeType()};
   }
-
-  // 1ER CONTEO: Col L (12), M (13), N (14), O (15), P (16), Q (17), R (18)
-  // Solo se actualiza si se envía información de primer conteo
-  const hasFirstCount = !data.isReconteo && !data.isReconteo2 && (
-    hasValue_(data.stockBuenEstado) ||
-    hasValue_(data.stockFisico) ||
-    hasValue_(data.stockTotal) ||
-    (hasValue_(data.malEstado) && !data.isReconteo)
-  );
-
-  if (hasFirstCount) {
-    const stockBuenEstado = hasValue_(data.stockBuenEstado)
-      ? num_(data.stockBuenEstado)
-      : (hasValue_(data.stockFisico) ? num_(data.stockFisico) : num_(row[COL.Stock_Buen_Estado - 1]));
-    const malEstado = hasValue_(data.malEstado) ? num_(data.malEstado) : num_(row[COL.Mal_estado - 1]);
-    let stockTotal = stockBuenEstado + malEstado;
-    if (hasValue_(data.stockTotal)) {
-      stockTotal = num_(data.stockTotal);
-    }
-
-    row[COL.Stock_Total - 1] = stockTotal;             // Col L (12)
-    row[COL.Stock_Buen_Estado - 1] = stockBuenEstado;  // Col M (13)
-    row[COL.Mal_estado - 1] = malEstado;               // Col N (14)
-
-    if (hasJust1 && isCuadra) {
-      row[COL.Diferencia - 1] = 0;
-      row[COL.Costo_Diferencia - 1] = 0;
-    } else {
-      const dif = stockTotal - stockSistema;
-      row[COL.Diferencia - 1] = dif;                   // Col O (15)
-      row[COL.Costo_Diferencia - 1] = dif * costoUnitario; // Col P (16)
-    }
-
-    // Col Q (17): Fecha_Ultimo_Conteo
-    if (hasValue_(data.fechaUltimoConteo)) {
-      row[COL.Fecha_Ultimo_Conteo - 1] = new Date(data.fechaUltimoConteo);
-    } else if (!hasValue_(row[COL.Fecha_Ultimo_Conteo - 1])) {
-      row[COL.Fecha_Ultimo_Conteo - 1] = new Date();
-    }
-
-    // Col R (18): Responsable
-    if (hasValue_(data.responsable || data.username)) {
-      row[COL.Responsable - 1] = String(data.responsable || data.username).trim();
-    }
-  }
-
-  // 1RA JUSTIFICACIÓN: Col S (19), T (20), U (21), V (22), W (23)
-  if (hasJust1) {
-    // S (19): FECHA PRIMERA JUSTIFICACION
-    row[COL.Fecha_Primera_Justificacion - 1] = data.fechaPrimeraJustificacion
-      ? new Date(data.fechaPrimeraJustificacion)
-      : (data.fecha ? new Date(data.fecha) : new Date());
-
-    // T (20): Estado (ESTADO DE LA PRIMERA JUSTIFICACION (CUADRA - NO CUADRA))
-    row[COL.Estado - 1] = isCuadra ? 'CUADRA' : (hasValue_(data.estadoJustificacion || data.corroboracion || data.estado) ? String(data.estadoJustificacion || data.corroboracion || data.estado).trim() : 'NO CUADRA');
-
-    // U (21): Razón
-    if (hasValue_(data.razon || data.reasonType || data.Razon || data.razonJustificacion)) {
-      row[COL.Razon - 1] = String(data.razon || data.reasonType || data.Razon || data.razonJustificacion).trim();
-    }
-
-    // V (22): Comentario Justificacion
-    const cJust = data.comentarioJustificacion || data.justification || data.Comentario_Justificacion || data.comentariosJustificacion;
-    if (hasValue_(cJust)) {
-      row[COL.Comentario_Justificacion - 1] = String(cJust).trim();
-    }
-
-    // W (23): RESPONSABLE JUSTIFICACION
-    const respJust = data.responsableJustificacion || data.reviewedBy || data.reviewer || data.RESPONSABLE_JUSTIFICACION;
-    if (hasValue_(respJust)) {
-      row[COL.Responsable_Justificacion - 1] = String(respJust).trim();
-    }
-  }
-
-  // 1ER RECONTEO: Col X (24), Y (25), Z (26), AA (27), AB (28), AC (29)
-  const hasRec1 = hasValue_(data.reconteo) ||
-    hasValue_(data.reconteoFisico) ||
-    hasValue_(data.stockTotalReconteo) ||
-    hasValue_(data.malestadoReconteo) ||
-    hasValue_(data.reconteoMalEstado) ||
-    (data.isReconteo && !isRound2 && !data.isReconteo2);
-
-  if (hasRec1) {
-    // X (24): Fecha reconteo
-    row[COL.Fecha_Reconteo - 1] = data.fechaReconteo
-      ? new Date(data.fechaReconteo)
-      : (data.FECHA_RECONTEO ? new Date(data.FECHA_RECONTEO) : new Date());
-
-    // AA (27): MALESTADO RECONTEO
-    const malRec1 = hasValue_(data.malestadoReconteo || data.reconteoMalEstado || data.MALESTADO_RECONTEO)
-      ? num_(data.malestadoReconteo || data.reconteoMalEstado || data.MALESTADO_RECONTEO)
-      : (hasValue_(row[COL.Malestado_Reconteo - 1]) ? num_(row[COL.Malestado_Reconteo - 1]) : 0);
-    row[COL.Malestado_Reconteo - 1] = malRec1;
-
-    // Z (26): RECONTEO (buen estado)
-    const recBuenEstado = hasValue_(data.reconteo || data.reconteoFisico || data.RECONTEO)
-      ? num_(data.reconteo || data.reconteoFisico || data.RECONTEO)
-      : num_(row[COL.Reconteo - 1]);
-    row[COL.Reconteo - 1] = recBuenEstado;
-
-    // Y (25): stock total reconteo
-    let recTotal = recBuenEstado + malRec1;
-    if (hasValue_(data.stockTotalReconteo)) {
-      recTotal = num_(data.stockTotalReconteo);
-    }
-    row[COL.Stock_Total_Reconteo - 1] = recTotal;
-
-    // AB (28) y AC (29): Diferencia Final y Costo Diferencia Final
-    if (hasJust1 && isCuadra) {
-      row[COL.Diferencia_Final - 1] = 0;
-      row[COL.Costo_Diferencia_Final - 1] = 0;
-    } else {
-      const difF = recTotal - stockSistema;
-      row[COL.Diferencia_Final - 1] = difF;
-      row[COL.Costo_Diferencia_Final - 1] = difF * costoUnitario;
-    }
-  }
-
-  // 2DA JUSTIFICACIÓN: Col AD (30), AE (31), AF (32), AG (33), AH (34)
-  const hasJust2 = isRound2 && (
-    hasValue_(data.estadoJustificacion2) ||
-    hasValue_(data.estadoJustificacion) ||
-    hasValue_(data.corroboracion) ||
-    hasValue_(data.isCuadra) ||
-    hasValue_(data.razonJustificacion2) ||
-    hasValue_(data.comentarioJustificacion2) ||
-    hasValue_(data.responsableJustificacion2) ||
-    hasValue_(data.fechaJustificacion2)
-  );
-
-  if (hasJust2) {
-    // AD (30): FECHA JUSTIFICACION 2
-    row[COL.Fecha_Justificacion_2 - 1] = data.fechaJustificacion2
-      ? new Date(data.fechaJustificacion2)
-      : (data.FECHA_JUSTIFICACION_2 ? new Date(data.FECHA_JUSTIFICACION_2) : new Date());
-
-    // AE (31): ESTADO JUSTIFICACION 2
-    row[COL.Estado_Justificacion_2 - 1] = isCuadra ? 'CUADRA' : (hasValue_(data.estadoJustificacion2 || data.estadoJustificacion || data.corroboracion) ? String(data.estadoJustificacion2 || data.estadoJustificacion || data.corroboracion).trim() : 'NO CUADRA');
-
-    // AF (32): RazónJUSTIFICACION 2
-    if (hasValue_(data.razonJustificacion2 || data.RAZON_JUSTIFICACION_2)) {
-      row[COL.Razon_Justificacion_2 - 1] = String(data.razonJustificacion2 || data.RAZON_JUSTIFICACION_2).trim();
-    }
-
-    // AG (33): Comentario JustificaciON 2
-    const cJust2 = data.comentarioJustificacion2 || data.COMENTARIO_JUSTIFICACION_2 || data.justification;
-    if (hasValue_(cJust2)) {
-      row[COL.Comentario_Justificacion_2 - 1] = String(cJust2).trim();
-    }
-
-    // AH (34): RESPONSABLE JUSTIFICACION 2
-    const respJust2 = data.responsableJustificacion2 || data.RESPONSABLE_JUSTIFICACION_2 || data.reviewedBy || data.reviewer;
-    if (hasValue_(respJust2)) {
-      row[COL.Responsable_Justificacion_2 - 1] = String(respJust2).trim();
-    }
-  }
-
-  // 2DO RECONTEO: Col AI (35), AJ (36), AK (37), AL (38), AM (39), AN (40)
-  const hasRec2 = hasValue_(data.reconteo2) ||
-    hasValue_(data.RECONTEO_2) ||
-    hasValue_(data.stockTotalReconteo2) ||
-    hasValue_(data.malestadoReconteo2) ||
-    hasValue_(data.MALESTADO_RECONTEO_2) ||
-    !!data.isReconteo2;
-
-  if (hasRec2) {
-    // AI (35): Fecha reconteo 2
-    row[COL.Fecha_Reconteo_2 - 1] = data.fechaReconteo2
-      ? new Date(data.fechaReconteo2)
-      : (data.FECHA_RECONTEO_2 ? new Date(data.FECHA_RECONTEO_2) : new Date());
-
-    // AL (38): MALESTADO RECONTEO 2
-    const malRec2 = hasValue_(data.malestadoReconteo2 || data.MALESTADO_RECONTEO_2)
-      ? num_(data.malestadoReconteo2 || data.MALESTADO_RECONTEO_2)
-      : (hasValue_(row[COL.Malestado_Reconteo_2 - 1]) ? num_(row[COL.Malestado_Reconteo_2 - 1]) : 0);
-    row[COL.Malestado_Reconteo_2 - 1] = malRec2;
-
-    // AK (37): RECONTEO 2 (buen estado)
-    const recBuenEstado2 = hasValue_(data.reconteo2 || data.RECONTEO_2)
-      ? num_(data.reconteo2 || data.RECONTEO_2)
-      : num_(row[COL.Reconteo_2 - 1]);
-    row[COL.Reconteo_2 - 1] = recBuenEstado2;
-
-    // AJ (36): stock total reconteo 2
-    let recTotal2 = recBuenEstado2 + malRec2;
-    if (hasValue_(data.stockTotalReconteo2)) {
-      recTotal2 = num_(data.stockTotalReconteo2);
-    }
-    row[COL.Stock_Total_Reconteo_2 - 1] = recTotal2;
-
-    // AM (39) y AN (40): Diferencia Final 2 y Costo Diferencia Final 2
-    if (hasJust1 && isCuadra) {
-      row[COL.Diferencia_Final_2 - 1] = 0;
-      row[COL.Costo_Diferencia_Final_2 - 1] = 0;
-    } else {
-      const difF2 = recTotal2 - stockSistema;
-      row[COL.Diferencia_Final_2 - 1] = difF2;
-      row[COL.Costo_Diferencia_Final_2 - 1] = difF2 * costoUnitario;
-    }
-  }
-
-  // Escribir columnas D a AN (4 a 40 -> 37 columnas) manteniendo SKU, Codigo_Barras y Descripcion protegidos
-  const colsDToEnd = row.slice(3, 40);
-  sheet.getRange(rowNumber, 4, 1, 37).setValues([colsDToEnd]);
+  const match=/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/.exec(value);
+  if(!match)throw new Error('Formato inválido: use JPEG, PNG o WebP base64');
+  const bytes=Utilities.base64Decode(match[2]);if(!bytes.length||bytes.length>10*1024*1024)throw new Error('Tamaño inválido (máximo 10 MB)');
+  if(!/^\d{4}$/.test(String(center||'')))throw new Error('Centro inválido para foto');
+  const tag=photoDateTag_(p.date||p.fecha);
+  const categoryPhotoKey=category==='justificaciones'?'PHOTOS_JUSTIFICATIONS_ROOT_ID':'PHOTOS_MALESTADO_ROOT_ID';
+  const categoryPhotoRoot=property_(categoryPhotoKey)||CFG.photoRoots[category];
+  const photosRoot=property_('PHOTOS_ROOT_ID');
+  const categoryRoot=Boolean(categoryPhotoRoot);
+  let folder=categoryRoot
+    ?getDriveFolder_(categoryPhotoRoot,categoryPhotoKey)
+    :(photosRoot?getDriveFolder_(photosRoot,'PHOTOS_ROOT_ID'):getRootFolderForType_(type));
+  const pathSegments=categoryRoot
+    ?[tag,String(center)+' '+String(type||'CICLICO')]
+    :['fotos',category,tag,String(center)+' '+String(type||'CICLICO')];
+  pathSegments.forEach(seg=>{folder=getOrCreateFolder_(folder,seg);});
+  const ext=match[1]==='image/png'?'.png':match[1]==='image/webp'?'.webp':'.jpg';
+  const cleanPhotoNamePart=value=>String(value||'').trim().replace(/[\\/:*?"<>|]/g,'_').slice(0,100);
+  const cleanSku=cleanPhotoNamePart(sku)||'SKU';
+  const cleanWarehouse=cleanPhotoNamePart(p.almacen||p.warehouse)||'ALMACEN';
+  const name=(category==='justificaciones'?'JUST-':'')+cleanSku+'-'+cleanWarehouse+ext;
+  // Drive permits duplicate names; preserve each distinct evidence image.
+  const file=folder.createFile(Utilities.newBlob(bytes,match[1],name));
+  if(property_('PHOTO_LINK_SHARING')==='true')file.setSharing(DriveApp.Access.ANYONE_WITH_LINK,DriveApp.Permission.VIEW);
+  return {id:file.getId(),name:file.getName(),url:file.getUrl(),mimeType:file.getMimeType(),folderId:folder.getId(),folderName:folder.getName()};
 }
-
-/**
- * Agrega un nuevo ítem al final de la base de datos (descubrimiento en barrido/conteo)
- */
-function appendNewItem_(sheet, data) {
-  ensureColumns_(sheet);
-  const row = new Array(40).fill('');
-
-  const sku = String(data.sku || data.SKU || '').trim();
-  const barcode = String(data.barcode || data.codigoBarras || data.Codigo_Barras || sku || '').trim();
-  const descripcion = String(data.descripcion || data.description || data.Descripcion || `Ítem ${sku}`).trim();
-  const ubicacion = String(data.location || data.ubicacion || data.Ubicacion || 'PRINCIPAL').trim();
-  const ubicacion1 = String(data.ubicacion1 || data.Ubicacion_1 || '').trim();
-  const ubicacion2 = String(data.ubicacion2 || data.Ubicacion_2 || '').trim();
-  const almacen = String(data.almacen || data.Almacen || data.categoria || data.Categoria || 'repuesto').trim();
-  const clasificacionAbc = String(data.clasificacionAbc || data.Clasificacion_ABC || 'C').trim();
-  const unidad = String(data.unidad || data.Unidad || 'PZA').trim();
-  const costoUnitario = num_(data.costoUnitario || data.Costo_Unitario || 0);
-  const stockSistema = num_(data.stockSistema || data.Stock_Sistema || 0);
-  const stockBuenEstado = hasValue_(data.stockBuenEstado) ? num_(data.stockBuenEstado) : (hasValue_(data.stockFisico) ? num_(data.stockFisico) : 0);
-  const malEstado = hasValue_(data.malEstado) ? num_(data.malEstado) : 0;
-
-  let stockTotal = stockBuenEstado + malEstado;
-  if (hasValue_(data.stockTotal)) {
-    stockTotal = num_(data.stockTotal);
-  }
-
-  const dif = stockTotal - stockSistema;
-  const costoDif = dif * costoUnitario;
-  const fechaConteo = data.fechaUltimoConteo ? new Date(data.fechaUltimoConteo) : new Date();
-  const responsable = String(data.responsable || data.username || 'Barrido').trim();
-  const estadoJustificacion = hasValue_(data.estadoJustificacion || data.estadoJustificacion1 || data.ESTADO_JUSTIFICACION)
-    ? String(data.estadoJustificacion || data.estadoJustificacion1 || data.ESTADO_JUSTIFICACION)
-    : '';
-
-  row[COL.SKU - 1] = sku;
-  row[COL.Codigo_Barras - 1] = barcode;
-  row[COL.Descripcion - 1] = descripcion;
-  row[COL.Ubicacion - 1] = ubicacion;
-  row[COL.Ubicacion_1 - 1] = ubicacion1;
-  row[COL.Ubicacion_2 - 1] = ubicacion2;
-  row[COL.Almacen - 1] = almacen;
-  row[COL.Clasificacion_ABC - 1] = clasificacionAbc;
-  row[COL.Unidad - 1] = unidad;
-  row[COL.Costo_Unitario - 1] = costoUnitario;
-  row[COL.Stock_Sistema - 1] = stockSistema;
-  row[COL.Stock_Total - 1] = stockTotal;
-  row[COL.Stock_Buen_Estado - 1] = stockBuenEstado;
-  row[COL.Mal_estado - 1] = malEstado;
-  row[COL.Diferencia - 1] = dif;
-  row[COL.Costo_Diferencia - 1] = costoDif;
-  row[COL.Fecha_Ultimo_Conteo - 1] = fechaConteo;
-  row[COL.Responsable - 1] = responsable;
-  row[COL.Estado - 1] = estadoJustificacion;
-  row[COL.Razon - 1] = String(data.razon || data.reasonType || '');
-  row[COL.Comentario_Justificacion - 1] = String(data.comentarioJustificacion || data.justification || '');
-  row[COL.Responsable_Justificacion - 1] = String(data.responsableJustificacion || data.reviewedBy || '');
-
-  sheet.appendRow(row);
-  return sheet.getLastRow();
-}
-
-function syncFromDriveRecordItems_(sheet, items, center, type) {
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2 || !items || !items.length) return;
-
-  ensureColumns_(sheet);
-  const range = sheet.getRange(2, 1, lastRow - 1, 40);
-  const values = range.getValues();
-
-  const skuMap = new Map();
-  for (let i = 0; i < values.length; i++) {
-    const s = norm_(values[i][COL.SKU - 1]);
-    if (s && !skuMap.has(s)) skuMap.set(s, i);
-  }
-
-  let hasUpdates = false;
-  items.forEach(it => {
-    const sku = String(it.SKU || it.sku || '').trim();
-    if (!sku) return;
-    const sNorm = norm_(sku);
-
-    if (skuMap.has(sNorm)) {
-      const rowIndex = skuMap.get(sNorm);
-      const row = values[rowIndex];
-      const stockSistema = num_(row[COL.Stock_Sistema - 1]);
-      const costoUnitario = num_(row[COL.Costo_Unitario - 1]);
-
-      const stockBuenEstado = hasValue_(it.Stock_Buen_Estado)
-        ? num_(it.Stock_Buen_Estado)
-        : (hasValue_(it.stockBuenEstado) ? num_(it.stockBuenEstado) : (hasValue_(it.Stock_Fisico) ? num_(it.Stock_Fisico) : num_(row[COL.Stock_Buen_Estado - 1])));
-      const malEstado = hasValue_(it.Mal_estado) ? num_(it.Mal_estado) : (hasValue_(it.malEstado) ? num_(it.malEstado) : num_(row[COL.Mal_estado - 1]));
-
-      let stockTotal = stockBuenEstado + malEstado;
-      if (hasValue_(it.Stock_Total || it.stockTotal)) {
-        stockTotal = num_(it.Stock_Total || it.stockTotal);
-      }
-
-      if (hasValue_(it.Ubicacion_1 || it.ubicacion1)) row[COL.Ubicacion_1 - 1] = String(it.Ubicacion_1 || it.ubicacion1).trim();
-      if (hasValue_(it.Ubicacion_2 || it.ubicacion2)) row[COL.Ubicacion_2 - 1] = String(it.Ubicacion_2 || it.ubicacion2).trim();
-
-      const dif = stockTotal - stockSistema;
-      const costoDif = dif * costoUnitario;
-
-      row[COL.Stock_Total - 1] = stockTotal;
-      row[COL.Stock_Buen_Estado - 1] = stockBuenEstado;
-      row[COL.Mal_estado - 1] = malEstado;
-      row[COL.Diferencia - 1] = dif;
-      row[COL.Costo_Diferencia - 1] = costoDif;
-      row[COL.Fecha_Ultimo_Conteo - 1] = it.Fecha_Ultimo_Conteo ? new Date(it.Fecha_Ultimo_Conteo) : new Date();
-      row[COL.Responsable - 1] = it.Responsable || it.responsable || row[COL.Responsable - 1] || '';
-      if (hasValue_(it.estadoJustificacion || it.Estado_Justificacion)) {
-        row[COL.Estado - 1] = String(it.estadoJustificacion || it.Estado_Justificacion);
-      }
-
-      hasUpdates = true;
-      saveDamagedPhotoIfAny_(it, center, type, sku);
-    } else {
-      appendNewItem_(sheet, it);
-    }
-  });
-
-  if (hasUpdates) {
-    const updateRange = sheet.getRange(2, 4, lastRow - 1, 37);
-    const updateValues = values.map(r => r.slice(3, 40));
-    updateRange.setValues(updateValues);
-  }
-}
-
-function readRowsAsObjects_(sheet) {
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return [];
-  ensureColumns_(sheet);
-  const values = sheet.getRange(2, 1, lastRow - 1, 40).getValues();
-  return values.map(rowToObject_);
-}
-
-function rowToObject_(r) {
-  return {
-    SKU: r[COL.SKU - 1],
-    Codigo_Barras: r[COL.Codigo_Barras - 1],
-    Descripcion: r[COL.Descripcion - 1],
-    Ubicacion: r[COL.Ubicacion - 1],
-    Ubicacion_1: r[COL.Ubicacion_1 - 1] || '',
-    Ubicacion_2: r[COL.Ubicacion_2 - 1] || '',
-    Almacen: r[COL.Almacen - 1],
-    Categoria: r[COL.Almacen - 1] || 'repuesto',
-    Clasificacion_ABC: r[COL.Clasificacion_ABC - 1],
-    Unidad: r[COL.Unidad - 1],
-    Costo_Unitario: r[COL.Costo_Unitario - 1],
-    Stock_Sistema: r[COL.Stock_Sistema - 1],
-    Stock_Total: r[COL.Stock_Total - 1],
-    Stock_Fisico: r[COL.Stock_Total - 1], // Retrocompatibilidad para vistas que leen Stock_Fisico
-    Mal_estado: r[COL.Mal_estado - 1],
-    Diferencia: r[COL.Diferencia - 1],
-    Costo_Diferencia: r[COL.Costo_Diferencia - 1],
-    Fecha_Ultimo_Conteo: r[COL.Fecha_Ultimo_Conteo - 1],
-    Stock_Buen_Estado: r[COL.Stock_Buen_Estado - 1],
-    Responsable: r[COL.Responsable - 1],
-    Estado: r[COL.Estado - 1],
-    Fecha_Primera_Justificacion: r[COL.Fecha_Primera_Justificacion - 1] || null,
-    Razon: r[COL.Razon - 1] || '',
-    Comentario_Justificacion: r[COL.Comentario_Justificacion - 1] || '',
-    Responsable_Justificacion: r[COL.Responsable_Justificacion - 1] || '',
-    Fecha_Reconteo: r[COL.Fecha_Reconteo - 1] || null,
-    Stock_Total_Reconteo: r[COL.Stock_Total_Reconteo - 1] !== undefined && r[COL.Stock_Total_Reconteo - 1] !== '' ? r[COL.Stock_Total_Reconteo - 1] : null,
-    Reconteo: r[COL.Reconteo - 1] !== undefined && r[COL.Reconteo - 1] !== '' ? r[COL.Reconteo - 1] : null,
-    Reconteo_Fisico: r[COL.Reconteo - 1] !== undefined && r[COL.Reconteo - 1] !== '' ? r[COL.Reconteo - 1] : null,
-    Malestado_Reconteo: r[COL.Malestado_Reconteo - 1] !== undefined && r[COL.Malestado_Reconteo - 1] !== '' ? r[COL.Malestado_Reconteo - 1] : null,
-    Reconteo_Mal_Estado: r[COL.Malestado_Reconteo - 1] !== undefined && r[COL.Malestado_Reconteo - 1] !== '' ? r[COL.Malestado_Reconteo - 1] : null,
-    Diferencia_Final: r[COL.Diferencia_Final - 1] !== undefined && r[COL.Diferencia_Final - 1] !== '' ? r[COL.Diferencia_Final - 1] : null,
-    Costo_Diferencia_Final: r[COL.Costo_Diferencia_Final - 1] !== undefined && r[COL.Costo_Diferencia_Final - 1] !== '' ? r[COL.Costo_Diferencia_Final - 1] : null,
-    Fecha_Justificacion_2: r[COL.Fecha_Justificacion_2 - 1] || null,
-    Estado_Justificacion_2: r[COL.Estado_Justificacion_2 - 1] || '',
-    Razon_Justificacion_2: r[COL.Razon_Justificacion_2 - 1] || '',
-    Comentario_Justificacion_2: r[COL.Comentario_Justificacion_2 - 1] || '',
-    Responsable_Justificacion_2: r[COL.Responsable_Justificacion_2 - 1] || '',
-    Fecha_Reconteo_2: r[COL.Fecha_Reconteo_2 - 1] || null,
-    Stock_Total_Reconteo_2: r[COL.Stock_Total_Reconteo_2 - 1] !== undefined && r[COL.Stock_Total_Reconteo_2 - 1] !== '' ? r[COL.Stock_Total_Reconteo_2 - 1] : null,
-    Reconteo_2: r[COL.Reconteo_2 - 1] !== undefined && r[COL.Reconteo_2 - 1] !== '' ? r[COL.Reconteo_2 - 1] : null,
-    Malestado_Reconteo_2: r[COL.Malestado_Reconteo_2 - 1] !== undefined && r[COL.Malestado_Reconteo_2 - 1] !== '' ? r[COL.Malestado_Reconteo_2 - 1] : null,
-    Diferencia_Final_2: r[COL.Diferencia_Final_2 - 1] !== undefined && r[COL.Diferencia_Final_2 - 1] !== '' ? r[COL.Diferencia_Final_2 - 1] : null,
-    Costo_Diferencia_Final_2: r[COL.Costo_Diferencia_Final_2 - 1] !== undefined && r[COL.Costo_Diferencia_Final_2 - 1] !== '' ? r[COL.Costo_Diferencia_Final_2 - 1] : null
-  };
-}
-
-function getReferencePhotoBySku_(sku) {
-  if (!sku) return null;
-  try {
-    const files = DriveApp.searchFiles(`title contains '${sku}' and mimeType contains 'image/' and trashed = false`);
-    if (files.hasNext()) {
-      const f = files.next();
-      return {
-        id: f.getId(),
-        name: f.getName(),
-        mimeType: f.getMimeType(),
-        viewUrl: f.getUrl(),
-        downloadUrl: `https://drive.google.com/uc?export=view&id=${f.getId()}`,
-        thumbnailUrl: `https://drive.google.com/thumbnail?id=${f.getId()}&sz=w800`
-      };
-    }
-  } catch (err) {
-    Logger.log('Error buscando foto de referencia: ' + err.message);
+function getReferencePhotoBySku_(sku){
+  const root=property_('REFERENCE_PHOTOS_FOLDER_ID');if(!root||!sku)return null;
+  const files=DriveApp.getFolderById(root).getFiles(),key=InventoryContract.identity(sku);
+  while(files.hasNext()){
+    const f=files.next();if(!f.getMimeType().startsWith('image/'))continue;
+    const basename=InventoryContract.identity(f.getName().replace(/\.[^.]+$/,''));
+    if(basename!==key)continue;
+    return {id:f.getId(),name:f.getName(),mimeType:f.getMimeType(),viewUrl:f.getUrl(),
+      downloadUrl:'https://drive.google.com/uc?export=view&id='+f.getId(),thumbnailUrl:'https://drive.google.com/thumbnail?id='+f.getId()+'&sz=w800'};
   }
   return null;
 }
-
-function savePhotoDirectly_(payload) {
-  const center = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
-  const type = String(payload.type || 'BARRIDO').toUpperCase().trim();
-  const sku = String(payload.sku || payload.SKU || payload.barcode || 'SKU').trim();
-  const category = String(payload.category || payload.photoType || 'malestado').toLowerCase();
-
-  if (category.indexOf('just') !== -1) {
-    const saved = saveJustificationPhotoIfAny_(payload, center, type, sku);
-    return { success: !!saved, photo: saved, category: 'justificaciones', sku, center, type };
-  } else {
-    const saved = saveDamagedPhotoIfAny_(payload, center, type, sku);
-    return { success: !!saved, photo: saved, category: 'malestado', sku, center, type };
-  }
+function asegurarTodasLasColumnas(){
+  const lock=LockService.getScriptLock();lock.waitLock(25000);
+  try{spreadsheet_().getSheets().filter(s=>/^\d{4}$/.test(s.getName())).forEach(ensureColumns_);SpreadsheetApp.flush();}
+  finally{lock.releaseLock();}
+  SpreadsheetApp.getUi().alert('Columnas verificadas. No se reordenaron ni sobrescribieron datos.');
 }
-
-function getDamagedPhotosTargetFolder_(center, type, dateStr) {
-  const cleanCenter = String(center || CFG.defaultCenterIfMissing).trim();
-  const cleanType = String(type || 'BARRIDO').toUpperCase().trim();
-  const tz = Session.getScriptTimeZone() || 'America/La_Paz';
-  let dateTag = dateStr ? String(dateStr).trim() : '';
-  if (!dateTag) {
-    dateTag = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-  } else if (dateTag.indexOf('T') !== -1) {
-    dateTag = dateTag.split('T')[0];
-  }
-  const centerTypeFolder = `${cleanCenter} ${cleanType}`;
-  const segments = ['nibol', 'ciclicos', 'fotos', 'malestado', dateTag, centerTypeFolder];
-  return resolveOrCreateDrivePath_(segments);
-}
-
-function getJustificationPhotosTargetFolder_(center, type, dateStr) {
-  const cleanCenter = String(center || CFG.defaultCenterIfMissing).trim();
-  const cleanType = String(type || 'BARRIDO').toUpperCase().trim();
-  const tz = Session.getScriptTimeZone() || 'America/La_Paz';
-  let dateTag = dateStr ? String(dateStr).trim() : '';
-  if (!dateTag) {
-    dateTag = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
-  } else if (dateTag.indexOf('T') !== -1) {
-    dateTag = dateTag.split('T')[0];
-  }
-  const centerTypeFolder = `${cleanCenter} ${cleanType}`;
-  const segments = ['nibol', 'ciclicos', 'fotos', 'justificaciones', dateTag, centerTypeFolder];
-  return resolveOrCreateDrivePath_(segments);
-}
-
-function resolveOrCreateDrivePath_(segments) {
-  if (!segments || !segments.length) {
-    return DriveApp.getRootFolder();
-  }
-
-  let current = null;
-  const firstSeg = String(segments[0]).trim();
-
-  try {
-    const root = DriveApp.getRootFolder();
-    const rootFolders = root.getFolders();
-    while (rootFolders.hasNext()) {
-      const f = rootFolders.next();
-      if (!f.isTrashed() && f.getName().trim().toLowerCase() === firstSeg.toLowerCase()) {
-        current = f;
-        break;
-      }
-    }
-
-    if (!current) {
-      const globalMatches = DriveApp.getFoldersByName(firstSeg);
-      while (globalMatches.hasNext()) {
-        const f = globalMatches.next();
-        if (!f.isTrashed()) {
-          current = f;
-          break;
-        }
-      }
-    }
-
-    if (!current) {
-      current = root.createFolder(firstSeg);
-      try {
-        current.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      } catch (_) {}
-    }
-  } catch (err) {
-    current = DriveApp.getRootFolder();
-  }
-
-  for (let i = 1; i < segments.length; i++) {
-    const segName = String(segments[i]).trim();
-    if (!segName) continue;
-
-    let found = null;
-    const subFolders = current.getFolders();
-    const segLower = segName.toLowerCase();
-
-    while (subFolders.hasNext()) {
-      const sf = subFolders.next();
-      if (!sf.isTrashed()) {
-        const sfLower = sf.getName().trim().toLowerCase();
-        if (sfLower === segLower || sfLower.replace(/[_\s-]+/g, ' ') === segLower.replace(/[_\s-]+/g, ' ')) {
-          found = sf;
-          break;
-        }
-      }
-    }
-
-    if (!found) {
-      try {
-        found = current.createFolder(segName);
-        try {
-          found.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-        } catch (_) {}
-      } catch (errSub) {
-        return current;
-      }
-    }
-    current = found;
-  }
-
-  return current;
-}
-
-function saveDamagedPhotoIfAny_(payload, center, type, skuOrBar) {
-  const photo = payload.photoBase64 || payload.photoUrl || payload.foto_mal_estado || payload.photo;
-  // Optimización crítica: no consultar Google Drive si no hay foto real
-  if (!photo || typeof photo !== 'string' || (!photo.startsWith('data:image') && !photo.startsWith('http'))) {
-    return null;
-  }
-
-  let targetFolder = null;
-  try {
-    const invType = type || payload.type || (payload.inventoryId && String(payload.inventoryId).includes('BARRIDO') ? 'BARRIDO' : 'CICLICO');
-    const dateStr = payload.date || payload.fecha || payload.fechaUltimoConteo;
-    targetFolder = getDamagedPhotosTargetFolder_(center, invType, dateStr);
-  } catch (errF) {
-    Logger.log('Error creando carpeta fotos malestado: ' + errF.message);
-  }
-
-  if (!targetFolder) targetFolder = getRootFolderForType_(type);
-
-  const cleanSku = String(skuOrBar || 'SKU').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const fileName = `${cleanSku}.jpg`;
-
-  const existing = targetFolder.getFilesByName(fileName);
-  while (existing.hasNext()) {
-    try { existing.next().setTrashed(true); } catch (_) {}
-  }
-
-  return saveBase64Image_(targetFolder, fileName, photo);
-}
-
-function saveJustificationPhotoIfAny_(payload, center, type, skuOrBar) {
-  const photo = payload.photoJustificacion || payload.photoBase64 || payload.justificationPhoto || payload.photoUrl || payload.photo;
-  // Optimización crítica: no consultar Google Drive si no hay foto real
-  if (!photo || typeof photo !== 'string' || (!photo.startsWith('data:image') && !photo.startsWith('http'))) {
-    return null;
-  }
-
-  const isJustification = !!(payload.razon || payload.comentarioJustificacion || payload.justification || payload.action === 'saveJustification' || payload.photoJustificacion);
-  if (!isJustification) return null;
-
-  let targetFolder = null;
-  try {
-    const invType = type || payload.type || (payload.inventoryId && String(payload.inventoryId).includes('BARRIDO') ? 'BARRIDO' : 'CICLICO');
-    const dateStr = payload.date || payload.fecha || payload.fechaUltimoConteo;
-    targetFolder = getJustificationPhotosTargetFolder_(center, invType, dateStr);
-  } catch (errF) {
-    Logger.log('Error creando carpeta fotos justificaciones: ' + errF.message);
-  }
-
-  if (!targetFolder) targetFolder = getRootFolderForType_(type);
-
-  const cleanSku = String(skuOrBar || 'SKU').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const fileName = `${cleanSku}.jpg`;
-
-  const existing = targetFolder.getFilesByName(fileName);
-  while (existing.hasNext()) {
-    try { existing.next().setTrashed(true); } catch (_) {}
-  }
-
-  return saveBase64Image_(targetFolder, fileName, photo);
-}
-
-function saveJustificationPhotosBatch_(justifications, center, type) {
-  if (!justifications || !justifications.length) return 0;
-  let targetFolder = null;
-  try {
-    targetFolder = getJustificationPhotosTargetFolder_(center, type, null);
-  } catch (err) {
-    Logger.log('Error creando carpeta batch justificaciones: ' + err.message);
-  }
-  if (!targetFolder) targetFolder = getRootFolderForType_(type);
-
-  let saved = 0;
-  try {
-    justifications.forEach(j => {
-      const photo = j.photoUrl || j.evidenceUrl || j.photoBase64 || j.photo || j.foto_justificacion;
-      const sku = j.sku || j.SKU;
-      if (!photo || !sku) return;
-
-      const cleanSku = String(sku).replace(/[^a-zA-Z0-9_-]/g, '_');
-      const fileName = `${cleanSku}.jpg`;
-
-      const existing = targetFolder.getFilesByName(fileName);
-      while (existing.hasNext()) {
-        try { existing.next().setTrashed(true); } catch (_) {}
-      }
-
-      const f = saveBase64Image_(targetFolder, fileName, photo);
-      if (f) saved++;
+function distribuirBaseACentros(){
+  const lock=LockService.getScriptLock();lock.waitLock(25000);
+  try{
+    const ss=spreadsheet_(),base=ss.getSheetByName('BD_BASE');if(!base||base.getLastRow()<2)throw new Error('BD_BASE no existe o está vacía');
+    const all=base.getDataRange().getValues(),headers=all.shift().map(headerKey_);
+    const centerIndex=headers.findIndex(h=>['centro','center','codigocentro'].includes(h));
+    if(centerIndex<0)throw new Error('Falta columna en BD_BASE: centro (determina la hoja de destino)');
+    // Source headers in BD_BASE map to the master columns A-K in each center sheet.
+    const sourceHeaders=[
+      ['codigo','sku'], ['codigobarras'], ['descripcion','descipcion'], ['ubic','ubicacion'],
+      ['ubicacion1'], ['ubicacion2'], ['almacen'],
+      ['clasificacioncentro','clasificacioncen','clasificacionabc'], ['unidad'],
+      ['valor','costounitario'], ['stock','stocksistema']
+    ];
+    const indexes=sourceHeaders.map(aliases=>{
+      const matches=headers.map((h,i)=>aliases.includes(h)?i:-1).filter(i=>i>=0);
+      if(matches.length>1)throw new Error('Columnas ambiguas en BD_BASE: '+aliases.join(' / '));
+      return matches.length?matches[0]:-1;
     });
-  } catch (err) {
-    Logger.log('Error batch fotos justificaciones: ' + err.message);
-  }
-  return saved;
+    [0,2,3,6,7,9,10].forEach(i=>{if(indexes[i]<0)throw new Error('Falta columna en BD_BASE: '+sourceHeaders[i][0]);});
+    const groups={};
+    all.filter(r=>r.some(InventoryContract.has)).forEach(r=>{
+      const center=String(r[centerIndex]).trim();
+      if(!/^\d{4}$/.test(center))throw new Error('Centro inválido en BD_BASE: '+center+' (se requiere un código de cuatro dígitos)');
+      const row=Array(40).fill('');indexes.forEach((idx,i)=>{if(idx>=0)row[i]=r[idx]??'';});
+      const item=rowToObject_(row);if(!item.SKU)throw new Error('SKU vacío en BD_BASE');
+      if (!groups[center]) groups[center] = [];
+      groups[center].push(rowValues_(item));
+    });
+    // Validate all existing sheets and all incoming identities before any write.
+    Object.entries(groups).forEach(([center,rows])=>{
+      const keys=rows.map(r=>InventoryContract.member(rowToObject_(r)));
+      if(new Set(keys).size!==keys.length)throw new Error('Duplicados en BD_BASE, centro '+center);
+      const sh=ss.getSheetByName(center);if(sh)validateHeaders_(sh);
+    });
+    let skipped=0;
+    Object.entries(groups).forEach(([center,incoming])=>{
+      const sh=ss.getSheetByName(center)||ss.insertSheet(center);ensureColumns_(sh);
+      const rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,40).getValues():[];
+      const map=new Map(rows.map((r,i)=>[InventoryContract.member(rowToObject_(r)),i]));
+      incoming.forEach(row=>{
+        const key=InventoryContract.member(rowToObject_(row));
+        if(map.has(key)){const i=map.get(key);if(InventoryContract.has(rows[i][COL.Stock_Total-1])){skipped++;return;}
+          rows[i]=row;
+        }else{map.set(key,rows.length);rows.push(row);}
+      });
+      if(sh.getMaxRows()<rows.length+1)sh.insertRowsAfter(sh.getMaxRows(),rows.length+1-sh.getMaxRows());
+      if(rows.length)sh.getRange(2,1,rows.length,40).setValues(rows);
+    });
+    SpreadsheetApp.flush();
+    SpreadsheetApp.getUi().alert('Maestros actualizados. Filas contadas conservadas: '+skipped);
+  }finally{lock.releaseLock();}
 }
 
-function saveBase64Image_(folder, fileName, dataUriOrBase64) {
-  let base64 = String(dataUriOrBase64 || '').trim();
-  if (!base64) return null;
-
-  let mimeType = 'image/jpeg';
-  if (base64.indexOf(';base64,') !== -1) {
-    const parts = base64.split(';base64,');
-    const meta = parts[0].toLowerCase();
-    base64 = parts[1].replace(/\s+/g, '');
-    if (meta.indexOf('image/png') !== -1) mimeType = 'image/png';
-    else if (meta.indexOf('image/webp') !== -1) mimeType = 'image/webp';
-    else if (meta.indexOf('image/gif') !== -1) mimeType = 'image/gif';
-  } else if (base64.startsWith('http://') || base64.startsWith('https://')) {
-    try {
-      const resp = UrlFetchApp.fetch(base64, { muteHttpExceptions: true });
-      if (resp.getResponseCode() === 200) {
-        const blob = resp.getBlob().setName(fileName);
-        const file = folder.createFile(blob);
-        try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (_) {}
-        return { id: file.getId(), name: file.getName(), url: file.getUrl(), folderId: folder.getId() };
-      }
-    } catch (e) {
-      Logger.log('Error fetch imagen URL: ' + e.message);
-    }
-    return null;
-  } else if (base64.startsWith('/')) {
-    return null;
-  } else {
-    base64 = base64.replace(/\s+/g, '');
-  }
-
-  try {
-    const bytes = Utilities.base64Decode(base64);
-    const blob = Utilities.newBlob(bytes, mimeType, fileName);
-    const file = folder.createFile(blob);
-    try {
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    } catch (_) {}
-
-    return {
-      id: file.getId(),
-      name: file.getName(),
-      url: file.getUrl(),
-      folderId: folder.getId(),
-      folderName: folder.getName()
-    };
-  } catch (errDecode) {
-    Logger.log('Error decodificando y creando archivo de imagen en Drive: ' + errDecode.message);
-    return null;
-  }
-}
-
-function getRootFolderForType_(type) {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    if (ss) {
-      const file = DriveApp.getFileById(ss.getId());
-      const parents = file.getParents();
-      if (parents.hasNext()) {
-        const p = parents.next();
-        if (p) return p;
-      }
-    }
-  } catch (e) {}
-
-  const cleanType = String(type || 'CICLICO').toUpperCase();
-  const folderId = CFG.driveRoots[cleanType] || CFG.driveRoots['CICLICO'];
-  if (folderId && !folderId.startsWith('1A987') && !folderId.startsWith('1B123')) {
-    try {
-      return DriveApp.getFolderById(folderId);
-    } catch (e) {}
-  }
-  return DriveApp.getRootFolder();
-}
-
-function getCenterFolder_(rootFolder, center) {
-  const cleanCenter = String(center || CFG.defaultCenterIfMissing).trim();
-  const rootName = rootFolder.getName().trim().toUpperCase();
-  if (rootName === cleanCenter.toUpperCase() || rootName.includes(cleanCenter.toUpperCase())) {
-    return rootFolder;
-  }
-  return getOrCreateFolder_(rootFolder, cleanCenter);
-}
-
-function getOrCreateFolder_(parentFolder, folderName) {
-  const it = parentFolder.getFoldersByName(folderName);
-  if (it.hasNext()) {
-    return it.next();
-  }
-  return parentFolder.createFolder(folderName);
-}
-
-function buildFinalSpreadsheetName_(type, center) {
-  const dateTag = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmmss');
-  return `Inventario_${type}_${center}_FINAL_${dateTag}`;
-}
-
-/**
- * Elimina o limpia una ubicación adicional (Ubicación 1 o Ubicación 2) de un ítem.
- * REGLA NUEVA:
- * Ya no elimina una fila completa del Sheet, sino que borra el valor en Col E o Col F.
- */
-function deleteAdditionalLocation_(payload) {
-  const center = String(payload.center || payload.centro || CFG.defaultCenterIfMissing).trim();
-  const sku = norm_(payload.sku || payload.SKU || '');
-  const location = norm_(payload.location || payload.ubicacion || payload.Ubicacion || '');
-  const warehouse = norm_(payload.warehouse || payload.almacen || payload.Almacen || '');
-  const slot = Number(payload.slot || payload.locationSlot || 0);
-
-  if (!sku) throw new Error('deleteAdditionalLocation requiere sku');
-
-  const sh = getCenterSheet_(center);
-  ensureColumns_(sh);
-
-  const found = findBySkuBarcode_(sh, sku, '', warehouse);
-  if (!found) {
-    return { success: true, cleared: false, message: 'Ítem no encontrado' };
-  }
-
-  const row = sh.getRange(found.rowNumber, 1, 1, 40).getValues()[0];
-  const u1 = norm_(row[COL.Ubicacion_1 - 1]);
-  const u2 = norm_(row[COL.Ubicacion_2 - 1]);
-
-  let changed = false;
-  if (slot === 2 || (location && u2 === location)) {
-    row[COL.Ubicacion_2 - 1] = '';
-    changed = true;
-  } else if (slot === 1 || (location && u1 === location)) {
-    row[COL.Ubicacion_1 - 1] = row[COL.Ubicacion_2 - 1] || '';
-    row[COL.Ubicacion_2 - 1] = '';
-    changed = true;
-  }
-
-  if (changed) {
-    sh.getRange(found.rowNumber, COL.Ubicacion_1, 1, 2).setValues([[row[COL.Ubicacion_1 - 1], row[COL.Ubicacion_2 - 1]]]);
-    return { success: true, cleared: true, sku, ubicacion1: row[COL.Ubicacion_1 - 1], ubicacion2: row[COL.Ubicacion_2 - 1] };
-  }
-
-  return { success: true, cleared: false, message: 'Ubicación no encontrada en Col E ni Col F' };
-}
-
-/**
- * Distribuye la base BD_BASE hacia las pestañas de cada centro según el nuevo orden de columnas.
- */
-function distribuirBaseACentros() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const hojaBase = ss.getSheetByName("BD_BASE");
-  
-  if (!hojaBase) {
-    SpreadsheetApp.getUi().alert("Error: No se encontró la pestaña BD_BASE.");
-    return;
-  }
-
-  const ultimaFila = hojaBase.getLastRow();
-  if (ultimaFila < 2) {
-    SpreadsheetApp.getUi().alert("La pestaña BD_BASE está vacía.");
-    return;
-  }
-
-  // Leer todas las columnas de BD_BASE
-  const totalCols = hojaBase.getLastColumn();
-  const datos = hojaBase.getRange(2, 1, ultimaFila - 1, totalCols).getValues();
-
-  // Agrupar por Centro (Col G = Almacen = índice 6 en BD_BASE)
-  const agrupadoPorCentro = {};
-
-  datos.forEach(fila => {
-    // Almacen / Centro está en Col G (índice 6)
-    const centro = String(fila[6] || fila[4] || "").trim();
-    if (centro) {
-      if (!agrupadoPorCentro[centro]) {
-        agrupadoPorCentro[centro] = [];
-      }
-      
-      // Construir fila de 40 columnas para el nuevo formato
-      const nuevaFila = new Array(40).fill("");
-      nuevaFila[COL.SKU - 1] = fila[0] || "";               // Col A
-      nuevaFila[COL.Codigo_Barras - 1] = fila[1] || "";      // Col B
-      nuevaFila[COL.Descripcion - 1] = fila[2] || "";        // Col C
-      nuevaFila[COL.Ubicacion - 1] = fila[3] || "";          // Col D
-      nuevaFila[COL.Ubicacion_1 - 1] = fila[4] && fila[4] !== centro ? fila[4] : ""; // Col E
-      nuevaFila[COL.Ubicacion_2 - 1] = fila[5] && fila[5] !== centro ? fila[5] : ""; // Col F
-      nuevaFila[COL.Almacen - 1] = centro;                   // Col G
-      nuevaFila[COL.Clasificacion_ABC - 1] = fila[7] || fila[5] || "C"; // Col H
-      nuevaFila[COL.Unidad - 1] = fila[8] || fila[6] || "PZA";           // Col I
-      nuevaFila[COL.Costo_Unitario - 1] = fila[9] || fila[7] || 0;       // Col J
-      nuevaFila[COL.Stock_Sistema - 1] = fila[10] || fila[8] || 0;      // Col K
-      nuevaFila[COL.Estado - 1] = "";                                   // Col T (Justificación - Vacío inicialmente)
-
-      agrupadoPorCentro[centro].push(nuevaFila);
-    }
-  });
-
-  // Escribir a cada hoja de centro
-  for (const centro in agrupadoPorCentro) {
-    let hojaDestino = ss.getSheetByName(centro);
-    if (!hojaDestino) {
-      hojaDestino = ss.insertSheet(centro);
-    }
-
-    ensureColumns_(hojaDestino);
-
-    // Limpiar contenido previo desde fila 2
-    if (hojaDestino.getLastRow() > 1) {
-      hojaDestino.getRange(2, 1, hojaDestino.getLastRow() - 1, 40).clearContent();
-    }
-
-    const filasParaInsertar = agrupadoPorCentro[centro];
-    if (filasParaInsertar.length > 0) {
-      hojaDestino.getRange(2, 1, filasParaInsertar.length, 40).setValues(filasParaInsertar);
-    }
-  }
-
-  SpreadsheetApp.getUi().alert("Distribución completada exitosamente.");
-}
-
-function inferEstado_(dif, malEstado) {
-  if (malEstado > 0) return 'Dañado';
-  if (dif === 0) return 'Correcto';
-  return 'Diferencia';
-}
-
-function hasValue_(v) {
-  return v !== undefined && v !== null && v !== '';
-}
-
-function num_(v) {
-  if (v === '' || v === null || v === undefined) return 0;
-  const n = Number(v);
-  return isNaN(n) ? 0 : n;
-}
-
-function norm_(v) {
-  return String(v || '').trim().toUpperCase();
-}
-
-function json_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
+function originalStock_(p,item){
+  const ss=spreadsheet_();let sh=ss.getSheetByName('_INVENTORY_ORIGINAL_STOCK');
+  if(!sh){sh=ss.insertSheet('_INVENTORY_ORIGINAL_STOCK');sh.appendRow(['Identity','OriginalStock','Fecha']);sh.hideSheet();}
+  const key=hash_(JSON.stringify([p.inventoryId||'',p.center,InventoryContract.member(item)]));
+  if(sh.getLastRow()>1){const found=sh.getRange(2,1,sh.getLastRow()-1,1).createTextFinder(key).matchEntireCell(true).useRegularExpression(false).findNext();
+    if(found)return sh.getRange(found.getRow(),2).getValue();}
+  const original=InventoryContract.number(item.Stock_Sistema,'Stock_Sistema');
+  sh.appendRow([key,original,new Date()]);return original;
 }

@@ -285,7 +285,8 @@ window.API = {
 
   syncAllFromSheets() {
     return this.request('/inventories/sync-all-sheets', {
-      method: 'POST'
+      method: 'POST',
+      timeoutMs: 60000
     });
   },
 
@@ -297,7 +298,8 @@ window.API = {
 
   syncInventoryFromSheet(inventoryId) {
     return this.request(`/inventories/${inventoryId}/sync-sheet`, {
-      method: 'POST'
+      method: 'POST',
+      timeoutMs: 60000
     });
   },
 

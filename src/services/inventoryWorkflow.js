@@ -129,8 +129,18 @@ function plan(inv, child, records = []) {
 
 function assertJustification(inv, item, round, context, explanation) {
   if (![1, 2].includes(round)) throw new Error('Ronda de justificación inválida');
-  const entry = context.items.find(it => contract.member(it) === contract.member(item));
-  if (!entry || entry.justificationRound !== round || !entry.canJustify)
+  const skuMatches = (a, b) => {
+    const normA = contract.identity(a);
+    const normB = contract.identity(b);
+    if (normA === normB) return true;
+    return normA.replace(/^JD[_-]?/i, '') === normB.replace(/^JD[_-]?/i, '');
+  };
+  const entry = context.items.find(it => (item.id && it.id === item.id) ||
+    contract.member(it) === contract.member(item) ||
+    (skuMatches(it.SKU, item.SKU) && contract.identity(it.Almacen) === contract.identity(item.Almacen)) ||
+    skuMatches(it.SKU, item.SKU));
+  const isReopenedJust = inv.reopenedPhase === 'JUSTIFICACION';
+  if (!entry || (!isReopenedJust && entry.justificationRound !== round) || !entry.canJustify)
     throw new Error('La justificación no está habilitada: finalice y firme el conteo o reconteo correspondiente.');
   if (!String(explanation || '').trim()) throw new Error('Es obligatorio explicar el resultado, tanto CUADRA como NO CUADRA.');
 }

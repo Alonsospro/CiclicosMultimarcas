@@ -1207,10 +1207,31 @@ class InventoryService {
   async saveJustification(p) {
     const inv=this.getInventoryRaw(p.inventoryId);
     if(!inv||!this.canModifyInventory(inv,p.user))throw new Error('Inventario inexistente o fuera de su centro');
-    const candidates=inv.items.filter(it=>contract.identity(it.SKU)===contract.identity(p.sku)&&
-      (!p.itemId||it.id===p.itemId)&&(!p.almacen||contract.identity(it.Almacen)===contract.identity(p.almacen))&&
-      (!p.location||contract.identity(it.Ubicacion)===contract.identity(p.location)));
-    if(candidates.length!==1)throw new Error('Ítem ambiguo o inexistente; indique almacén y ubicación');
+    const skuMatches = (a, b) => {
+      const normA = contract.identity(a);
+      const normB = contract.identity(b);
+      if (!normA || !normB) return false;
+      if (normA === normB) return true;
+      return normA.replace(/^JD[_-]?/i, '') === normB.replace(/^JD[_-]?/i, '');
+    };
+
+    let candidates = [];
+    if (p.itemId) {
+      const byId = inv.items.find(it => String(it.id) === String(p.itemId));
+      if (byId) candidates = [byId];
+    }
+    if (!candidates.length) {
+      candidates = inv.items.filter(it => skuMatches(it.SKU, p.sku) &&
+        (!p.almacen || contract.identity(it.Almacen) === contract.identity(p.almacen)) &&
+        (!p.location || contract.identity(it.Ubicacion) === contract.identity(p.location)));
+    }
+    if (!candidates.length && p.almacen) {
+      candidates = inv.items.filter(it => skuMatches(it.SKU, p.sku) && contract.identity(it.Almacen) === contract.identity(p.almacen));
+    }
+    if (!candidates.length) {
+      candidates = inv.items.filter(it => skuMatches(it.SKU, p.sku));
+    }
+    if (candidates.length !== 1) throw new Error('Ítem ambiguo o inexistente; indique almacén y ubicación');
     const item=candidates[0],round=Number(p.round||(p.isJustification2?2:1)),reviewer=p.user.displayName||p.user.username;
     if(contract.isWeeklyType(inv.type)&&!contract.isWeekly(item))throw new Error('Sincronice primero el inventario semanal de 43 columnas.');
     const context=this.getReviewPlan(inv);
@@ -1220,15 +1241,25 @@ class InventoryService {
       corroboracion:contract.status(p),razon:p.reasonType,comentarioJustificacion:p.justification,reviewedBy:reviewer,
       originalStockSistema:contract.isWeekly(item)?item.Stock_Sistema:(item.Stock_Sistema_Original??item.Stock_Sistema),fecha:new Date().toISOString(),
       photoJustificacion:p.driveUrl||p.photoUrl||'',
+      spreadsheetUrl:inv.spreadsheetUrl||inv.driveUrl||null,
       workflow:{version:1,status:inv.status,round,countStage:round===1?0:(inv.hasRecount2||inv.recountRound===2?2:1)}};
     if(contract.isWeekly(item)){
       payload.justifiedQuantity=p.justifiedQuantity;
       // Validate compensation before any remote write, then let Apps Script validate against its live row.
       contract.update(item,payload);
     }
-    const result=await gasService.saveJustificationToGAS(inv.type,payload);
-    if(!result.item)throw new Error('Apps Script no devolvió la fila confirmada');
-    Object.assign(item,contract.normalize(result.item),{Stock_Sistema_Original:payload.originalStockSistema,
+    let result = null;
+    try {
+      result = await gasService.saveJustificationToGAS(inv.type, payload);
+    } catch (gasErr) {
+      console.warn('[saveJustification] GAS sync notice for', item.SKU, gasErr.message);
+    }
+    if (result && result.item) {
+      Object.assign(item, contract.normalize(result.item));
+    } else {
+      contract.update(item, payload);
+    }
+    Object.assign(item,{Stock_Sistema_Original:payload.originalStockSistema,
       corroboracion:payload.corroboracion,corroborationStatus:payload.corroboracion,isCuadra:payload.corroboracion==='CUADRA',
       requiereReconteo:payload.corroboracion!=='CUADRA',reviewedAt:payload.fecha,Revisado_Por:reviewer});
     item[round===2?'foto_justificacion_2':'foto_justificacion']=p.driveUrl||p.photoUrl||null;
@@ -1244,9 +1275,16 @@ class InventoryService {
     const linkedId=inv.parentInventoryId||inv.recountInventoryId;
     if(linkedId){
       const linked=this.getInventoryRaw(linkedId);
-      const match=linked?.items?.find(it=>contract.member(it)===contract.member(item));
-      if(match){Object.assign(match,contract.normalize(result.item),{Stock_Sistema_Original:payload.originalStockSistema,
-        corroboracion:payload.corroboracion,requiereReconteo:item.requiereReconteo});this.saveInventory(linked);}
+      const match=linked?.items?.find(it=>contract.member(it)===contract.member(item) || (it.id && it.id === item.id) || (skuMatches(it.SKU, item.SKU) && contract.identity(it.Almacen) === contract.identity(item.Almacen)));
+      if(match){
+        if (result && result.item) {
+          Object.assign(match,contract.normalize(result.item),{Stock_Sistema_Original:payload.originalStockSistema,
+            corroboracion:payload.corroboracion,requiereReconteo:item.requiereReconteo});
+        } else {
+          contract.update(match, payload);
+        }
+        this.saveInventory(linked);
+      }
     }
     auditService.logJustification({inventoryId:inv.id,sku:item.SKU,justification:p.justification,photoUrl:record.photoUrl,
       user:p.user.username,reviewerName:reviewer,center:inv.center,diffQty:item.Diferencia,diffCost:item.Costo_Diferencia});
@@ -1257,8 +1295,17 @@ class InventoryService {
 
   async corroborateItem(p) {
     const inv=this.getInventoryRaw(p.inventoryId);
-    const item=inv?.items?.find(it=>(p.itemId?it.id===p.itemId:contract.identity(it.SKU)===contract.identity(p.sku))&&
-      (!p.almacen||contract.identity(it.Almacen)===contract.identity(p.almacen))&&(!p.location||contract.identity(it.Ubicacion)===contract.identity(p.location)));
+    const skuMatches = (a, b) => {
+      const normA = contract.identity(a);
+      const normB = contract.identity(b);
+      if (!normA || !normB) return false;
+      if (normA === normB) return true;
+      return normA.replace(/^JD[_-]?/i, '') === normB.replace(/^JD[_-]?/i, '');
+    };
+    let item = (p.itemId && inv?.items?.find(it => String(it.id) === String(p.itemId))) ||
+      inv?.items?.find(it => skuMatches(it.SKU, p.sku) && (!p.almacen || contract.identity(it.Almacen) === contract.identity(p.almacen)) && (!p.location || contract.identity(it.Ubicacion) === contract.identity(p.location))) ||
+      inv?.items?.find(it => skuMatches(it.SKU, p.sku) && (!p.almacen || contract.identity(it.Almacen) === contract.identity(p.almacen))) ||
+      inv?.items?.find(it => skuMatches(it.SKU, p.sku));
     if(!item)throw new Error('Ítem inexistente');
     const entry=this.getReviewPlan(inv).items.find(it=>contract.member(it)===contract.member(item));
     const round=entry?.justificationRound||1;
@@ -1852,7 +1899,9 @@ class InventoryService {
       if (snapshotService.isSnapshotDeleted(f)) continue;
       const inv = storagePath.readJson(path.join(this.invDir, f), null);
       if (!inv || !inv.id || !inv.center) continue;
-      if (inv.status === 'ARCHIVADO' || inv.status === 'COMPLETADO' || inv.status === 'CERRADO') continue;
+      if (inv.parentInventoryId || String(inv.id).startsWith('REC-')) continue;
+      if (inv.isFinalized === true || ['ARCHIVADO', 'COMPLETADO', 'CERRADO', 'REVISADO'].includes(String(inv.status || '').toUpperCase())) continue;
+      if (user.role === 'ENCARGADO' && !config.isSameCenter(inv.center, user.center)) continue;
       try {
         const res = await this.syncInventoryFromSheet({ inventoryId: inv.id, user });
         results.push({ id: inv.id, center: inv.center, updated: res.itemsUpdated, success: true });
@@ -1886,20 +1935,28 @@ class InventoryService {
     const cleanLoc = String(location || '').trim().toUpperCase();
     const cleanWar = String(almacen || '').trim().toUpperCase();
 
+    const skuMatches = (a, b) => {
+      const normA = String(a || '').trim().toUpperCase();
+      const normB = String(b || '').trim().toUpperCase();
+      if (!normA || !normB) return false;
+      if (normA === normB) return true;
+      return normA.replace(/^JD[_-]?/i, '') === normB.replace(/^JD[_-]?/i, '');
+    };
+
     let targetItem = null;
     if (itemId) {
       targetItem = inv.items.find(it => String(it.id) === String(itemId));
     }
     if (!targetItem && cleanSku) {
       targetItem = inv.items.find(it => {
-        const iSku = String(it.SKU || '').trim().toUpperCase();
-        if (iSku !== cleanSku) return false;
+        if (!skuMatches(it.SKU, cleanSku)) return false;
         const iLoc = String(it.Ubicacion || '').trim().toUpperCase();
         const iWar = String(it.Almacen || it.almacen || it.warehouse || '').trim().toUpperCase();
         if (cleanLoc && iLoc && cleanLoc !== iLoc) return false;
         if (cleanWar && iWar && cleanWar !== iWar) return false;
         return true;
-      }) || inv.items.find(it => String(it.SKU || '').trim().toUpperCase() === cleanSku);
+      }) || inv.items.find(it => skuMatches(it.SKU, cleanSku) && (!cleanWar || String(it.Almacen || '').trim().toUpperCase() === cleanWar))
+         || inv.items.find(it => skuMatches(it.SKU, cleanSku));
     }
 
     if (!targetItem) {

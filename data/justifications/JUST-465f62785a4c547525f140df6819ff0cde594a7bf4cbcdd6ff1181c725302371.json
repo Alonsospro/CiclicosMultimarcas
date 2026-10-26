@@ -1,0 +1,23 @@
+{
+  "id": "JUST-465f62785a4c547525f140df6819ff0cde594a7bf4cbcdd6ff1181c725302371",
+  "inventoryId": "INV-CICLICO-1820-1",
+  "itemId": "ITEM-SHEET-0",
+  "sku": "JD_13P1002",
+  "almacen": "RSP0",
+  "ubicacion": "1B02009C00",
+  "round": 2,
+  "corroboracion": "CUADRA",
+  "isCuadra": true,
+  "reasonType": "balanceo",
+  "justification": "Prueba de corroboración sin prefijo JD",
+  "reviewedBy": "Administrador General",
+  "reviewedAt": "2026-10-26T01:15:12.117Z",
+  "fechaPrimeraJustificacion": "",
+  "fechaJustificacion2": "2026-10-14T17:42:24.722Z",
+  "photoUrl": null,
+  "driveUrl": null,
+  "driveFileId": null,
+  "center": "1820",
+  "type": "CICLICO",
+  "status": "REVISADO"
+}
