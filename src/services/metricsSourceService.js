@@ -157,7 +157,8 @@ class MetricsSourceService {
       ((Date.parse(b.manifest?.closedAt || b.closedAt || b.createdAt) || 0) - (Date.parse(a.manifest?.closedAt || a.closedAt || a.createdAt) || 0)));
     const primary = group.filter(record => !child(record));
     const anchor = primary[0];
-    const linked = closed(anchor) ? primary.find(r => closed(r) && sheetKey(r)) : (primary.find(r => sheetKey(r)) || null);
+    const reopened = !closed(anchor) && !!anchor.reopenedAt;
+    const linked = reopened ? null : (closed(anchor) ? primary.find(r => closed(r) && sheetKey(r)) : (primary.find(r => sheetKey(r)) || null));
     const record = { ...anchor, items: [], aliases: [...new Set(group.flatMap(r => [r.id, r.inventoryId, r.fileId, r.driveFileId, r.fileName]).filter(Boolean))] };
     if (linked) {
       record.spreadsheetUrl = group.find(r => sheetKey(r) === sheetKey(linked) && /[#&?]gid=\d+/.test(r.spreadsheetUrl || ''))?.spreadsheetUrl || linked.spreadsheetUrl || linked.driveUrl;

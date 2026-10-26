@@ -14,6 +14,11 @@ const snapshotService = require('./snapshotService');
 
 function mergeRecountIntoParent(parentItem, recountItem) {
   const normalized = contract.normalize(recountItem);
+  const reviewHistory = Object.fromEntries([
+    'Fecha_Primera_Justificacion','Estado','Razon','Comentario_Justificacion','Responsable_Justificacion',
+    'Fecha_Justificacion_2','Estado_Justificacion_2','Razon_Justificacion_2','Comentario_Justificacion_2','Responsable_Justificacion_2',
+    'Cantidad_Justificada_1','Cantidad_Justificada_2','Stock_Sistema'
+  ].filter(key => contract.has(parentItem[key])).map(key => [key,parentItem[key]]));
   const firstCount = {
     Stock_Buen_Estado: contract.first(recountItem.Stock_Buen_Estado_1erConteo, recountItem.Stock_Fisico_1erConteo, parentItem.Stock_Buen_Estado),
     Stock_Fisico: contract.first(recountItem.Stock_Fisico_1erConteo, recountItem.Stock_Buen_Estado_1erConteo, parentItem.Stock_Fisico),
@@ -31,7 +36,7 @@ function mergeRecountIntoParent(parentItem, recountItem) {
   }
   Object.assign(parentItem, normalized, Object.fromEntries(
     Object.entries(firstCount).filter(([, value]) => contract.has(value))
-  ));
+  ), reviewHistory);
   return parentItem;
 }
 
@@ -1242,7 +1247,7 @@ class InventoryService {
       originalStockSistema:contract.isWeekly(item)?item.Stock_Sistema:(item.Stock_Sistema_Original??item.Stock_Sistema),fecha:new Date().toISOString(),
       photoJustificacion:p.driveUrl||p.photoUrl||'',
       spreadsheetUrl:inv.spreadsheetUrl||inv.driveUrl||null,
-      workflow:{version:1,status:inv.status,round,countStage:workflow.countStage(inv),
+      workflow:{version:1,status:inv.status,round,countStage:round===1?0:(workflow.countStage(inv)||(inv.hasRecount2||inv.recountRound===2?2:inv.hasRecount?1:0)),
         reopenedPhase:inv.reopenedPhase||null}};
     if(contract.isWeekly(item)){
       payload.justifiedQuantity=p.justifiedQuantity;
@@ -1258,7 +1263,7 @@ class InventoryService {
     if (result && result.item) {
       Object.assign(item, contract.normalize(result.item));
     } else {
-      contract.update(item, payload);
+      Object.assign(item, contract.update(item, payload));
     }
     Object.assign(item,{Stock_Sistema_Original:payload.originalStockSistema,
       corroboracion:payload.corroboracion,corroborationStatus:payload.corroboracion,isCuadra:payload.corroboracion==='CUADRA',
@@ -1640,6 +1645,9 @@ class InventoryService {
     const cleanPhase = String(targetPhase || '1ER_CONTEO').toUpperCase().trim();
     if (!['1ER_CONTEO', 'CONTEO', 'RECONTEO_1', 'RECONTEO', 'RECONTEO 1', 'RECONTEO_2', 'RECONTEO 2', 'JUSTIFICACION', 'JUSTIFICACIONES'].includes(cleanPhase)) {
       throw new Error('Etapa de reapertura inválida');
+    }
+    if (['1ER_CONTEO', 'CONTEO'].includes(cleanPhase) && inv.hasRecount) {
+      throw new Error('El reconteo ya iniciado se conserva como historial; no se puede volver a abrir el primer conteo.');
     }
     if (['JUSTIFICACION', 'JUSTIFICACIONES'].includes(cleanPhase) &&
         !['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO', 'REVISADO'].includes(inv.status)) {

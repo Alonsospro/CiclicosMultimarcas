@@ -322,6 +322,9 @@ window.DashboardView = {
       if (period === 'PERSONALIZADO') {
         if (startDate) params.startDate = startDate;
         if (endDate) params.endDate = endDate;
+      } else if (['SEMANA_ESPECIFICA', 'MES_ESPECIFICO'].includes(period)) {
+        const range = this.getPeriodDates(period);
+        if (range) Object.assign(params, range);
       }
 
       const auditParams = {
