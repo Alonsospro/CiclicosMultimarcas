@@ -32,7 +32,12 @@ const countStage = inv => inv.phase === 'RECONTEO_2' || inv.recountRound === 2 ?
 function hasCount(item, stage = 0, since = null) {
   const [good, , total, , , date] = contract.stages[stage];
   const alias = stage === 0 ? item.Stock_Fisico : stage === 1 ? item.Reconteo_Fisico : undefined;
-  return [item[good], item[total], alias].some(hasQuantity) && (!since || time(item[date]) >= time(since));
+  const itemDate = item[date] || (stage > 0 ? (item.Fecha_Ultimo_Conteo || item.modificationHistory?.slice(-1)[0]?.timestamp) : null);
+  const hasQty = [item[good], item[total], alias].some(hasQuantity) || (stage === 1 && item.Estado_Reconteo === 'Recontado');
+  if (!hasQty) return false;
+  if (!since) return true;
+  const t = time(itemDate);
+  return t > 0 && t >= time(since);
 }
 
 function review(item, round, records = [], since = null) {
@@ -52,7 +57,7 @@ function review(item, round, records = [], since = null) {
   const decision = state(latest.corroboracion || latest.corroboration);
   const countDate = item[contract.stages[second ? (hasCount(item, 2) ? 2 : 1) : 0][5]];
   let complete = ['CUADRA', 'NO CUADRA'].includes(decision) && !!String(latest.justification || '').trim()
-    && time(latest.reviewedAt) > 0 && time(latest.reviewedAt) >= Math.max(time(since), time(countDate));
+    && time(latest.reviewedAt) > 0 && time(latest.reviewedAt) >= Math.max(time(since), time(countDate) - 3600000);
   if (contract.isWeekly(item) && decision === 'CUADRA') {
     // Validate this review against its own physical stage, including when a later stage exists.
     const stage = second ? (hasCount(item, 2) ? 2 : 1) : 0;
@@ -88,9 +93,11 @@ function plan(inv, child, records = []) {
   const countComplete = (inv.items || []).length > 0 && inv.items.every(item => hasCount(item));
   const recountStage = inv.hasRecount2 || inv.recountRound === 2 ? 2 : 1;
   const members = (inv.items || []).filter(item => keys.has(contract.member(item)));
-  const recountComplete = !keys.size || (inv.status === 'RECONTEO_COMPLETADO' && members.length === keys.size
-    && (!child || ['RECONTEO_COMPLETADO', 'REVISADO'].includes(child.status))
-    && members.every(item => hasCount(item, recountStage, inv.countNotBefore || inv.recountEnabledAt)));
+  const childFinished = !child || ['RECONTEO_COMPLETADO', 'REVISADO'].includes(child.status);
+  const isReconteoStage = inv.status === 'RECONTEO_COMPLETADO';
+  const recountComplete = !keys.size || (isReconteoStage && members.length === keys.size
+    && childFinished
+    && members.every(item => hasCount(item, recountStage, childFinished ? null : (inv.countNotBefore || inv.recountEnabledAt))));
   const reopeningJustification = inv.reopenedPhase === 'JUSTIFICACION';
   const rows = (inv.items || []).map(item => {
     const first = review(item, 1, records, inv.firstReviewNotBefore);
@@ -122,7 +129,7 @@ function plan(inv, child, records = []) {
   const pending = rows.filter(item => !item.reviewComplete);
   const canClose = !finalized && ['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO'].includes(inv.status)
     && countComplete && recountComplete && !pending.length
-    && (reopeningJustification || (!initialPending.length
+    && (reopeningJustification || isReconteoStage || (!initialPending.length
       && noCuadra.every(item => keys.has(contract.member(item)))));
   return {items: rows, keys, initialPending, noCuadra, pending, finalized, canClose,
     canEnableRecount: !finalized && inv.status === 'PENDIENTE_JUSTIFICACION' && !keys.size

@@ -4,6 +4,20 @@ const auditService = require('./auditService');
 const counterReliability = require('./counterReliability');
 const contract = require('./inventoryContract');
 const metricsSources = require('./metricsSourceService');
+const getInventoryIdentifier = metricsSources.getInventoryIdentifier || (value => {
+  const str = typeof value === 'string'
+    ? value
+    : (value?.id || value?.inventoryId || value?.fileName || value?.name || '');
+  const clean = String(str).replace(/\.json$/i, '').replace(/_FINAL_.*$/i, '').trim();
+  const match = clean.match(/-(\d+)$/);
+  if (match) return match[1];
+  const parts = clean.split('-');
+  if (parts.length > 1) {
+    const last = parts[parts.length - 1].trim();
+    if (last && !isNaN(Number(last))) return last;
+  }
+  return '';
+});
 
 function parseDateParam(val, isEndOfDay = false) {
   if (!val || val === 'undefined' || val === 'null' || val === '') return null;
@@ -140,11 +154,17 @@ class MetricsService {
       if (!['TODOS','GLOBAL'].includes(cleanCenter) && !config.isSameCenter(inv.center, cleanCenter)) return false;
       return checkDateRange(inv.closedAt || inv.createdAt);
     });
-    const selected = cleanInventoryId === 'TODOS' ? eligible : eligible.filter(inv => metricsSources.matchesId(inv, cleanInventoryId));
+    const isGroupFilter = String(cleanInventoryId || '').startsWith('GRUPO:');
+    const groupSuffix = isGroupFilter ? String(cleanInventoryId).slice(6) : null;
+    const selected = cleanInventoryId === 'TODOS'
+      ? eligible
+      : (isGroupFilter
+          ? eligible.filter(inv => getInventoryIdentifier(inv) === groupSuffix)
+          : eligible.filter(inv => metricsSources.matchesId(inv, cleanInventoryId)));
     const sourceDiagnostics = selected.map(inv => ({id:inv.id, name:inv.name, center:inv.center,
       spreadsheetUrl:inv.spreadsheetUrl || inv.driveUrl, ...inv.sourceValidation}));
     if (cleanInventoryId !== 'TODOS' && !selected.length) sourceDiagnostics.push({id:cleanInventoryId,
-      center:cleanCenter, status:'unavailable', issues:['El inventario no está disponible para los filtros seleccionados.']});
+      center:cleanCenter, status:'unavailable', issues:[isGroupFilter ? `No se encontraron inventarios para el Grupo ${groupSuffix}.` : 'El inventario no está disponible para los filtros seleccionados.']});
     const discoveryIssues = inventories.discoveryIssues || [];
     if (cleanInventoryId === 'TODOS') sourceDiagnostics.push(...discoveryIssues);
     const filtered = selected.filter(inv => !inv.sourceValidation || inv.sourceValidation.status === 'valid');
@@ -155,9 +175,177 @@ class MetricsService {
       center:inv.center, status:inv.status, createdAt:inv.closedAt || inv.createdAt,
       totalItems:inv.totalItems ?? (inv.items || []).length, isHistory:!!inv.isHistory,
       aliases:inv.aliases || [], driveFileId:inv.driveFileId,
+      groupId: getInventoryIdentifier(inv),
       spreadsheetUrl:inv.spreadsheetUrl || inv.driveUrl, previousSpreadsheetUrl:inv.previousSpreadsheetUrl, sourceValidation:inv.sourceValidation});
     const availableInventories = eligible.map(option).sort((a,b) => (Date.parse(b.createdAt)||0) - (Date.parse(a.createdAt)||0));
-    const selectedInventory = cleanInventoryId !== 'TODOS' && selected.length === 1 ? option(selected[0]) : null;
+
+    function calculateGroupSummary(groupInvs) {
+      let totalUnits = 0;
+      let totalSysUnits = 0;
+      let totalSysValue = 0;
+      let totalSkus = 0;
+      let totalSkusExact1er = 0;
+      let totalSkusExactFinal = 0;
+      let totalLocs = 0;
+      let exactLocs = 0;
+      let itemsCuadrados1erUnits = 0;
+      let itemsCuadradosFinalUnits = 0;
+      let itemsCuadradosFinalCount = 0;
+      let discrepanciasFinalCount = 0;
+      let initialDiffCost = 0;
+      let finalDiffCost = 0;
+      let sobrantesCost = 0;
+      let faltantesCost = 0;
+
+      (groupInvs || []).forEach(inv => {
+        (inv.items || []).forEach(item => {
+          let it = item;
+          try {
+            if (contract.isWeekly(item)) it = contract.normalize(item);
+          } catch (_) {}
+
+          const rawCost = it.Costo_Unitario !== undefined ? it.Costo_Unitario : (it.costo_unitario || 0);
+          const unitCost = parseCurrencyOrNumber(rawCost, 0);
+          const sysStock = parseCurrencyOrNumber(it.Stock_Sistema !== undefined ? it.Stock_Sistema : (it.stock_sistema || 0), 0);
+          const rawPhys = it.Stock_Fisico !== undefined ? it.Stock_Fisico : it.stock_fisico;
+          const isAudited = rawPhys !== null && rawPhys !== undefined && rawPhys !== '';
+          const physStock = isAudited ? parseCurrencyOrNumber(rawPhys, 0) : 0;
+          const damaged = parseCurrencyOrNumber(it.Mal_estado !== undefined ? it.Mal_estado : 0, 0);
+          const total1er = physStock + damaged;
+
+          totalUnits += total1er;
+          totalSysUnits += sysStock;
+          totalSysValue += (sysStock * unitCost);
+          totalSkus++;
+
+          try {
+            const locScore = contract.locationScore(it);
+            totalLocs++;
+            if (locScore >= 1) exactLocs++;
+          } catch (_) {
+            totalLocs++;
+            if (it.Ubicacion) exactLocs++;
+          }
+
+          let finQty = null;
+          try {
+            finQty = contract.finalQuantity(it);
+          } catch (_) {}
+          const finalPhysical = finQty !== null && finQty !== undefined ? finQty : total1er;
+          const finalDiff = finalPhysical - sysStock;
+          const finalCost = Math.abs(finalDiff * unitCost);
+
+          const initDiff = total1er - sysStock;
+          const initCost = Math.abs(initDiff * unitCost);
+          initialDiffCost += initCost;
+          finalDiffCost += finalCost;
+
+          if (initDiff === 0) {
+            totalSkusExact1er++;
+            itemsCuadrados1erUnits += sysStock;
+          }
+
+          if (finalDiff === 0) {
+            totalSkusExactFinal++;
+            itemsCuadradosFinalUnits += sysStock;
+            itemsCuadradosFinalCount++;
+          } else {
+            discrepanciasFinalCount++;
+            if (finalDiff > 0) sobrantesCost += finalCost;
+            else faltantesCost += finalCost;
+          }
+        });
+      });
+
+      const eriItemFinal = totalSysUnits > 0
+        ? parseFloat(((itemsCuadradosFinalUnits / totalSysUnits) * 100).toFixed(1))
+        : (totalSkus > 0 ? parseFloat(((totalSkusExactFinal / totalSkus) * 100).toFixed(1)) : 100.0);
+      const eriItemInicial = totalSysUnits > 0
+        ? parseFloat(((itemsCuadrados1erUnits / totalSysUnits) * 100).toFixed(1))
+        : (totalSkus > 0 ? parseFloat(((totalSkusExact1er / totalSkus) * 100).toFixed(1)) : 100.0);
+      const eriMonetarioFinal = totalSysValue > 0
+        ? parseFloat((Math.max(0, 100 - (finalDiffCost / totalSysValue) * 100)).toFixed(1))
+        : 100.0;
+      const eruPercent = totalLocs > 0
+        ? parseFloat(((exactLocs / totalLocs) * 100).toFixed(1))
+        : 100.0;
+
+      return {
+        eriItemFinal,
+        eriItemInicial,
+        eriMonetarioFinal,
+        eruPercent,
+        totalUnits: totalSysUnits || totalUnits,
+        totalSkus,
+        totalExactSkus: totalSkusExactFinal,
+        itemsCuadradosFinal: itemsCuadradosFinalCount,
+        discrepanciasFinal: discrepanciasFinalCount,
+        totalFinalDiffCost: Math.round(finalDiffCost * 100) / 100,
+        sobrantesCost: Math.round(sobrantesCost * 100) / 100,
+        faltantesCost: Math.round(faltantesCost * 100) / 100
+      };
+    }
+
+    // Grouping by inventory suffix identifier
+    const groupsMap = new Map();
+    availableInventories.forEach(inv => {
+      const suffix = inv.groupId || getInventoryIdentifier(inv);
+      const key = suffix || 'otros';
+      if (!groupsMap.has(key)) {
+        groupsMap.set(key, {
+          groupId: key,
+          suffix,
+          label: suffix ? `Ciclo / Conteo ${suffix} (Terminación -${suffix})` : 'Otros inventarios',
+          inventories: [],
+          rawInventories: [],
+          totalItems: 0,
+          centers: new Set()
+        });
+      }
+      const grp = groupsMap.get(key);
+      grp.inventories.push(inv);
+      const raw = eligible.find(e => e.id === inv.id);
+      if (raw) grp.rawInventories.push(raw);
+      grp.totalItems += (inv.totalItems || 0);
+      if (inv.center) grp.centers.add(inv.center);
+    });
+
+    const inventoryGroups = Array.from(groupsMap.values()).map(g => ({
+      groupId: g.groupId,
+      suffix: g.suffix,
+      label: g.label,
+      totalItems: g.totalItems,
+      inventoryCount: g.inventories.length,
+      centers: Array.from(g.centers).sort(),
+      inventories: g.inventories,
+      metrics: calculateGroupSummary(g.rawInventories)
+    })).sort((a, b) => {
+      const numA = Number(a.groupId);
+      const numB = Number(b.groupId);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.groupId.localeCompare(b.groupId);
+    });
+
+    const allDates = eligible.map(inv => inv.closedAt || inv.createdAt).filter(Boolean);
+    const earliestInventoryDate = allDates.length
+      ? allDates.map(d => new Date(d)).filter(d => !isNaN(d.getTime())).sort((a,b) => a - b)[0]?.toISOString() || '2026-10-12T00:00:00.000Z'
+      : '2026-10-12T00:00:00.000Z';
+
+    const selectedInventory = cleanInventoryId !== 'TODOS' && selected.length === 1
+      ? option(selected[0])
+      : (isGroupFilter && selected.length > 0
+          ? {
+              id: cleanInventoryId,
+              name: `Consolidado Grupo ${groupSuffix} (Terminación -${groupSuffix})`,
+              center: cleanCenter !== 'TODOS' ? cleanCenter : 'Todos los centros',
+              type: cleanType !== 'TODOS' ? cleanType : 'Cíclico',
+              totalItems: selected.reduce((sum, inv) => sum + (inv.totalItems ?? (inv.items || []).length ?? 0), 0),
+              isGroup: true,
+              groupId: groupSuffix,
+              inventoryCount: selected.length,
+              inventories: selected.map(option)
+            }
+          : null);
 
     // Retrieve audit logs for tracking worker edit counts on items
     const auditLogs = auditService.getAuditLogs({
@@ -1299,6 +1487,8 @@ class MetricsService {
         endDate: isValidDate(effectiveEndDate) ? effectiveEndDate.toISOString().split('T')[0] : null
       },
       availableInventories,
+      inventoryGroups,
+      earliestInventoryDate,
       selectedInventory,
       isSingleInventory: !!selectedInventory,
       historicalEriTrend,

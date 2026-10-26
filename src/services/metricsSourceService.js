@@ -15,6 +15,20 @@ const sheetKey = record => gas.extractSpreadsheetId(record.spreadsheetUrl || rec
 const closed = record => record.isHistory || String(record.status).toUpperCase() === 'REVISADO';
 const child = record => record.parentInventoryId || String(record.inventoryId || record.id || '').startsWith('REC-');
 const matchesId = (record, id) => [record.id, record.inventoryId, record.fileId, record.driveFileId, record.fileName, record.name, ...(record.aliases || [])].some(value => value && norm(value) === norm(id));
+const getInventoryIdentifier = value => {
+  const str = typeof value === 'string'
+    ? value
+    : (value?.id || value?.inventoryId || value?.fileName || value?.name || '');
+  const clean = String(str).replace(/\.json$/i, '').replace(/_FINAL_.*$/i, '').trim();
+  const match = clean.match(/-(\d+)$/);
+  if (match) return match[1];
+  const parts = clean.split('-');
+  if (parts.length > 1) {
+    const last = parts[parts.length - 1].trim();
+    if (last && !isNaN(Number(last))) return last;
+  }
+  return '';
+};
 
 class MetricsSourceService {
   invalidate() { reads.clear(); verified.clear(); this.historyCache = null; this.historyPending = new Map(); this.discoveryErrorCache?.clear(); this.generation = (this.generation || 0) + 1; }
@@ -142,7 +156,12 @@ class MetricsSourceService {
     await Promise.all(Array.from({length:Math.min(3, primaryGroups.length)}, async () => {
       while (next < primaryGroups.length) {
         const index = next++, group = primaryGroups[index];
-        inventories[index] = await this.resolve(group, inventoryId !== 'TODOS' && !group.some(record => matchesId(record, inventoryId)), {startDate, endDate, refresh});
+        const isGroupFilter = String(inventoryId || '').startsWith('GRUPO:');
+        const groupSuffix = isGroupFilter ? String(inventoryId).slice(6) : null;
+        const matchesRecord = r => isGroupFilter
+          ? (getInventoryIdentifier(r) === groupSuffix)
+          : matchesId(r, inventoryId);
+        inventories[index] = await this.resolve(group, inventoryId !== 'TODOS' && !group.some(matchesRecord), {startDate, endDate, refresh});
       }
     }));
     inventories.discoveryIssues = remoteHistory.discoveryIssues || [];
@@ -259,3 +278,4 @@ class MetricsSourceService {
 
 module.exports = new MetricsSourceService();
 module.exports.matchesId = matchesId;
+module.exports.getInventoryIdentifier = getInventoryIdentifier;

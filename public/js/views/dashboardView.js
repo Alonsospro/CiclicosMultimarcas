@@ -8,15 +8,109 @@ window.DashboardView = {
   currentDiscFilter: 'ALL',
 
   init() {
-    const now = new Date();
-    const monday = new Date(now); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
-    const thursday = new Date(monday); thursday.setDate(monday.getDate() + 3);
-    const week = Math.ceil((((thursday - new Date(thursday.getFullYear(), 0, 1)) / 86400000) + 1) / 7);
-    const weekInput = document.getElementById('dash-filter-week');
-    const monthInput = document.getElementById('dash-filter-month');
-    if (weekInput && !weekInput.value) weekInput.value = `${thursday.getFullYear()}-W${String(week).padStart(2,'0')}`;
-    if (monthInput && !monthInput.value) monthInput.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+    this.initPeriodSelectors();
     this.setupListeners();
+  },
+
+  initPeriodSelectors(earliestDateStr) {
+    const weekSelect = document.getElementById('dash-filter-week');
+    const monthSelect = document.getElementById('dash-filter-month');
+    const dateOnly = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const monthNamesEs = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    const fullMonthsEs = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+    // Baseline date for Semana 1: Earliest inventory created or default to 2026-10-12
+    let earliest = earliestDateStr ? new Date(earliestDateStr) : new Date(2026, 9, 12);
+    if (isNaN(earliest.getTime())) {
+      earliest = new Date(2026, 9, 12);
+    }
+    // Snap to Monday of that week
+    const baseMonday = new Date(earliest.getFullYear(), earliest.getMonth(), earliest.getDate());
+    const dayOfWeek = (baseMonday.getDay() + 6) % 7;
+    baseMonday.setDate(baseMonday.getDate() - dayOfWeek);
+    baseMonday.setHours(0, 0, 0, 0);
+
+    // Current Monday
+    const today = new Date();
+    const currentMonday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const currDay = (currentMonday.getDay() + 6) % 7;
+    currentMonday.setDate(currentMonday.getDate() - currDay);
+    currentMonday.setHours(0, 0, 0, 0);
+
+    const maxMonday = currentMonday.getTime() >= baseMonday.getTime() ? currentMonday : baseMonday;
+
+    if (weekSelect) {
+      const prevVal = weekSelect.value;
+      const weeksList = [];
+      let weekIndex = 1;
+      let iterMonday = new Date(baseMonday.getTime());
+
+      while (iterMonday.getTime() <= maxMonday.getTime() + 7 * 86400000) {
+        const iterSunday = new Date(iterMonday.getTime());
+        iterSunday.setDate(iterSunday.getDate() + 6);
+
+        const val = `${dateOnly(iterMonday)}:${dateOnly(iterSunday)}`;
+        const isCurrent = iterMonday.getTime() === currentMonday.getTime();
+
+        const monStr = `${iterMonday.getDate()} ${monthNamesEs[iterMonday.getMonth()]}`;
+        const sunStr = `${iterSunday.getDate()} ${monthNamesEs[iterSunday.getMonth()]} ${iterSunday.getFullYear()}`;
+        const label = `Semana ${weekIndex} · ${monStr} - ${sunStr}${isCurrent ? ' (Semana Actual)' : ''}`;
+
+        weeksList.push({
+          weekIndex,
+          value: val,
+          label,
+          isCurrent
+        });
+
+        weekIndex++;
+        iterMonday = new Date(iterMonday.getTime() + 7 * 86400000);
+        if (weekIndex > 520) break;
+      }
+
+      weekSelect.replaceChildren();
+      const reversedWeeks = [...weeksList].reverse();
+      let defaultVal = null;
+
+      reversedWeeks.forEach(w => {
+        const opt = new Option(w.label, w.value);
+        if (w.isCurrent && !defaultVal) defaultVal = w.value;
+        weekSelect.appendChild(opt);
+      });
+
+      if (prevVal && weeksList.some(w => w.value === prevVal)) {
+        weekSelect.value = prevVal;
+      } else if (defaultVal) {
+        weekSelect.value = defaultVal;
+      } else if (reversedWeeks.length > 0) {
+        weekSelect.value = reversedWeeks[0].value;
+      }
+    }
+
+    if (monthSelect) {
+      const prevMonth = monthSelect.value;
+      monthSelect.replaceChildren();
+      const monthsList = [];
+      const mDate = new Date(today.getFullYear(), today.getMonth(), 1);
+
+      for (let i = 0; i < 12; i++) {
+        const y = mDate.getFullYear();
+        const m = mDate.getMonth();
+        const val = `${y}-${String(m + 1).padStart(2, '0')}`;
+        const isCurrent = i === 0;
+        const label = `${fullMonthsEs[m]} ${y}${isCurrent ? ' (Mes Actual)' : ''}`;
+        monthsList.push({ value: val, label });
+        mDate.setMonth(mDate.getMonth() - 1);
+      }
+
+      monthsList.forEach(m => {
+        monthSelect.appendChild(new Option(m.label, m.value));
+      });
+
+      if (prevMonth && monthsList.some(m => m.value === prevMonth)) {
+        monthSelect.value = prevMonth;
+      }
+    }
   },
 
   setupListeners() {
@@ -128,15 +222,26 @@ window.DashboardView = {
     if (period === 'SEMANA_ESPECIFICA') {
       const value = document.getElementById('dash-filter-week')?.value;
       if (!value) return null;
-      const [year, week] = value.split('-W').map(Number);
-      const monday = new Date(year, 0, 4);
-      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7) + (week - 1) * 7);
-      const sunday = new Date(monday); sunday.setDate(sunday.getDate() + 6);
-      return {startDate: dateOnly(monday), endDate: dateOnly(sunday)};
+      if (value.includes(':')) {
+        const [startDate, endDate] = value.split(':');
+        return { startDate, endDate };
+      }
+      if (value.includes('-W')) {
+        const [year, week] = value.split('-W').map(Number);
+        const monday = new Date(year, 0, 4);
+        monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7) + (week - 1) * 7);
+        const sunday = new Date(monday); sunday.setDate(sunday.getDate() + 6);
+        return {startDate: dateOnly(monday), endDate: dateOnly(sunday)};
+      }
+      return null;
     }
     if (period === 'MES_ESPECIFICO') {
       const value = document.getElementById('dash-filter-month')?.value;
       if (!value) return null;
+      if (value.includes(':')) {
+        const [startDate, endDate] = value.split(':');
+        return { startDate, endDate };
+      }
       const [year, month] = value.split('-').map(Number);
       return {startDate: `${value}-01`, endDate: dateOnly(new Date(year, month, 0))};
     }
@@ -256,6 +361,9 @@ window.DashboardView = {
       if (requestSerial !== this.requestSerial) return;
       this.currentData = recalcRes;
       this.currentData.auditLogs = auditRes.logs || [];
+      if (recalcRes.earliestInventoryDate) {
+        this.initPeriodSelectors(recalcRes.earliestInventoryDate);
+      }
 
       // Update Inventory dropdown options dynamically
       this.updateInventoryDropdown(recalcRes.availableInventories || [], recalcRes.filters?.inventoryId);
@@ -264,6 +372,7 @@ window.DashboardView = {
       this.renderContextBanner(recalcRes.selectedInventory, recalcRes.filters);
       this.renderSourceValidation(this.currentData);
       if (recalcRes.metricsValid !== false) {
+        this.renderWeeklyGroups(recalcRes);
         this.renderKPIs(recalcRes.summary, recalcRes.workerStats || []);
         this.renderCharts(recalcRes);
         this.renderWorkersRanking(recalcRes.workerStats || []);
@@ -343,6 +452,9 @@ window.DashboardView = {
       if (requestSerial !== this.requestSerial) return;
       this.currentData = metricsRes;
       this.currentData.auditLogs = auditRes.logs || [];
+      if (metricsRes.earliestInventoryDate) {
+        this.initPeriodSelectors(metricsRes.earliestInventoryDate);
+      }
 
       // Update Inventory dropdown options dynamically
       this.updateInventoryDropdown(metricsRes.availableInventories || [], metricsRes.filters?.inventoryId);
@@ -351,6 +463,7 @@ window.DashboardView = {
       this.renderContextBanner(metricsRes.selectedInventory, metricsRes.filters);
       this.renderSourceValidation(this.currentData);
       if (metricsRes.metricsValid !== false) {
+        this.renderWeeklyGroups(metricsRes);
         this.renderKPIs(metricsRes.summary, metricsRes.workerStats || []);
         this.renderCharts(metricsRes);
         this.renderWorkersRanking(metricsRes.workerStats || []);
@@ -375,6 +488,11 @@ window.DashboardView = {
     if (panel) panel.textContent = 'Leyendo y validando inventarios…';
     const results = document.getElementById('dash-metrics-results');
     if (results) results.style.display = 'none';
+    const groupsCard = document.getElementById('dash-weekly-groups-card');
+    if (groupsCard) {
+      groupsCard.style.display = 'none';
+      groupsCard.replaceChildren();
+    }
     const banner = document.getElementById('dash-inventory-context-banner');
     if (banner) banner.style.display = 'none';
     for (const id of ['btn-dash-print-report', 'btn-dash-banner-print-report', 'btn-export-overview-xlsx', 'btn-export-discrepancies-csv']) {
@@ -383,25 +501,97 @@ window.DashboardView = {
     }
   },
 
+  getInventoryIdentifier(value) {
+    const str = typeof value === 'string' ? value : (value?.id || value?.inventoryId || value?.name || '');
+    const clean = String(str).replace(/\.json$/i, '').replace(/_FINAL_.*$/i, '').trim();
+    const match = clean.match(/-(\d+)$/);
+    if (match) return match[1];
+    const parts = clean.split('-');
+    if (parts.length > 1) {
+      const last = parts[parts.length - 1].trim();
+      if (last && !isNaN(Number(last))) return last;
+    }
+    return '';
+  },
+
   updateInventoryDropdown(availableInventories = [], selectedId = 'TODOS') {
     const select = document.getElementById('dash-filter-inventory');
     if (!select) return;
 
     const cleanList = availableInventories.filter(inv => !String(inv.id || '').startsWith('REC-'));
-
+    const period = document.getElementById('dash-filter-period')?.value || 'TODO';
     const targetVal = String(selectedId !== undefined && selectedId !== null && selectedId !== '' ? selectedId : (select.value || 'TODOS')).trim();
     const targetValLower = targetVal.toLowerCase();
 
-    const options = [new Option('Consolidado (' + cleanList.length + ' inventarios)', 'TODOS')];
+    // Group items by suffix identifier
+    const groupsMap = new Map();
     cleanList.forEach(inv => {
-      const state = ['valid', 'not_requested'].includes(inv.sourceValidation?.status) ? '' : ' ⚠ Revisar fuente';
-      options.push(new Option('[' + inv.center + '] ' + (inv.name || inv.id) + state, inv.id));
+      const suffix = inv.groupId || this.getInventoryIdentifier(inv.id || inv.name);
+      const key = suffix || 'otros';
+      if (!groupsMap.has(key)) {
+        groupsMap.set(key, {
+          groupId: key,
+          suffix,
+          label: suffix ? `Ciclo / Grupo ${suffix} (Terminación -${suffix})` : 'Otros inventarios',
+          items: []
+        });
+      }
+      groupsMap.get(key).items.push(inv);
     });
-    select.replaceChildren(...options);
-    const match = cleanList.find(inv => [inv.id, ...(inv.aliases || [])].some(id => String(id).toLowerCase().replace(/\.json$/, '') === targetValLower.replace(/\.json$/, '')));
-    select.value = match ? match.id : 'TODOS';
-  },
 
+    const sortedGroups = Array.from(groupsMap.values()).sort((a, b) => {
+      const numA = Number(a.groupId);
+      const numB = Number(b.groupId);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.groupId.localeCompare(b.groupId);
+    });
+
+    select.replaceChildren();
+
+    // Consolidado General
+    const consolidadoLabel = period === 'SEMANA_ESPECIFICA'
+      ? `📊 Consolidado Semana Completa (${cleanList.length} inventarios)`
+      : `Consolidado (${cleanList.length} inventarios)`;
+    select.appendChild(new Option(consolidadoLabel, 'TODOS'));
+
+    const hasGroups = sortedGroups.some(g => g.suffix);
+
+    if (hasGroups) {
+      sortedGroups.forEach(group => {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = `📁 ${group.label} · ${group.items.length} centros`;
+
+        if (group.suffix) {
+          const groupOption = new Option(
+            `📊 Consolidado Grupo ${group.suffix} (${group.items.length} inventarios)`,
+            `GRUPO:${group.suffix}`
+          );
+          groupOption.style.fontWeight = 'bold';
+          optgroup.appendChild(groupOption);
+        }
+
+        group.items.forEach(inv => {
+          const state = ['valid', 'not_requested'].includes(inv.sourceValidation?.status) ? '' : ' ⚠ Revisar fuente';
+          optgroup.appendChild(new Option(`[${inv.center}] ${inv.name || inv.id}${state}`, inv.id));
+        });
+
+        select.appendChild(optgroup);
+      });
+    } else {
+      cleanList.forEach(inv => {
+        const state = ['valid', 'not_requested'].includes(inv.sourceValidation?.status) ? '' : ' ⚠ Revisar fuente';
+        select.appendChild(new Option(`[${inv.center}] ${inv.name || inv.id}${state}`, inv.id));
+      });
+    }
+
+    if (targetVal.startsWith('GRUPO:')) {
+      const groupExists = sortedGroups.some(g => `GRUPO:${g.suffix}` === targetVal);
+      select.value = groupExists ? targetVal : 'TODOS';
+    } else {
+      const match = cleanList.find(inv => [inv.id, ...(inv.aliases || [])].some(id => String(id).toLowerCase().replace(/\.json$/, '') === targetValLower.replace(/\.json$/, '')));
+      select.value = match ? match.id : 'TODOS';
+    }
+  },
 
   renderContextBanner(selectedInventory, filters) {
     const banner = document.getElementById('dash-inventory-context-banner');
@@ -411,24 +601,227 @@ window.DashboardView = {
 
     if (selectedInventory) {
       banner.style.display = 'flex';
-      const dateStr = selectedInventory.createdAt ? new Date(selectedInventory.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-      if (titleEl) {
-        titleEl.textContent = `[${selectedInventory.center}] ${selectedInventory.name || selectedInventory.id}`;
-      }
-      if (metaEl) {
-        metaEl.style.display = 'none';
-        metaEl.textContent = `Tipo: ${selectedInventory.type} | Creado: ${dateStr} | Total Ítems: ${selectedInventory.totalItems || 0} | Estado: ${selectedInventory.status || 'En Proceso'}`;
-        const sheetUrl = selectedInventory.spreadsheetUrl || selectedInventory.previousSpreadsheetUrl;
-        if (/^https:\/\/docs\.google\.com\/spreadsheets\//.test(sheetUrl || '')) {
-          const link = document.createElement('a');
-          link.href = sheetUrl;
-          link.target = '_blank'; link.rel = 'noopener'; link.textContent = selectedInventory.spreadsheetUrl ? ' · Abrir archivo final' : ' · Abrir cierre anterior';
-          metaEl.appendChild(link);
+      if (selectedInventory.isGroup) {
+        if (titleEl) {
+          titleEl.innerHTML = `<i class="fa-solid fa-layer-group" style="color: #38bdf8;"></i> [Grupo ${selectedInventory.groupId}] Consolidado Terminación -${selectedInventory.groupId} (${selectedInventory.inventoryCount} inventarios)`;
+        }
+        if (metaEl) {
+          metaEl.style.display = 'block';
+          metaEl.textContent = `Alcance: ${selectedInventory.inventoryCount} centros de inventario | Total Ítems: ${selectedInventory.totalItems || 0} | Filtrado por código terminación -${selectedInventory.groupId}`;
+        }
+      } else {
+        const dateStr = selectedInventory.createdAt ? new Date(selectedInventory.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+        if (titleEl) {
+          titleEl.textContent = `[${selectedInventory.center}] ${selectedInventory.name || selectedInventory.id}`;
+        }
+        if (metaEl) {
+          metaEl.style.display = 'none';
+          metaEl.textContent = `Tipo: ${selectedInventory.type} | Creado: ${dateStr} | Total Ítems: ${selectedInventory.totalItems || 0} | Estado: ${selectedInventory.status || 'En Proceso'}`;
+          const sheetUrl = selectedInventory.spreadsheetUrl || selectedInventory.previousSpreadsheetUrl;
+          if (/^https:\/\/docs\.google\.com\/spreadsheets\//.test(sheetUrl || '')) {
+            const link = document.createElement('a');
+            link.href = sheetUrl;
+            link.target = '_blank'; link.rel = 'noopener'; link.textContent = selectedInventory.spreadsheetUrl ? ' · Abrir archivo final' : ' · Abrir cierre anterior';
+            metaEl.appendChild(link);
+          }
         }
       }
     } else {
       banner.style.display = 'none';
     }
+  },
+
+  renderWeeklyGroups(data) {
+    const card = document.getElementById('dash-weekly-groups-card');
+    if (!card) return;
+
+    const period = document.getElementById('dash-filter-period')?.value || 'TODO';
+    const currentInvSelect = document.getElementById('dash-filter-inventory');
+    const selectedInvVal = currentInvSelect ? currentInvSelect.value : 'TODOS';
+
+    // Only display when period is SEMANA_ESPECIFICA and groups exist
+    const isWeekly = period === 'SEMANA_ESPECIFICA';
+    const groups = data?.inventoryGroups || [];
+
+    if (!isWeekly || groups.length === 0) {
+      card.style.display = 'none';
+      card.replaceChildren();
+      return;
+    }
+
+    card.style.display = 'block';
+    card.replaceChildren();
+
+    // Header
+    const header = document.createElement('div');
+    header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem;';
+    
+    const titleBox = document.createElement('div');
+    titleBox.style.cssText = 'display: flex; align-items: center; gap: 0.65rem;';
+    titleBox.innerHTML = `
+      <div style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 0.45rem 0.65rem; border-radius: var(--radius-sm); font-size: 1.1rem;">
+        <i class="fa-solid fa-layer-group"></i>
+      </div>
+      <div>
+        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-main);">
+          Inventarios de la Semana Agrupados por Codificación
+        </h4>
+        <p style="margin: 0; font-size: 0.78rem; color: var(--text-muted);">
+          Los inventarios se agrupan automáticamente según su identificador final (-1, -2, etc.). Seleccione un grupo para visualizar sus métricas consolidadas.
+        </p>
+      </div>
+    `;
+    header.appendChild(titleBox);
+
+    const isGroupOrSingleSelected = selectedInvVal !== 'TODOS';
+    if (isGroupOrSingleSelected) {
+      const btnAll = document.createElement('button');
+      btnAll.type = 'button';
+      btnAll.className = 'btn btn-secondary btn-xs';
+      btnAll.innerHTML = '<i class="fa-solid fa-arrows-split-up-and-left"></i> Ver Todos los de la Semana';
+      btnAll.onclick = () => {
+        if (currentInvSelect) {
+          currentInvSelect.value = 'TODOS';
+          this.loadDashboard();
+        }
+      };
+      header.appendChild(btnAll);
+    }
+
+    card.appendChild(header);
+
+    // Grid of group cards
+    const grid = document.createElement('div');
+    grid.style.cssText = 'display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.85rem;';
+
+    groups.forEach(g => {
+      const isCurrentGroupActive = selectedInvVal === `GRUPO:${g.groupId}`;
+      const groupCard = document.createElement('div');
+      groupCard.className = 'metric-kpi-card';
+      groupCard.style.cssText = `
+        background: ${isCurrentGroupActive ? 'rgba(56, 189, 248, 0.12)' : 'rgba(15, 23, 42, 0.5)'};
+        border: 1px solid ${isCurrentGroupActive ? '#38bdf8' : 'rgba(255, 255, 255, 0.1)'};
+        border-radius: var(--radius-md);
+        padding: 0.85rem 1rem;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 0.65rem;
+      `;
+
+      // Render full rich KPI card
+      const m = g.metrics || {};
+      const eriColor = (m.eriItemFinal >= 95) ? '#10b981' : (m.eriItemFinal >= 90 ? '#f59e0b' : '#ef4444');
+      const eriMonColor = (m.eriMonetarioFinal >= 95) ? '#10b981' : (m.eriMonetarioFinal >= 90 ? '#f59e0b' : '#ef4444');
+      const diffColor = (m.totalFinalDiffCost === 0) ? '#10b981' : (m.totalFinalDiffCost > 0 ? '#38bdf8' : '#ef4444');
+      const diffLabel = m.totalFinalDiffCost > 0 ? 'Sobrante' : (m.totalFinalDiffCost < 0 ? 'Faltante' : 'Exacto');
+
+      // Top info
+      const topInfo = document.createElement('div');
+      topInfo.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: 800; font-size: 0.85rem; border: 1px solid rgba(56, 189, 248, 0.4); padding: 0.2rem 0.55rem;">
+              Terminación -${g.suffix || g.groupId}
+            </span>
+            <strong style="color: var(--text-main); font-size: 1rem;">Ciclo / Grupo ${g.groupId}</strong>
+          </div>
+          ${isCurrentGroupActive
+            ? '<span class="badge badge-success" style="font-size: 0.75rem;"><i class="fa-solid fa-circle-check"></i> Activo</span>'
+            : `<span class="badge badge-neutral" style="font-size: 0.72rem;">${g.inventoryCount} inventarios</span>`}
+        </div>
+
+        <!-- KPI Mini Grid -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.45rem; margin-bottom: 0.65rem;">
+          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-sm); padding: 0.45rem 0.5rem; text-align: center;">
+            <span style="font-size: 0.68rem; color: var(--text-muted); display: block; text-transform: uppercase;">ERI Ítems</span>
+            <strong style="font-size: 1.15rem; color: ${eriColor}; font-weight: 800;">${(m.eriItemFinal ?? 100).toFixed(1)}%</strong>
+            <span style="font-size: 0.65rem; color: var(--text-dim); display: block;">1er: ${(m.eriItemInicial ?? 100).toFixed(1)}%</span>
+          </div>
+
+          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-sm); padding: 0.45rem 0.5rem; text-align: center;">
+            <span style="font-size: 0.68rem; color: var(--text-muted); display: block; text-transform: uppercase;">ERU Ubicación</span>
+            <strong style="font-size: 1.15rem; color: #38bdf8; font-weight: 800;">${(m.eruPercent ?? 100).toFixed(1)}%</strong>
+            <span style="font-size: 0.65rem; color: var(--text-dim); display: block;">Exactitud</span>
+          </div>
+
+          <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-sm); padding: 0.45rem 0.5rem; text-align: center;">
+            <span style="font-size: 0.68rem; color: var(--text-muted); display: block; text-transform: uppercase;">ERI Monetario</span>
+            <strong style="font-size: 1.15rem; color: ${eriMonColor}; font-weight: 800;">${(m.eriMonetarioFinal ?? 100).toFixed(1)}%</strong>
+            <span style="font-size: 0.65rem; color: var(--text-dim); display: block;">Valor</span>
+          </div>
+        </div>
+
+        <!-- Physical & Financial Row -->
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-sm); padding: 0.45rem 0.65rem; font-size: 0.76rem; display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.65rem;">
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--text-muted);">Balance físico:</span>
+            <span><strong style="color: #10b981;">${m.itemsCuadradosFinal ?? 0}</strong> cuadrados / <strong style="color: ${m.discrepanciasFinal > 0 ? '#ef4444' : '#10b981'};">${m.discrepanciasFinal ?? 0}</strong> disc.</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--text-muted);">Impacto neto:</span>
+            <span style="font-weight: 700; color: ${diffColor};">Bs. ${Math.abs(m.totalFinalDiffCost || 0).toLocaleString('es-BO', {minimumFractionDigits: 2, maximumFractionDigits: 2})} <span style="font-size: 0.7rem; font-weight: normal;">(${diffLabel})</span></span>
+          </div>
+        </div>
+
+        <!-- Centers & Inventories Tagged -->
+        <div style="margin-bottom: 0.2rem;">
+          <div style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.25rem; display: flex; justify-content: space-between;">
+            <span>Centros incluidos (${(g.centers || []).length}):</span>
+            <span>${(g.totalItems || 0).toLocaleString('es-BO')} existencias</span>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.35rem;">
+            ${(g.centers || []).map(c => `<span class="badge badge-neutral" style="font-size: 0.68rem; padding: 0.1rem 0.35rem; font-weight: 600;">Centro ${c}</span>`).join('')}
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.25rem;">
+            ${(g.inventories || []).map(inv => `<span style="font-size: 0.68rem; color: #94a3b8; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); padding: 0.1rem 0.35rem; border-radius: 3px; font-family: monospace;">[${inv.center}] ${inv.name || inv.id}</span>`).join('')}
+          </div>
+        </div>
+      `;
+      groupCard.appendChild(topInfo);
+
+      // Actions
+      const actionsDiv = document.createElement('div');
+      actionsDiv.style.cssText = 'display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.6rem;';
+
+      const btnSelect = document.createElement('button');
+      btnSelect.type = 'button';
+      btnSelect.className = `btn ${isCurrentGroupActive ? 'btn-secondary' : 'btn-primary'} btn-xs`;
+      btnSelect.style.cssText = 'flex: 1; font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.65rem;';
+      btnSelect.innerHTML = isCurrentGroupActive
+        ? '<i class="fa-solid fa-check"></i> Mostrando este Grupo'
+        : '<i class="fa-solid fa-chart-pie"></i> Ver Consolidado Grupo ' + g.groupId;
+      btnSelect.onclick = () => {
+        if (currentInvSelect) {
+          currentInvSelect.value = `GRUPO:${g.groupId}`;
+          this.loadDashboard();
+        }
+      };
+      actionsDiv.appendChild(btnSelect);
+
+      const btnPdf = document.createElement('button');
+      btnPdf.type = 'button';
+      btnPdf.className = 'btn btn-secondary btn-xs';
+      btnPdf.title = `Imprimir Informe PDF para Grupo ${g.groupId}`;
+      btnPdf.style.cssText = 'font-weight: 600; font-size: 0.78rem; padding: 0.4rem 0.65rem; display: inline-flex; align-items: center; gap: 0.35rem;';
+      btnPdf.innerHTML = '<i class="fa-solid fa-file-pdf" style="color: #ef4444;"></i> PDF';
+      btnPdf.onclick = () => {
+        if (!isCurrentGroupActive && currentInvSelect) {
+          currentInvSelect.value = `GRUPO:${g.groupId}`;
+          this.loadDashboard().then(() => {
+            setTimeout(() => this.printReport(), 250);
+          });
+        } else {
+          this.printReport();
+        }
+      };
+      actionsDiv.appendChild(btnPdf);
+
+      groupCard.appendChild(actionsDiv);
+      grid.appendChild(groupCard);
+    });
+
+    card.appendChild(grid);
   },
 
   renderSourceValidation(data) {

@@ -799,8 +799,8 @@
               <input type="date" id="dash-filter-end-date" class="form-input" style="width: auto; padding: 0.35rem 0.45rem; font-size: 0.8rem;" title="Fecha fin">
             </div>
             <div id="dash-specific-period-box" style="display: none; align-items: center; gap: 0.3rem;">
-              <input type="week" id="dash-filter-week" class="form-input" style="width: auto; padding: 0.35rem 0.45rem; font-size: 0.8rem;" title="Semana a consolidar">
-              <input type="month" id="dash-filter-month" class="form-input" style="width: auto; padding: 0.35rem 0.45rem; font-size: 0.8rem;" title="Mes a consolidar">
+              <select id="dash-filter-week" class="form-select" style="width: auto; min-width: 250px; padding: 0.35rem 0.45rem; font-size: 0.8rem;" title="Seleccionar semana a consolidar"></select>
+              <select id="dash-filter-month" class="form-select" style="width: auto; min-width: 175px; padding: 0.35rem 0.45rem; font-size: 0.8rem;" title="Seleccionar mes a consolidar"></select>
             </div>
 
             <!-- Type Selector -->
@@ -872,6 +872,8 @@
           Selecciona los filtros para consultar y validar los inventarios.
         </div>
         <div id="dash-metrics-results" style="display: none;">
+        <!-- Agrupación de Inventarios por Codificación / Terminación (Semana Específica) -->
+        <div id="dash-weekly-groups-card" class="card" style="display: none; margin-bottom: 1.25rem; background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: var(--radius-md); padding: 1rem 1.25rem;"></div>
         <!-- Resumen General Complementario (Total ítems, ERU, Contadores) -->
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.85rem; margin-bottom: 1.25rem;">
           <!-- Card Total SKUs / Auditados -->

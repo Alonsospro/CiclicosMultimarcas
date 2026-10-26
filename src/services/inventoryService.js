@@ -37,6 +37,15 @@ function mergeRecountIntoParent(parentItem, recountItem) {
   Object.assign(parentItem, normalized, Object.fromEntries(
     Object.entries(firstCount).filter(([, value]) => contract.has(value))
   ), reviewHistory);
+  const recQty = contract.first(recountItem.Reconteo, recountItem.Reconteo_Fisico, recountItem.Stock_Buen_Estado, recountItem.Stock_Fisico, parentItem.Reconteo, parentItem.Reconteo_Fisico);
+  if (contract.has(recQty)) {
+    parentItem.Reconteo = recQty;
+    parentItem.Reconteo_Fisico = recQty;
+    parentItem.Malestado_Reconteo = contract.first(recountItem.Malestado_Reconteo, recountItem.Reconteo_Mal_Estado, recountItem.Mal_estado, parentItem.Malestado_Reconteo, 0);
+    parentItem.Stock_Total_Reconteo = contract.first(recountItem.Stock_Total_Reconteo, Number(recQty || 0) + Number(parentItem.Malestado_Reconteo || 0));
+    parentItem.Fecha_Reconteo = contract.first(recountItem.Fecha_Reconteo, parentItem.Fecha_Reconteo, recountItem.Fecha_Ultimo_Conteo);
+    parentItem.Estado_Reconteo = 'Recontado';
+  }
   return parentItem;
 }
 
@@ -1561,6 +1570,7 @@ class InventoryService {
           pItem.Reconteo=pItem.Reconteo_Fisico;
           pItem.Malestado_Reconteo=pItem.Reconteo_Mal_Estado;
           pItem.Stock_Total_Reconteo=finalRecQty+Number(pItem.Reconteo_Mal_Estado||0);
+          pItem.Fecha_Reconteo = contract.first(pItem.Fecha_Reconteo, recItem.Fecha_Reconteo, recItem.Fecha_Ultimo_Conteo, childRecountInv.submittedAt, new Date().toISOString());
           pItem.Diferencia_Final = !contract.isWeekly(pItem)&&(pItem.Estado_Justificacion_2||pItem.Estado)==='CUADRA'?0:pItem.Stock_Total_Reconteo - Number(pItem.Stock_Sistema || 0);
           pItem.Costo_Diferencia_Final = pItem.Diferencia_Final * Number(pItem.Costo_Unitario || 0);
         }
@@ -1680,7 +1690,7 @@ class InventoryService {
       inv.reopenedPhase = '1ER_CONTEO';
     }
 
-    const reopenedAt = new Date().toISOString();
+    const reopenedAt = new Date(Date.now() + 1).toISOString();
     if (cleanPhase === 'JUSTIFICACION' || cleanPhase === 'JUSTIFICACIONES') {
       if (inv.hasRecount) inv.status = 'RECONTEO_COMPLETADO';
     } else if (workflow.countStage(inv)) {
