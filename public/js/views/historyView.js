@@ -1,7 +1,10 @@
 // View: Drive History
 window.HistoryView = {
   init() {
-    //
+    for (const id of ['history-search', 'history-filter-type', 'history-grouping']) {
+      document.getElementById(id)?.addEventListener(id === 'history-search' ? 'input' : 'change', () => this.renderHistory());
+    }
+    this.records = [];
   },
 
   async loadHistory() {
@@ -27,6 +30,7 @@ window.HistoryView = {
       }
 
       if (list.length === 0) {
+        this.records = [];
         tbody.innerHTML = `
           <tr>
             <td colspan="8" style="text-align:center; padding: 2.5rem; color: var(--text-dim);">
@@ -44,18 +48,60 @@ window.HistoryView = {
         return;
       }
 
-      tbody.innerHTML = list.map(item => {
-        const closedDate = new Date(item.closedAt).toLocaleString();
+      this.records = list;
+      this.renderHistory();
+    } catch (err) {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 2rem; color: var(--danger);">Error: ${err.message}</td></tr>`;
+    }
+  },
 
-        return `
+  renderHistory() {
+      const tbody = document.getElementById('tbody-history');
+      if (!tbody) return;
+      const query = String(document.getElementById('history-search')?.value || '').trim().toLocaleLowerCase();
+      const type = document.getElementById('history-filter-type')?.value || '';
+      const grouping = document.getElementById('history-grouping')?.value || 'week';
+      const list = (this.records || []).filter(item => {
+        const text = [item.fileName, item.logicalPath, item.type, item.center, item.closedBy].join(' ').toLocaleLowerCase();
+        return (!query || text.includes(query)) && (!type || String(item.type).toUpperCase() === type);
+      }).sort((a,b) => (Date.parse(b.closedAt)||0) - (Date.parse(a.closedAt)||0));
+      if (!list.length) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text-dim)">No hay cierres que coincidan con estos filtros.</td></tr>';
+        return;
+      }
+      const groups = new Map();
+      for (const item of list) {
+        const d = new Date(item.closedAt);
+        const valid = !Number.isNaN(d.getTime());
+        const monthKey = valid ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` : 'sin-fecha';
+        let key = monthKey;
+        let label = valid ? d.toLocaleDateString('es-BO',{month:'long',year:'numeric'}) : 'Sin fecha';
+        if (grouping === 'week' && valid) {
+          const monday = new Date(d); monday.setHours(0,0,0,0); monday.setDate(monday.getDate()-((monday.getDay()+6)%7));
+          const sunday = new Date(monday); sunday.setDate(sunday.getDate()+6);
+          key = `${monthKey}-W${monday.toISOString().slice(0,10)}`;
+          label = `Semana ${monday.toLocaleDateString('es-BO',{day:'2-digit',month:'short'})} – ${sunday.toLocaleDateString('es-BO',{day:'2-digit',month:'short'})}`;
+        }
+        if (!groups.has(monthKey)) groups.set(monthKey,{label:valid ? d.toLocaleDateString('es-BO',{month:'long',year:'numeric'}) : 'Sin fecha',weeks:new Map()});
+        const month = groups.get(monthKey);
+        if (!month.weeks.has(key)) month.weeks.set(key,{label,items:[]});
+        month.weeks.get(key).items.push(item);
+      }
+      const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      tbody.innerHTML = [...groups.values()].map(month => {
+        const sections = [...month.weeks.values()].map(section => `
+          ${grouping === 'week' ? `<tr class="history-week-heading"><td colspan="8"><strong>${esc(section.label)}</strong><span>${section.items.length} ${section.items.length === 1 ? 'cierre' : 'cierres'}</span></td></tr>` : ''}
+          ${section.items.map(item => {
+            const closedDate = item.closedAt && !Number.isNaN(Date.parse(item.closedAt)) ? new Date(item.closedAt).toLocaleString('es-BO') : '—';
+            return `
           <tr>
             <td>
-              <strong style="color: var(--primary);"><i class="fa-solid fa-file-excel" style="color: #22c55e;"></i> ${item.fileName}</strong>
+              <strong style="color: var(--primary);"><i class="fa-solid fa-file-excel" style="color: #22c55e;"></i> ${esc(item.fileName)}</strong>
             </td>
-            <td><code>${item.logicalPath || item.fileName}</code></td>
-            <td><span class="badge badge-neutral">${item.type}</span></td>
-            <td><span class="badge badge-info">${item.center}</span></td>
-            <td><small>${item.closedBy}</small></td>
+            <td><code>${esc(item.logicalPath || item.fileName)}</code></td>
+            <td><span class="badge badge-neutral">${esc(item.type)}</span></td>
+            <td><span class="badge badge-info">${esc(item.center)}</span></td>
+            <td><small>${esc(item.closedBy)}</small></td>
             <td><small>${closedDate}</small></td>
             <td><strong>${item.totalItems}</strong></td>
             <td>
@@ -82,10 +128,9 @@ window.HistoryView = {
             </td>
           </tr>
         `;
+          }).join('')}`).join('');
+        return `<tr class="history-month-heading"><td colspan="8"><i class="fa-regular fa-calendar"></i> ${esc(month.label)} <span>${[...month.weeks.values()].reduce((n,s)=>n+s.items.length,0)} cierres</span></td></tr>${sections}`;
       }).join('');
-    } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 2rem; color: var(--danger);">Error: ${err.message}</td></tr>`;
-    }
   },
 
   async deleteSnapshot(fileId, fileName, inventoryId) {

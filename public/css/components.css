@@ -2221,3 +2221,6 @@ button:active:not(:disabled),
 }
 
 
+.history-month-heading td { padding: .85rem .75rem; background: rgba(59,130,246,.13); color: var(--text-main); border-top: 2px solid rgba(59,130,246,.32); font-size: .98rem; text-transform: capitalize; }
+.history-month-heading span, .history-week-heading span { float: right; color: var(--text-dim); font-size: .8rem; font-weight: 500; }
+.history-week-heading td { padding: .55rem .75rem; background: rgba(148,163,184,.08); color: var(--text-main); }

@@ -735,6 +735,15 @@
             </button>
           </div>
 
+          <div class="history-toolbar" style="display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin:.25rem 0 1rem;">
+            <input id="history-search" class="form-input" type="search" placeholder="Buscar archivo, centro o responsable…" aria-label="Buscar en el historial" style="flex:1; min-width:220px;">
+            <select id="history-filter-type" class="form-select" aria-label="Filtrar por tipo" style="width:auto; min-width:150px;">
+              <option value="">Todos los tipos</option><option value="SEMANAL">Semanal</option><option value="MENSUAL">Mensual</option><option value="CICLICO">Cíclico</option><option value="BARRIDO">Barrido</option>
+            </select>
+            <select id="history-grouping" class="form-select" aria-label="Agrupar historial" style="width:auto; min-width:155px;">
+              <option value="week">Agrupar por semana</option><option value="month">Agrupar por mes</option>
+            </select>
+          </div>
           <div class="table-responsive">
             <table class="data-table" id="table-history">
               <thead>
@@ -776,7 +785,9 @@
               <option value="TODO">📅 Todo el Histórico</option>
               <option value="HOY">📅 Hoy</option>
               <option value="ESTA_SEMANA">📅 Esta Semana</option>
+              <option value="SEMANA_ESPECIFICA">📅 Semana específica</option>
               <option value="ESTE_MES">📅 Este Mes</option>
+              <option value="MES_ESPECIFICO">📅 Mes específico</option>
               <option value="MES_ANTERIOR">📅 Mes Anterior</option>
               <option value="PERSONALIZADO">📅 Rango Personalizado...</option>
             </select>
@@ -786,6 +797,10 @@
               <input type="date" id="dash-filter-start-date" class="form-input" style="width: auto; padding: 0.35rem 0.45rem; font-size: 0.8rem;" title="Fecha inicio">
               <span style="color: var(--text-dim); font-size: 0.8rem;">a</span>
               <input type="date" id="dash-filter-end-date" class="form-input" style="width: auto; padding: 0.35rem 0.45rem; font-size: 0.8rem;" title="Fecha fin">
+            </div>
+            <div id="dash-specific-period-box" style="display: none; align-items: center; gap: 0.3rem;">
+              <input type="week" id="dash-filter-week" class="form-input" style="width: auto; padding: 0.35rem 0.45rem; font-size: 0.8rem;" title="Semana a consolidar">
+              <input type="month" id="dash-filter-month" class="form-input" style="width: auto; padding: 0.35rem 0.45rem; font-size: 0.8rem;" title="Mes a consolidar">
             </div>
 
             <!-- Type Selector -->
@@ -2884,13 +2899,13 @@
   <script src="/js/views/assignmentsView.js?v=2.2"></script>
   <script src="/js/inventoryContract.js?v=final-sheet-3"></script>
   <script src="/js/views/justificationsView.js?v=3.0"></script>
-  <script src="/js/views/historyView.js?v=2.2"></script>
+  <script src="/js/views/historyView.js?v=2.3"></script>
   <link rel="stylesheet" href="/css/detailed-report.css?v=1.5">
   <script src="/js/components/detailedMetricsReport.js?v=1.6"></script>
   <script src="/js/components/metricsReportModal.js?v=2.6"></script>
   <script src="/js/components/snapshotManagerModal.js?v=2.2"></script>
   <script src="/js/components/counterReliabilityPanel.js?v=1.0"></script>
-  <script src="/js/views/dashboardView.js?v=inventory-banner-left-1"></script>
+  <script src="/js/views/dashboardView.js?v=exact-week-month-1"></script>
   <script src="/js/views/userManagementView.js?v=2.2"></script>
   <script src="/js/app.js?v=2.4"></script>
 </body>

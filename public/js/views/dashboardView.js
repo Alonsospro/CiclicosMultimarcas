@@ -8,6 +8,14 @@ window.DashboardView = {
   currentDiscFilter: 'ALL',
 
   init() {
+    const now = new Date();
+    const monday = new Date(now); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+    const thursday = new Date(monday); thursday.setDate(monday.getDate() + 3);
+    const week = Math.ceil((((thursday - new Date(thursday.getFullYear(), 0, 1)) / 86400000) + 1) / 7);
+    const weekInput = document.getElementById('dash-filter-week');
+    const monthInput = document.getElementById('dash-filter-month');
+    if (weekInput && !weekInput.value) weekInput.value = `${thursday.getFullYear()}-W${String(week).padStart(2,'0')}`;
+    if (monthInput && !monthInput.value) monthInput.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
     this.setupListeners();
   },
 
@@ -16,12 +24,22 @@ window.DashboardView = {
     document.getElementById('dash-filter-period')?.addEventListener('change', (e) => {
       const isCustom = e.target.value === 'PERSONALIZADO';
       const customBox = document.getElementById('dash-custom-dates-box');
+      const specificBox = document.getElementById('dash-specific-period-box');
+      const exactWeek = e.target.value === 'SEMANA_ESPECIFICA';
+      const exactMonth = e.target.value === 'MES_ESPECIFICO';
       if (customBox) customBox.style.display = isCustom ? 'inline-flex' : 'none';
+      if (specificBox) specificBox.style.display = exactWeek || exactMonth ? 'inline-flex' : 'none';
+      const week = document.getElementById('dash-filter-week');
+      const month = document.getElementById('dash-filter-month');
+      if (week) week.style.display = exactWeek ? '' : 'none';
+      if (month) month.style.display = exactMonth ? '' : 'none';
       this.loadDashboard();
     });
 
     document.getElementById('dash-filter-start-date')?.addEventListener('change', () => this.loadDashboard());
     document.getElementById('dash-filter-end-date')?.addEventListener('change', () => this.loadDashboard());
+    document.getElementById('dash-filter-week')?.addEventListener('change', () => this.loadDashboard());
+    document.getElementById('dash-filter-month')?.addEventListener('change', () => this.loadDashboard());
 
     document.getElementById('dash-filter-type')?.addEventListener('change', () => {
       const inventory = document.getElementById('dash-filter-inventory');
@@ -103,6 +121,26 @@ window.DashboardView = {
     document.getElementById('btn-export-overview-xlsx')?.addEventListener('click', () => {
       this.exportOverviewXLSX();
     });
+  },
+
+  getPeriodDates(period) {
+    const dateOnly = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    if (period === 'SEMANA_ESPECIFICA') {
+      const value = document.getElementById('dash-filter-week')?.value;
+      if (!value) return null;
+      const [year, week] = value.split('-W').map(Number);
+      const monday = new Date(year, 0, 4);
+      monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7) + (week - 1) * 7);
+      const sunday = new Date(monday); sunday.setDate(sunday.getDate() + 6);
+      return {startDate: dateOnly(monday), endDate: dateOnly(sunday)};
+    }
+    if (period === 'MES_ESPECIFICO') {
+      const value = document.getElementById('dash-filter-month')?.value;
+      if (!value) return null;
+      const [year, month] = value.split('-').map(Number);
+      return {startDate: `${value}-01`, endDate: dateOnly(new Date(year, month, 0))};
+    }
+    return null;
   },
 
   switchTab(tabId) {
@@ -197,6 +235,9 @@ window.DashboardView = {
       if (period === 'PERSONALIZADO') {
         if (startDate) params.startDate = startDate;
         if (endDate) params.endDate = endDate;
+      } else if (['SEMANA_ESPECIFICA', 'MES_ESPECIFICO'].includes(period)) {
+        const range = this.getPeriodDates(period);
+        if (range) Object.assign(params, range);
       }
 
       const auditParams = {
