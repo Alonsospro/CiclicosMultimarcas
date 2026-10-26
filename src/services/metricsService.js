@@ -114,6 +114,13 @@ class MetricsService {
     let effectiveStartDate = parseDateParam(startDate, false);
     let effectiveEndDate = parseDateParam(endDate, true);
 
+    // A selected inventory week is identified by its inventory number suffix,
+    // while createdAt/closedAt remain available as recorded metadata.
+    if (cleanPeriod === 'SEMANA_ESPECIFICA') {
+      effectiveStartDate = null;
+      effectiveEndDate = null;
+    }
+
     const now = new Date();
     if (cleanPeriod === 'HOY') {
       effectiveStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);

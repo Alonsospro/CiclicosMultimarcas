@@ -13,79 +13,10 @@ window.DashboardView = {
   },
 
   initPeriodSelectors(earliestDateStr) {
-    const weekSelect = document.getElementById('dash-filter-week');
     const monthSelect = document.getElementById('dash-filter-month');
-    const dateOnly = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const monthNamesEs = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
     const fullMonthsEs = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-    // Baseline date for Semana 1: Earliest inventory created or default to 2026-10-12
-    let earliest = earliestDateStr ? new Date(earliestDateStr) : new Date(2026, 9, 12);
-    if (isNaN(earliest.getTime())) {
-      earliest = new Date(2026, 9, 12);
-    }
-    // Snap to Monday of that week
-    const baseMonday = new Date(earliest.getFullYear(), earliest.getMonth(), earliest.getDate());
-    const dayOfWeek = (baseMonday.getDay() + 6) % 7;
-    baseMonday.setDate(baseMonday.getDate() - dayOfWeek);
-    baseMonday.setHours(0, 0, 0, 0);
-
-    // Current Monday
     const today = new Date();
-    const currentMonday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const currDay = (currentMonday.getDay() + 6) % 7;
-    currentMonday.setDate(currentMonday.getDate() - currDay);
-    currentMonday.setHours(0, 0, 0, 0);
-
-    const maxMonday = currentMonday.getTime() >= baseMonday.getTime() ? currentMonday : baseMonday;
-
-    if (weekSelect) {
-      const prevVal = weekSelect.value;
-      const weeksList = [];
-      let weekIndex = 1;
-      let iterMonday = new Date(baseMonday.getTime());
-
-      while (iterMonday.getTime() <= maxMonday.getTime() + 7 * 86400000) {
-        const iterSunday = new Date(iterMonday.getTime());
-        iterSunday.setDate(iterSunday.getDate() + 6);
-
-        const val = `${dateOnly(iterMonday)}:${dateOnly(iterSunday)}`;
-        const isCurrent = iterMonday.getTime() === currentMonday.getTime();
-
-        const monStr = `${iterMonday.getDate()} ${monthNamesEs[iterMonday.getMonth()]}`;
-        const sunStr = `${iterSunday.getDate()} ${monthNamesEs[iterSunday.getMonth()]} ${iterSunday.getFullYear()}`;
-        const label = `Semana ${weekIndex} · ${monStr} - ${sunStr}${isCurrent ? ' (Semana Actual)' : ''}`;
-
-        weeksList.push({
-          weekIndex,
-          value: val,
-          label,
-          isCurrent
-        });
-
-        weekIndex++;
-        iterMonday = new Date(iterMonday.getTime() + 7 * 86400000);
-        if (weekIndex > 520) break;
-      }
-
-      weekSelect.replaceChildren();
-      const reversedWeeks = [...weeksList].reverse();
-      let defaultVal = null;
-
-      reversedWeeks.forEach(w => {
-        const opt = new Option(w.label, w.value);
-        if (w.isCurrent && !defaultVal) defaultVal = w.value;
-        weekSelect.appendChild(opt);
-      });
-
-      if (prevVal && weeksList.some(w => w.value === prevVal)) {
-        weekSelect.value = prevVal;
-      } else if (defaultVal) {
-        weekSelect.value = defaultVal;
-      } else if (reversedWeeks.length > 0) {
-        weekSelect.value = reversedWeeks[0].value;
-      }
-    }
 
     if (monthSelect) {
       const prevMonth = monthSelect.value;
@@ -125,8 +56,11 @@ window.DashboardView = {
       if (specificBox) specificBox.style.display = exactWeek || exactMonth ? 'inline-flex' : 'none';
       const week = document.getElementById('dash-filter-week');
       const month = document.getElementById('dash-filter-month');
+      const inventory = document.getElementById('dash-filter-inventory');
       if (week) week.style.display = exactWeek ? '' : 'none';
       if (month) month.style.display = exactMonth ? '' : 'none';
+      if (inventory) inventory.style.display = exactWeek ? 'none' : '';
+      if (exactWeek && inventory) inventory.value = 'TODOS';
       this.loadDashboard();
     });
 
@@ -220,19 +154,7 @@ window.DashboardView = {
   getPeriodDates(period) {
     const dateOnly = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     if (period === 'SEMANA_ESPECIFICA') {
-      const value = document.getElementById('dash-filter-week')?.value;
-      if (!value) return null;
-      if (value.includes(':')) {
-        const [startDate, endDate] = value.split(':');
-        return { startDate, endDate };
-      }
-      if (value.includes('-W')) {
-        const [year, week] = value.split('-W').map(Number);
-        const monday = new Date(year, 0, 4);
-        monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7) + (week - 1) * 7);
-        const sunday = new Date(monday); sunday.setDate(sunday.getDate() + 6);
-        return {startDate: dateOnly(monday), endDate: dateOnly(sunday)};
-      }
+      // Week selection is keyed by inventory numbering, never by its recorded date.
       return null;
     }
     if (period === 'MES_ESPECIFICO') {
@@ -334,14 +256,16 @@ window.DashboardView = {
       const params = {
         type,
         center,
-        inventoryId,
+        inventoryId: period === 'SEMANA_ESPECIFICA' && document.getElementById('dash-filter-week')?.value !== 'TODOS'
+          ? document.getElementById('dash-filter-week').value
+          : inventoryId,
         period
       };
       if (period === 'PERSONALIZADO') {
         if (startDate) params.startDate = startDate;
         if (endDate) params.endDate = endDate;
       } else if (['SEMANA_ESPECIFICA', 'MES_ESPECIFICO'].includes(period)) {
-        const range = this.getPeriodDates(period);
+        const range = period === 'MES_ESPECIFICO' ? this.getPeriodDates(period) : null;
         if (range) Object.assign(params, range);
       }
 
@@ -349,8 +273,8 @@ window.DashboardView = {
         center,
         limit: 100
       };
-      if (inventoryId && inventoryId !== 'TODOS') {
-        auditParams.inventoryId = inventoryId;
+      if (params.inventoryId && params.inventoryId !== 'TODOS') {
+        auditParams.inventoryId = params.inventoryId;
       }
 
       const [recalcRes, auditRes] = await Promise.all([
@@ -367,6 +291,7 @@ window.DashboardView = {
 
       // Update Inventory dropdown options dynamically
       this.updateInventoryDropdown(recalcRes.availableInventories || [], recalcRes.filters?.inventoryId);
+      this.updateInventoryNumberDropdown(recalcRes.availableInventories || []);
 
       // Update Context Banner
       this.renderContextBanner(recalcRes.selectedInventory, recalcRes.filters);
@@ -384,7 +309,11 @@ window.DashboardView = {
       const countMsg = recalcRes.resyncedCount > 0
         ? ` (${recalcRes.resyncedCount} archivos leídos de Google Sheets)`
         : '';
-      if (recalcRes.metricsComplete === false) window.Toast?.warning('Lectura terminada: hay archivos pendientes de validación.');
+      if (recalcRes.metricsComplete === false) {
+        const issue = (recalcRes.sourceDiagnostics || []).find(source => source.status !== 'valid' && source.issues?.length)?.issues[0];
+        window.Toast?.warning((recalcRes.metricsValid === false ? 'No se pudieron recalcular las métricas. ' : 'Consolidado parcial. ') +
+          (issue || 'Hay archivos pendientes de validación.'), 12000);
+      }
       else window.Toast?.success(`Métricas recalculadas exitosamente con la información más reciente${countMsg}.`);
     } catch (err) {
       console.error('[dashboardView] Error recalculating metrics:', err);
@@ -422,7 +351,9 @@ window.DashboardView = {
       const params = {
         type,
         center,
-        inventoryId,
+        inventoryId: period === 'SEMANA_ESPECIFICA' && document.getElementById('dash-filter-week')?.value !== 'TODOS'
+          ? document.getElementById('dash-filter-week').value
+          : inventoryId,
         period
       };
       if (forceRefresh) {
@@ -432,7 +363,7 @@ window.DashboardView = {
         if (startDate) params.startDate = startDate;
         if (endDate) params.endDate = endDate;
       } else if (['SEMANA_ESPECIFICA', 'MES_ESPECIFICO'].includes(period)) {
-        const range = this.getPeriodDates(period);
+        const range = period === 'MES_ESPECIFICO' ? this.getPeriodDates(period) : null;
         if (range) Object.assign(params, range);
       }
 
@@ -440,8 +371,8 @@ window.DashboardView = {
         center,
         limit: 100
       };
-      if (inventoryId && inventoryId !== 'TODOS') {
-        auditParams.inventoryId = inventoryId;
+      if (params.inventoryId && params.inventoryId !== 'TODOS') {
+        auditParams.inventoryId = params.inventoryId;
       }
 
       const [metricsRes, auditRes] = await Promise.all([
@@ -458,6 +389,7 @@ window.DashboardView = {
 
       // Update Inventory dropdown options dynamically
       this.updateInventoryDropdown(metricsRes.availableInventories || [], metricsRes.filters?.inventoryId);
+      this.updateInventoryNumberDropdown(metricsRes.availableInventories || []);
 
       // Update Context Banner
       this.renderContextBanner(metricsRes.selectedInventory, metricsRes.filters);
@@ -514,6 +446,23 @@ window.DashboardView = {
     return '';
   },
 
+  updateInventoryNumberDropdown(availableInventories = []) {
+    const select = document.getElementById('dash-filter-week');
+    if (!select) return;
+    const previousValue = select.value;
+    const numbers = [...new Set(availableInventories
+      .filter(inv => !String(inv.id || '').startsWith('REC-'))
+      .map(inv => inv.groupId || this.getInventoryIdentifier(inv.id || inv.name))
+      .filter(Boolean))]
+      .sort((a, b) => Number(a) - Number(b) || String(a).localeCompare(String(b)));
+    select.replaceChildren(new Option('Todas las numeraciones', 'TODOS'));
+    numbers.forEach(number => {
+      const count = availableInventories.filter(inv => (inv.groupId || this.getInventoryIdentifier(inv.id || inv.name)) === number).length;
+      select.appendChild(new Option(`Numeración -${number} (${count} inventarios)`, `GRUPO:${number}`));
+    });
+    select.value = [...select.options].some(option => option.value === previousValue) ? previousValue : 'TODOS';
+  },
+
   updateInventoryDropdown(availableInventories = [], selectedId = 'TODOS') {
     const select = document.getElementById('dash-filter-inventory');
     if (!select) return;
@@ -550,7 +499,7 @@ window.DashboardView = {
 
     // Consolidado General
     const consolidadoLabel = period === 'SEMANA_ESPECIFICA'
-      ? `📊 Consolidado Semana Completa (${cleanList.length} inventarios)`
+      ? `📊 Consolidado por numeración (${cleanList.length} inventarios)`
       : `Consolidado (${cleanList.length} inventarios)`;
     select.appendChild(new Option(consolidadoLabel, 'TODOS'));
 
@@ -572,7 +521,7 @@ window.DashboardView = {
 
         group.items.forEach(inv => {
           const state = ['valid', 'not_requested'].includes(inv.sourceValidation?.status) ? '' : ' ⚠ Revisar fuente';
-          optgroup.appendChild(new Option(`[${inv.center}] ${inv.name || inv.id}${state}`, inv.id));
+          optgroup.appendChild(new Option(`${inv.id || inv.name}${state}`, inv.id));
         });
 
         select.appendChild(optgroup);
@@ -580,7 +529,7 @@ window.DashboardView = {
     } else {
       cleanList.forEach(inv => {
         const state = ['valid', 'not_requested'].includes(inv.sourceValidation?.status) ? '' : ' ⚠ Revisar fuente';
-        select.appendChild(new Option(`[${inv.center}] ${inv.name || inv.id}${state}`, inv.id));
+        select.appendChild(new Option(`${inv.id || inv.name}${state}`, inv.id));
       });
     }
 
@@ -664,10 +613,10 @@ window.DashboardView = {
       </div>
       <div>
         <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-main);">
-          Inventarios de la Semana Agrupados por Codificación
+          Inventarios agrupados por numeración
         </h4>
         <p style="margin: 0; font-size: 0.78rem; color: var(--text-muted);">
-          Los inventarios se agrupan automáticamente según su identificador final (-1, -2, etc.). Seleccione un grupo para visualizar sus métricas consolidadas.
+          Las fechas se conservan como registro. El agrupamiento usa el número final del código de inventario (-1, -2, etc.).
         </p>
       </div>
     `;
@@ -678,12 +627,14 @@ window.DashboardView = {
       const btnAll = document.createElement('button');
       btnAll.type = 'button';
       btnAll.className = 'btn btn-secondary btn-xs';
-      btnAll.innerHTML = '<i class="fa-solid fa-arrows-split-up-and-left"></i> Ver Todos los de la Semana';
+      btnAll.innerHTML = '<i class="fa-solid fa-arrows-split-up-and-left"></i> Ver todas las numeraciones';
       btnAll.onclick = () => {
         if (currentInvSelect) {
           currentInvSelect.value = 'TODOS';
-          this.loadDashboard();
         }
+        const numberSelect = document.getElementById('dash-filter-week');
+        if (numberSelect) numberSelect.value = 'TODOS';
+        this.loadDashboard();
       };
       header.appendChild(btnAll);
     }
@@ -793,9 +744,11 @@ window.DashboardView = {
         : '<i class="fa-solid fa-chart-pie"></i> Ver Consolidado Grupo ' + g.groupId;
       btnSelect.onclick = () => {
         if (currentInvSelect) {
-          currentInvSelect.value = `GRUPO:${g.groupId}`;
-          this.loadDashboard();
+          currentInvSelect.value = 'TODOS';
         }
+        const numberSelect = document.getElementById('dash-filter-week');
+        if (numberSelect) numberSelect.value = `GRUPO:${g.groupId}`;
+        this.loadDashboard();
       };
       actionsDiv.appendChild(btnSelect);
 
@@ -807,7 +760,9 @@ window.DashboardView = {
       btnPdf.innerHTML = '<i class="fa-solid fa-file-pdf" style="color: #ef4444;"></i> PDF';
       btnPdf.onclick = () => {
         if (!isCurrentGroupActive && currentInvSelect) {
-          currentInvSelect.value = `GRUPO:${g.groupId}`;
+          currentInvSelect.value = 'TODOS';
+          const numberSelect = document.getElementById('dash-filter-week');
+          if (numberSelect) numberSelect.value = `GRUPO:${g.groupId}`;
           this.loadDashboard().then(() => {
             setTimeout(() => this.printReport(), 250);
           });

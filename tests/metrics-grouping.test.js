@@ -21,7 +21,7 @@ test('getDashboardMetrics groups inventories sharing the same terminal identifie
 
   const testInventories = [
     { id: 'INV-CICLICO-1340-1', center: '1340', type: 'CICLICO', items: [item1], createdAt: '2026-10-20T10:00:00.000Z' },
-    { id: 'INV-CICLICO-1120-1', center: '1120', type: 'CICLICO', items: [item2], createdAt: '2026-10-20T11:00:00.000Z' },
+    { id: 'INV-CICLICO-1120-1', center: '1120', type: 'CICLICO', items: [item2], createdAt: '2026-11-03T11:00:00.000Z' },
     { id: 'INV-CICLICO-1340-2', center: '1340', type: 'CICLICO', items: [item3], createdAt: '2026-10-21T10:00:00.000Z' }
   ];
 
@@ -77,14 +77,16 @@ test('getDashboardMetrics groups inventories sharing the same terminal identifie
     assert.equal(group2Metrics.summary.totalInventories, 1, 'Group 2 consolidated must evaluate only inventory ending in -2');
     assert.equal(group2Metrics.selectedInventory.groupId, '2');
 
-    // 4. Querying metrics with date range (startDate/endDate) strictly isolates group within that week
+    // 4. Inventory numbering groups remain together across different recorded dates.
     const dateRangeGroup1 = await metricsService.getDashboardMetrics({
       inventoryId: 'GRUPO:1',
       period: 'SEMANA_ESPECIFICA',
       startDate: '2026-10-19',
       endDate: '2026-10-25'
     });
-    assert.equal(dateRangeGroup1.summary.totalInventories, 2, 'Should isolate the 2 inventories created in that week');
+    assert.equal(dateRangeGroup1.summary.totalInventories, 2, 'Both inventories with suffix -1 stay together despite different recorded dates');
+    assert.ok(dateRangeGroup1.availableInventories.some(inv => inv.id === 'INV-CICLICO-1120-1' && inv.createdAt.startsWith('2026-11-03')),
+      'Recorded inventory date remains available as metadata');
   } finally {
     metricsService.getAllInventoriesData = origGetAll;
   }
