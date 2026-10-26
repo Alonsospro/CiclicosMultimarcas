@@ -1242,7 +1242,8 @@ class InventoryService {
       originalStockSistema:contract.isWeekly(item)?item.Stock_Sistema:(item.Stock_Sistema_Original??item.Stock_Sistema),fecha:new Date().toISOString(),
       photoJustificacion:p.driveUrl||p.photoUrl||'',
       spreadsheetUrl:inv.spreadsheetUrl||inv.driveUrl||null,
-      workflow:{version:1,status:inv.status,round,countStage:round===1?0:(inv.hasRecount2||inv.recountRound===2?2:1)}};
+      workflow:{version:1,status:inv.status,round,countStage:workflow.countStage(inv),
+        reopenedPhase:inv.reopenedPhase||null}};
     if(contract.isWeekly(item)){
       payload.justifiedQuantity=p.justifiedQuantity;
       // Validate compensation before any remote write, then let Apps Script validate against its live row.

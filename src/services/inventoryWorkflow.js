@@ -96,9 +96,8 @@ function plan(inv, child, records = []) {
     const first = review(item, 1, records, inv.firstReviewNotBefore);
     const second = review(item, 2, records, inv.secondReviewNotBefore);
     const recounted = keys.has(contract.member(item));
-    const latestRound = time(second.reviewedAt) >= time(first.reviewedAt) && time(second.reviewedAt) > 0 ? 2
-      : time(first.reviewedAt) > 0 ? 1 : 0;
-    const round = reopeningJustification ? (latestRound || 1) : (recounted ? 2 : 1);
+    // Reopening the justification phase always targets the second justification fields.
+    const round = reopeningJustification ? 2 : (recounted ? 2 : 1);
     const current = round === 2 ? second : first;
     const stage = reopeningJustification
       ? (recounted ? recountStage : 0)
@@ -120,8 +119,9 @@ function plan(inv, child, records = []) {
   const noCuadra = rows.filter(item => review(item, 1, records, inv.firstReviewNotBefore).corroboracion === 'NO CUADRA');
   const pending = rows.filter(item => !item.reviewComplete);
   const canClose = !finalized && ['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO'].includes(inv.status)
-    && countComplete && recountComplete && !initialPending.length && !pending.length
-    && noCuadra.every(item => keys.has(contract.member(item)));
+    && countComplete && recountComplete && !pending.length
+    && (reopeningJustification || (!initialPending.length
+      && noCuadra.every(item => keys.has(contract.member(item)))));
   return {items: rows, keys, initialPending, noCuadra, pending, finalized, canClose,
     canEnableRecount: !finalized && inv.status === 'PENDIENTE_JUSTIFICACION' && !keys.size
       && countComplete && !initialPending.length && noCuadra.length > 0};
