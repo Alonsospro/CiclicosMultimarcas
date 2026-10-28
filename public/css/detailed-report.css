@@ -43,7 +43,8 @@
 .detail-report .sku { font-family:monospace; font-size:9px; font-weight:700; }
 .detail-report .num { text-align:right; }
 .detail-reconciliation td:nth-child(2) { text-align:right; }
-.detail-reconciliation tbody tr:last-child td { color:#a12b31; font-weight:700; background:#fff5f4; }
+.detail-reconciliation-operational tbody tr:last-child td { color:#a12b31; font-weight:700; background:#fff5f4; }
+.detail-reconciliation-quantity { margin-top:10px; }
 .detail-report .red { color:#b91c1c; }.detail-report .green { color:#047857; }.detail-report .blue { color:#1e40af; }
 .detail-total { padding:10px; background:#f1f5f9; color:#991b1b; font-weight:700; font-size:11px; }
 .detail-advice { padding:10px; background:#fffbeb; color:#92400e; border:1px solid #fde68a; font-size:11px; }
