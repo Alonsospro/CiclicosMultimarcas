@@ -1457,7 +1457,8 @@ class InventoryService {
   }
 
   getReviewPlan(inv) {
-    const child = inv.hasRecount ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null;
+    const hasRecountContext = inv.hasRecount || inv.recountInventoryId || inv.status === 'RECONTEO_COMPLETADO';
+    const child = hasRecountContext ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null;
     const records = [...this.getJustificationsForInventory(inv.id),
       ...(child ? this.getJustificationsForInventory(child.id) : [])];
     return workflow.plan(inv, child, records);
@@ -1487,7 +1488,8 @@ class InventoryService {
       if (user.role === 'ENCARGADO' && inv.center !== user.center) continue;
       const finalizedByStatus = inv.isFinalized === true || ['REVISADO', 'CERRADO', 'ARCHIVADO'].includes(inv.status);
       if (finalizedByStatus ? !includeFinalized : !['PENDIENTE_JUSTIFICACION', 'EN_RECONTEO', 'RECONTEO_COMPLETADO'].includes(inv.status)) continue;
-      const child = inv.hasRecount ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null;
+      const hasRecountContext = inv.hasRecount || inv.recountInventoryId || inv.status === 'RECONTEO_COMPLETADO';
+      const child = hasRecountContext ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null;
       const records = [...(allJustificationsByInv.get(inv.id) || []),
         ...(child ? (allJustificationsByInv.get(child.id) || []) : [])];
       const plan = workflow.plan(inv, child, records);

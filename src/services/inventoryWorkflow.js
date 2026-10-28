@@ -81,11 +81,13 @@ function initialDiscrepancy(item) {
 
 // Membership is recorded when recount is enabled; a zero difference never removes a member.
 function recountKeys(inv, child) {
-  if (Array.isArray(inv.recountItemKeys)) return new Set(inv.recountItemKeys);
+  if (Array.isArray(inv.recountItemKeys) && inv.recountItemKeys.length) return new Set(inv.recountItemKeys);
   if (child?.items?.length) return new Set(child.items.map(contract.member));
   if (!(inv.hasRecount || inv.isReconteo || inv.status === 'RECONTEO_COMPLETADO' || countStage(inv))) return new Set();
-  return new Set((inv.items || []).filter(item => item.isReconteoItem || item.requiereReconteo
-    || hasCount(item, 1) || hasCount(item, 2)).map(contract.member));
+  // Count fields describe observations, not recount membership. Inferring membership
+  // from them can incorrectly pull every counted item into second justification.
+  return new Set((inv.items || []).filter(item => item.isReconteoItem || item.requiereReconteo)
+    .map(contract.member));
 }
 
 function plan(inv, child, records = []) {
