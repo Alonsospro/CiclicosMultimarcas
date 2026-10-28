@@ -225,13 +225,9 @@ class MetricsService {
           totalSysValue += (sysStock * unitCost);
           totalSkus++;
 
-          try {
-            const locScore = contract.locationScore(it);
+          if (isAudited) {
             totalLocs++;
-            if (locScore >= 1) exactLocs++;
-          } catch (_) {
-            totalLocs++;
-            if (it.Ubicacion) exactLocs++;
+            if (contract.locationScore(it) === 1) exactLocs++;
           }
 
           let finQty = null;
@@ -438,7 +434,6 @@ class MetricsService {
 
     // Multi-location ERU tracking (Evaluando cada estante/ubicación individual)
     const weeklyMetrics = filtered.some(inv => inv.items?.some(contract.isWeekly));
-    const onlyWeeklyLocations = filtered.length > 0 && filtered.every(inv => inv.items?.every(contract.isWeekly));
     let totalLocationsEvaluated = 0;
     let exactMatchingLocations = 0;
 
@@ -772,12 +767,9 @@ class MetricsService {
         totalItemsAudited++;
         totalAuditedSystemUnits += stockSistema;
         totalAuditedSystemValue += (stockSistema * unitCost);
-        const itemLocationsCount = weekly ? 0 : distinctItemLocations.length;
-        totalLocationsEvaluated += itemLocationsCount;
         centerBreakdown[invCenter].totalAudited++;
         centerBreakdown[invCenter].auditedSystemValue = (centerBreakdown[invCenter].auditedSystemValue || 0) + (stockSistema * unitCost);
         centerBreakdown[invCenter].auditedSystemUnits = (centerBreakdown[invCenter].auditedSystemUnits || 0) + stockSistema;
-        centerBreakdown[invCenter].locationsEvaluated += itemLocationsCount;
 
         let matchedUnits1 = 0;
         if (isExact1) {
@@ -819,10 +811,6 @@ class MetricsService {
           itemsCuadradosFinalValue += (matchedUnitsFinal * unitCost);
           centerBreakdown[invCenter].itemsExactFinalUnits = (centerBreakdown[invCenter].itemsExactFinalUnits || 0) + matchedUnitsFinal;
           centerBreakdown[invCenter].exact++;
-          if (!weekly) {
-            centerBreakdown[invCenter].locationsExact += itemLocationsCount;
-            exactMatchingLocations += itemLocationsCount;
-          }
           if (!isExact1) {
             subsanadosCount++;
           }
@@ -1013,7 +1001,18 @@ class MetricsService {
       // Grouping and ERI Analysis per unique SKU in this inventory
       Object.values(invSkuMap).forEach(skuObj => {
         totalSkusPlanned++;
-        const locationsCount = skuObj.weekly ? new Set(skuObj.locations.map(l => contract.identity(l.ubicacion))).size : skuObj.locations.length;
+        const distinctLocations = new Map();
+        skuObj.locations.forEach(location => {
+          const name = contract.identity(location.ubicacion);
+          const key = JSON.stringify([contract.identity(location.almacen), name]);
+          const existing = distinctLocations.get(key);
+          distinctLocations.set(key, {
+            ubicacion: location.ubicacion,
+            almacen: location.almacen,
+            isPrimary: Boolean(location.isAdditionalLocation === false || existing?.isPrimary)
+          });
+        });
+        const locationsCount = distinctLocations.size;
         const quantityRows = skuObj.weekly ? [...new Map(skuObj.locations.map(l => [l.memberKey, l])).values()] : skuObj.locations;
         const auditedLocations = quantityRows.filter(l => l.stockFisico !== null && l.stockFisico !== undefined);
         const isSkuAudited = auditedLocations.length > 0;
@@ -1021,15 +1020,13 @@ class MetricsService {
         if (isSkuAudited) {
           totalSkusAudited++;
           centerBreakdown[invCenter].skusAudited++;
-          if (skuObj.weekly) {
-            const names = new Set(skuObj.locations.map(l => contract.identity(l.ubicacion)).filter(l => l && l !== 'SIN_UBICACION'));
-            const score = names.size ? 1 / names.size : 0;
-            skuObj.eruPercent = score * 100;
-            totalLocationsEvaluated++;
-            exactMatchingLocations += score;
-            centerBreakdown[invCenter].locationsEvaluated++;
-            centerBreakdown[invCenter].locationsExact += score;
-          }
+          const onlyLocation = locationsCount === 1 ? [...distinctLocations.values()][0] : null;
+          const locationScore = onlyLocation?.isPrimary && contract.isValidLocation(onlyLocation.ubicacion) ? 1 : 0;
+          skuObj.eruPercent = locationScore * 100;
+          totalLocationsEvaluated++;
+          exactMatchingLocations += locationScore;
+          centerBreakdown[invCenter].locationsEvaluated++;
+          centerBreakdown[invCenter].locationsExact += locationScore;
 
           const totalStockSistema = quantityRows.reduce((acc, l) => acc + (l.stockSistema || 0), 0);
           const totalStockTotal1 = auditedLocations.reduce((acc, l) => {
@@ -1143,7 +1140,7 @@ class MetricsService {
 
     // Multi-location accuracy
     const multiLocCount = multiLocationSkusList.length;
-    const multiLocExactCount = multiLocationSkusList.filter(m => m.isSkuExact || m.allLocationsExact).length;
+    const multiLocExactCount = multiLocationSkusList.filter(m => m.eruPercent === 100).length;
     const multiLocAccuracy = multiLocCount > 0 ? ((multiLocExactCount / multiLocCount) * 100).toFixed(1) : '100.0';
 
     // 3. Center Stats with los 3 ERIs & ERU
@@ -1621,9 +1618,12 @@ class MetricsService {
           ? parseFloat((((discrepancias1erCount - discrepanciasFinalCount) / discrepancias1erCount) * 100).toFixed(1))
           : 0.0,
         
-        // 2. ERU (Exactitud de Registro de Ubicación por cada estante o ubicación individual)
+        // 2. ERU: promedio por SKU; 100% solo para una ubicación primaria válida de 10 caracteres.
         eruPercent: parseFloat(eruPercent),
-        eruModel: onlyWeeklyLocations ? 'LOCATION_CONCENTRATION' : (weeklyMetrics ? 'MIXED' : 'LEGACY'),
+        eruModel: 'SKU_LOCATION_VALIDITY',
+        totalSkusEvaluatedForEru: totalLocationsEvaluated,
+        exactSkusForEru: exactMatchingLocations,
+        // Compatibilidad: estos nombres históricos ahora representan SKU evaluados, no ubicaciones físicas.
         totalLocationsEvaluated,
         exactMatchingLocations,
         multiLocationCount: multiLocCount,

@@ -769,7 +769,9 @@ window.DashboardView = {
 
     const totalAudited = summary.totalItemsAudited || 0;
     const eriVal = totalAudited > 0 ? (summary.eriPercent !== undefined && summary.eriPercent !== null ? Number(summary.eriPercent) : 0) : 0;
-    const eruVal = (summary.totalLocationsEvaluated || 0) > 0 ? (summary.eruPercent !== undefined && summary.eruPercent !== null ? Number(summary.eruPercent) : 0) : 0;
+    const eruSkus = summary.totalSkusEvaluatedForEru ?? summary.totalLocationsEvaluated ?? 0;
+    const eruExactSkus = summary.exactSkusForEru ?? summary.exactMatchingLocations ?? 0;
+    const eruVal = eruSkus > 0 ? (summary.eruPercent !== undefined && summary.eruPercent !== null ? Number(summary.eruPercent) : 0) : 0;
     const fmtMoney = (val) => window.AppConfig ? window.AppConfig.formatCurrency(val) : `Bs. ${Number(val || 0).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
     // Resumen General Complementario (Total SKUs, ERU, Contadores)
@@ -793,9 +795,7 @@ window.DashboardView = {
     if (elEru) elEru.textContent = `${eruVal.toFixed(1)}%`;
     const elEruDetail = document.getElementById('stat-eru-detail');
     if (elEruDetail) {
-      const locsExact = summary.exactMatchingLocations || 0;
-      const locsTotal = summary.totalLocationsEvaluated || 0;
-      elEruDetail.textContent = summary.eruModel === 'LOCATION_CONCENTRATION' ? `Promedio de ${locsTotal} SKU/almacén · 100% ÷ ubicaciones` : summary.eruModel === 'MIXED' ? 'Resultado combinado de modelos por tipo de inventario' : `${locsExact} de ${locsTotal} ubicaciones exactas`;
+      elEruDetail.textContent = `${eruExactSkus} de ${eruSkus} SKU con una ubicación válida de 10 caracteres`;
     }
     const elEruBadge = document.getElementById('stat-eru-multiloc-badge');
     if (elEruBadge) {

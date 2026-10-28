@@ -94,9 +94,13 @@ const InventoryContract = (() => {
     return r.Stock_Sistema-physical-adjustment(r,round===2?1:2);
   }
   function finalQuantity(raw){const r=normalize(raw);return isWeekly(r)?r.Cantidad_Fisica_Final:latestPhysical(r);}
+  function isValidLocation(value){return /^[A-Z0-9]{10}$/.test(String(value??'').trim().toUpperCase());}
   function locationScore(raw){
-    const locations=new Set([raw.Ubicacion,raw.Ubicacion_1,raw.Ubicacion_2].filter(has).map(identity));
-    return locations.size?1/locations.size:0;
+    const primary=first(raw.Ubicacion,raw.ubicacion,raw.location);
+    const locations=[primary,raw.Ubicacion_1,raw.ubicacion1,raw.Ubicacion1,raw.Ubicacion_2,raw.ubicacion2,raw.Ubicacion2,
+      ...(Array.isArray(raw.additionalLocations)?raw.additionalLocations.map(location=>typeof location==='string'?location:location?.location):[])];
+    const distinct=new Set(locations.filter(has).map(identity));
+    return isValidLocation(primary)&&distinct.size===1?1:0;
   }
   function status(p) {
     const raw=identity(first(p.corroboracion,p.corroboration,p.estadoJustificacion2,p.estadoJustificacion,p.estado,p.status)).replace(/_/g,' ');
@@ -192,7 +196,7 @@ const InventoryContract = (() => {
   }
   function member(r){return JSON.stringify([identity(r.SKU||r.sku),identity(r.Almacen||r.almacen||r.warehouse),identity(r.Ubicacion||r.ubicacion||r.location)]);}
   return {columns,weeklyColumns,weeklyHeaders,weeklyVersion,isWeekly,isWeeklyType,stages,has,first,identity,number,quantity,date,
-    normalize,status,update,finalItem,member,latestStage,latestPhysical,adjustment,compensationNeeded,finalQuantity,locationScore};
+    normalize,status,update,finalItem,member,latestStage,latestPhysical,adjustment,compensationNeeded,finalQuantity,isValidLocation,locationScore};
 })();
 
 
