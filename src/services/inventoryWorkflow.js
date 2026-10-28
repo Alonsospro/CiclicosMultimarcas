@@ -123,7 +123,11 @@ function plan(inv, child, records = []) {
       reviewStatus: current.corroboracion,
       justificationDetails: current.corroboracion ? current : null,
       justificationHistory: [first, second].filter(r => time(r.reviewedAt)),
-      needsInitialReview: initialDiscrepancy(item) || time(first.reviewedAt) > 0};
+      // A historical review date alone must not turn an already balanced item
+      // into a current discrepancy. Keep prior NO CUADRA decisions visible so
+      // their recount workflow can continue, while suppressing resolved CUADRA rows.
+      needsInitialReview: initialDiscrepancy(item) ||
+        (first.corroboracion === 'NO CUADRA' && time(first.reviewedAt) > 0)};
   }).filter(item => item.needsInitialReview || item.requiresSecondJustification);
   const initialPending = rows.filter(item => item.needsInitialReview && !review(item, 1, records, inv.firstReviewNotBefore).complete);
   const noCuadra = rows.filter(item => review(item, 1, records, inv.firstReviewNotBefore).corroboracion === 'NO CUADRA');
