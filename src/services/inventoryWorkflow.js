@@ -50,6 +50,7 @@ function review(item, round, records = [], since = null) {
     reviewedBy: item[second ? 'Responsable_Justificacion_2' : 'Responsable_Justificacion'],
     reviewedAt: item[second ? 'Fecha_Justificacion_2' : 'Fecha_Primera_Justificacion'],
     photoUrl: item[second ? 'foto_justificacion_2' : 'foto_justificacion'],
+    photoUrls: item[second ? 'fotos_justificacion_2' : 'fotos_justificacion'] || [],
     justifiedQuantity: item[second ? 'Cantidad_Justificada_2' : 'Cantidad_Justificada_1']
   };
   const matches = records.filter(j => Number(j.round || 1) === round && contract.member(j) === contract.member(item));

@@ -110,14 +110,16 @@ class DriveService {
    * Mal Estado: nibol/ciclicos/fotos/malestado/{fecha}/{centro y tipo de inventario}/{sku}-{almacen}.jpg
    * Justificaciones: nibol/ciclicos/fotos/justificaciones/{fecha}/{centro y tipo de inventario}/JUST-{sku}-{almacen}.jpg
    */
-  getPhotoDriveDetails({ category = 'malestado', sku = 'SKU', warehouse = 'ALMACEN', center = '1120', date = new Date(), ext = '.jpg', type = 'CICLICO' }) {
+  getPhotoDriveDetails({ category = 'malestado', sku = 'SKU', warehouse = 'ALMACEN', center = '1120', date = new Date(), ext = '.jpg', type = 'CICLICO', round = 1, evidenceIndex = 0 }) {
     const cleanCategory = String(category).toLowerCase().includes('just') ? 'justificaciones' : 'malestado';
     const dateStr = this.formatDate(date);
     const centerName = this.getCenterName(center);
     const cleanSku = this.sanitizeFilename(sku);
     const cleanWarehouse = this.sanitizeFilename(warehouse || 'ALMACEN');
     const fileExt = ext.startsWith('.') ? ext : `.${ext}`;
-    const fileName = `${cleanCategory === 'justificaciones' ? 'JUST-' : ''}${cleanSku}-${cleanWarehouse}${fileExt}`;
+    const roundSuffix = cleanCategory === 'justificaciones' && Number(round) === 2 ? '-R2' : '';
+    const evidenceSuffix = cleanCategory === 'justificaciones' && Number(evidenceIndex) > 0 ? `-EVIDENCIA-${String(Number(evidenceIndex) + 1).padStart(2, '0')}` : '';
+    const fileName = `${cleanCategory === 'justificaciones' ? 'JUST-' : ''}${cleanSku}-${cleanWarehouse}${roundSuffix}${evidenceSuffix}${fileExt}`;
     const cleanType = String(type || 'CICLICO').toUpperCase().trim();
     const centerTypeFolder = `${centerName} ${cleanType}`;
     const folderPath = `nibol/ciclicos/fotos/${cleanCategory}/${dateStr}/${centerTypeFolder}`;
@@ -228,7 +230,9 @@ class DriveService {
       center,
       date,
       ext,
-      type: invType
+      type: invType,
+      round: metadata.round || (isJustification2 ? 2 : 1),
+      evidenceIndex: metadata.evidenceIndex || 0
     });
 
     // 1. Generate unique photo ID for URL mapping & backward compatibility

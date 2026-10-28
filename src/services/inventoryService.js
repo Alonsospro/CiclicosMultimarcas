@@ -1255,6 +1255,7 @@ class InventoryService {
       corroboracion:contract.status(p),razon:p.reasonType,comentarioJustificacion:p.justification,reviewedBy:reviewer,
       originalStockSistema:contract.isWeekly(item)?item.Stock_Sistema:(item.Stock_Sistema_Original??item.Stock_Sistema),fecha:new Date().toISOString(),
       photoJustificacion:p.driveUrl||p.photoUrl||'',
+      fotosJustificacion:Array.isArray(p.photoUrls)?p.photoUrls.map(photo=>photo.driveUrl||photo.photoUrl).filter(Boolean):[],
       spreadsheetUrl:inv.spreadsheetUrl||inv.driveUrl||null,
       workflow:{version:1,status:inv.status,round,countStage:round===1?0:(workflow.countStage(inv)||(inv.hasRecount2||inv.recountRound===2?2:inv.hasRecount?1:0)),
         reopenedPhase:inv.reopenedPhase||null}};
@@ -1278,11 +1279,13 @@ class InventoryService {
       corroboracion:payload.corroboracion,corroborationStatus:payload.corroboracion,isCuadra:payload.corroboracion==='CUADRA',
       requiereReconteo:payload.corroboracion!=='CUADRA',reviewedAt:payload.fecha,Revisado_Por:reviewer});
     item[round===2?'foto_justificacion_2':'foto_justificacion']=p.driveUrl||p.photoUrl||null;
+    item[round===2?'fotos_justificacion_2':'fotos_justificacion']=(p.photoUrls||[]).map(photo=>photo.driveUrl||photo.photoUrl).filter(Boolean);
     const id='JUST-'+createHash('sha256').update(JSON.stringify([inv.id,contract.member(item),round])).digest('hex');
     const record={id,inventoryId:inv.id,itemId:item.id,sku:item.SKU,almacen:item.Almacen,ubicacion:item.Ubicacion,
       round,corroboracion:payload.corroboracion,isCuadra:item.isCuadra,reasonType:p.reasonType,justification:p.justification,
       reviewedBy:reviewer,reviewedAt:payload.fecha,fechaPrimeraJustificacion:item.Fecha_Primera_Justificacion,
       fechaJustificacion2:item.Fecha_Justificacion_2,photoUrl:p.driveUrl||p.photoUrl||null,driveUrl:p.driveUrl||null,
+      photoUrls:(p.photoUrls||[]).map(photo=>({photoUrl:photo.driveUrl||photo.photoUrl,driveFileId:photo.driveFileId||null,name:photo.name||null})),
       driveFileId:p.driveFileId||null,center:inv.center,type:inv.type,status:'REVISADO'};
     if(contract.isWeekly(item))record.justifiedQuantity=item[round===2?'Cantidad_Justificada_2':'Cantidad_Justificada_1'];
     storagePath.writeJson(path.join(this.justDir,id+'.json'),record);

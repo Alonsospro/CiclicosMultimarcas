@@ -379,6 +379,7 @@ window.API = {
     if (metadata.prefix) formData.append('prefix', metadata.prefix);
     if (metadata.isJustification2 !== undefined) formData.append('isJustification2', metadata.isJustification2);
     if (metadata.round !== undefined) formData.append('round', metadata.round);
+    if (metadata.evidenceIndex !== undefined) formData.append('evidenceIndex', metadata.evidenceIndex);
 
     return this.request('/photos/upload', {
       method: 'POST',

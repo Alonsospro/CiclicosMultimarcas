@@ -1947,13 +1947,14 @@
             </label>
             <div class="photo-upload-zone" id="zone-just-photo" style="padding: 0.85rem; cursor: pointer;">
               <i class="fa-solid fa-cloud-arrow-up" style="font-size: 1.3rem; color: var(--primary);"></i>
-              <p style="font-size: 0.82rem; margin-top: 0.2rem; color: var(--text-dim);">Haga clic para tomar foto o seleccionar archivo</p>
-              <input type="file" id="input-just-photo-file" accept="image/*" style="display: none;">
+              <p style="font-size: 0.82rem; margin-top: 0.2rem; color: var(--text-dim);">Seleccione una o varias fotos de evidencia</p>
+              <input type="file" id="input-just-photo-file" accept="image/*" multiple style="display: none;">
             </div>
             <div id="just-photo-status" style="display: none; margin-top: 0.4rem; font-size: 0.8rem;"></div>
             <input type="hidden" id="just-photo-url">
             <input type="hidden" id="just-drive-url">
             <input type="hidden" id="just-drive-file-id">
+            <input type="hidden" id="just-photo-urls">
             <img id="img-just-preview" class="photo-preview-img" style="display: none; margin-top: 0.5rem; max-height: 160px; border-radius: 8px; border: 1px solid var(--border-glass);" alt="Preview">
           </div>
 

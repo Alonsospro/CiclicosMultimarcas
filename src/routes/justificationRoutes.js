@@ -23,7 +23,7 @@ router.get('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, r
 // POST /api/justifications (Submit a single justification)
 router.post('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
-    const { inventoryId, sku, justification, photoUrl, reasonType, driveUrl, driveFileId, almacen, warehouse, location, itemId, corroboration, corroboracion, status, isCuadra, isJustification2, round, justifiedQuantity } = req.body;
+    const { inventoryId, sku, justification, photoUrl, photoUrls, reasonType, driveUrl, driveFileId, almacen, warehouse, location, itemId, corroboration, corroboracion, status, isCuadra, isJustification2, round, justifiedQuantity } = req.body;
     if (!inventoryId || !sku) {
       return res.status(400).json({ success: false, message: 'inventoryId y sku son obligatorios' });
     }
@@ -34,6 +34,7 @@ router.post('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, 
       justification,
       justifiedQuantity,
       photoUrl,
+      photoUrls: Array.isArray(photoUrls) ? photoUrls : [],
       reasonType,
       driveUrl,
       driveFileId,

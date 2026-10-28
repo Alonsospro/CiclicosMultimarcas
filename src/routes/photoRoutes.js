@@ -15,7 +15,7 @@ router.post('/upload', authenticate, parsePhotoUpload, async (req, res) => {
       return res.status(400).json({ success: false, message: 'No se envió ningún archivo de imagen' });
     }
 
-    const { category, photoType, sku, center, date, inventoryId, itemId, type, prefix, isJustification2, round, almacen, warehouse } = req.body;
+    const { category, photoType, sku, center, date, inventoryId, itemId, type, prefix, isJustification2, round, almacen, warehouse, evidenceIndex } = req.body;
 
     const saved = await driveService.savePhotoFile(
       req.file.buffer,
@@ -32,7 +32,8 @@ router.post('/upload', authenticate, parsePhotoUpload, async (req, res) => {
         type: type || (inventoryId && String(inventoryId).includes('BARRIDO') ? 'BARRIDO' : 'CICLICO'),
         prefix,
         isJustification2: isJustification2 === true || isJustification2 === 'true' || prefix === 'JS2' || String(prefix || '').toUpperCase() === 'JS2',
-        round: round ? parseInt(round, 10) : undefined
+        round: round ? parseInt(round, 10) : undefined,
+        evidenceIndex: Number.isInteger(Number(evidenceIndex)) ? Number(evidenceIndex) : 0
       }
     );
 

@@ -48,8 +48,8 @@ window.JustificationsView = {
     photoZone?.addEventListener('click', () => photoInput.click());
 
     photoInput?.addEventListener('change', async (e) => {
-      const rawFile = e.target.files[0];
-      if (!rawFile) return;
+      const rawFiles = Array.from(e.target.files || []);
+      if (!rawFiles.length) return;
 
       const inventoryId = document.getElementById('just-modal-inv-id')?.value;
       const sku = document.getElementById('just-modal-sku-input')?.value;
@@ -63,15 +63,18 @@ window.JustificationsView = {
       try {
         if (statusDiv) {
           statusDiv.style.display = 'block';
-          statusDiv.innerHTML = '<span style="color: var(--primary); display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-spinner fa-spin"></i> Optimizando y subiendo inmediatamente a Google Drive...</span>';
+          statusDiv.innerHTML = `<span style="color: var(--primary); display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-spinner fa-spin"></i> Optimizando y subiendo ${rawFiles.length} imagen(es) de forma secuencial...</span>`;
         }
         window.Toast.info('Subiendo imagen de justificación a Google Drive...');
 
-        // Client-side quick compression to ensure instant upload without exceeding quotas
-        const file = await this.compressImage(rawFile);
-
         const isSecondJust = !!(this.currentIsSecondJustification || document.getElementById('just-modal-is-second-just')?.value === 'true');
-
+        const previousPhotos = this.uploadedPhotos || [];
+        const uploadedPhotos = [];
+        for (let index = 0; index < rawFiles.length; index++) {
+        const rawFile = rawFiles[index];
+        if (!rawFile.type.startsWith('image/')) throw new Error(`${rawFile.name}: el archivo no es una imagen válida`);
+        const file = await this.compressImage(rawFile);
+        if (statusDiv) statusDiv.innerHTML = `<span style="color: var(--primary);"><i class="fa-solid fa-spinner fa-spin"></i> Subiendo imagen ${index + 1} de ${rawFiles.length} (${Math.round(file.size / 1024)} KB)...</span>`;
         const res = await window.API.uploadPhoto(file, {
           category: 'justificaciones',
           photoType: 'justificaciones',
@@ -84,7 +87,8 @@ window.JustificationsView = {
           type: task?.type || 'CICLICO',
           prefix: isSecondJust ? 'JS2' : '',
           isJustification2: isSecondJust,
-          round: isSecondJust ? 2 : 1
+          round: isSecondJust ? 2 : 1,
+          evidenceIndex: previousPhotos.length + index
         });
 
         if (res.photo && (res.photo.driveUrl || res.photo.url)) {
@@ -92,37 +96,24 @@ window.JustificationsView = {
           const driveFileId = res.photo.driveFileId || '';
           const previewSrc = res.photo.thumbnailUrl || res.photo.url;
           const uploadedFileName = res.photo.name || (isSecondJust ? `JS2_${sku}.jpg` : `${sku}.jpg`);
-
-          this.uploadedPhotoUrl = driveUrl;
-          this.uploadedDriveUrl = driveUrl;
-          this.uploadedDriveFileId = driveFileId;
-
-          document.getElementById('just-photo-url').value = driveUrl;
+          uploadedPhotos.push({photoUrl: driveUrl, driveUrl, driveFileId, thumbnailUrl: previewSrc, name: uploadedFileName});
+          const photoUrls = [...previousPhotos, ...uploadedPhotos];
+          this.uploadedPhotos = photoUrls;
+          this.uploadedPhotoUrl = photoUrls[0].photoUrl;
+          this.uploadedDriveUrl = photoUrls[0].driveUrl;
+          this.uploadedDriveFileId = photoUrls[0].driveFileId;
+          document.getElementById('just-photo-url').value = photoUrls[0].photoUrl;
+          document.getElementById('just-photo-urls').value = JSON.stringify(photoUrls);
           const driveUrlInput = document.getElementById('just-drive-url');
-          if (driveUrlInput) driveUrlInput.value = driveUrl;
+          if (driveUrlInput) driveUrlInput.value = photoUrls[0].driveUrl;
           const driveFileIdInput = document.getElementById('just-drive-file-id');
-          if (driveFileIdInput) driveFileIdInput.value = driveFileId;
-
+          if (driveFileIdInput) driveFileIdInput.value = photoUrls[0].driveFileId;
           previewImg.src = previewSrc;
           previewImg.style.display = 'block';
-
-          if (statusDiv) {
-            const folderPath = res.photo?.driveFolderPath || 'nibol/ciclicos/fotos/justificaciones';
-            statusDiv.style.display = 'block';
-            statusDiv.innerHTML = `
-              <div style="display: flex; flex-direction: column; gap: 4px; background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.4); padding: 8px 12px; border-radius: 6px; color: #22c55e;">
-                <div style="display: flex; align-items: center; justify-content: space-between;">
-                  <span><i class="fa-brands fa-google-drive"></i> ${isSecondJust ? 'Foto 2da Justificación (' + uploadedFileName + ')' : 'Subida exitosa a Google Drive'}</span>
-                  ${driveUrl ? `<a href="${driveUrl}" target="_blank" class="btn btn-xs btn-secondary" style="font-size: 0.75rem; text-decoration: none;"><i class="fa-solid fa-external-link"></i> Abrir en Drive</a>` : ''}
-                </div>
-                <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);">
-                  <i class="fa-solid fa-folder-tree"></i> Archivo: <strong style="color: #38bdf8;">${uploadedFileName}</strong> | Ruta: <strong style="color: #e2e8f0;">${folderPath}</strong>
-                </div>
-              </div>
-            `;
-          }
-          window.Toast.success(isSecondJust ? `Foto de 2da justificación (${uploadedFileName}) subida a Google Drive` : 'Foto subida y guardada inmediatamente en Google Drive');
+          if (statusDiv) statusDiv.innerHTML = `<div style="color:#22c55e;">${photoUrls.length} foto(s) guardada(s) en Google Drive: ${photoUrls.map((photo, i) => `<a href="${photo.driveUrl}" target="_blank" rel="noopener">Foto ${i + 1}</a>`).join(' · ')}</div>`;
         }
+        }
+        window.Toast.success(`${uploadedPhotos.length} foto(s) subida(s) a Google Drive`);
       } catch (err) {
         if (statusDiv) {
           statusDiv.style.display = 'block';
@@ -266,7 +257,7 @@ window.JustificationsView = {
     });
   },
 
-  async compressImage(file, maxDimension = 1600, quality = 0.85) {
+  async compressImage(file, maxDimension = 1600, quality = 0.82) {
     return new Promise((resolve) => {
       if (!file.type || !file.type.startsWith('image/') || file.type.includes('svg')) {
         return resolve(file);
@@ -292,7 +283,7 @@ window.JustificationsView = {
           ctx.drawImage(img, 0, 0, width, height);
           canvas.toBlob(
             (blob) => {
-              if (blob && blob.size < file.size) {
+              if (blob && (blob.size < file.size || file.size > 8 * 1024 * 1024)) {
                 const compressedFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), {
                   type: 'image/jpeg',
                   lastModified: Date.now()
@@ -1499,6 +1490,7 @@ window.JustificationsView = {
     }
 
     this.uploadedPhotoUrl = null;
+    this.uploadedPhotos = [];
     this.uploadedDriveUrl = null;
     this.uploadedDriveFileId = null;
 
@@ -1526,6 +1518,9 @@ window.JustificationsView = {
       }
       document.getElementById('just-input-text').value = justDetails.justification || '';
       const photoUrl = justDetails.driveUrl || justDetails.photoUrl || '';
+      this.uploadedPhotos = (justDetails.photoUrls || []).map(photo => typeof photo === 'string' ? {photoUrl: photo, driveUrl: photo} : photo);
+      const photoUrlsInput = document.getElementById('just-photo-urls');
+      if (photoUrlsInput) photoUrlsInput.value = JSON.stringify(this.uploadedPhotos);
       document.getElementById('just-photo-url').value = photoUrl;
       if (driveUrlInput) driveUrlInput.value = justDetails.driveUrl || (String(photoUrl).includes('drive.google.com') ? photoUrl : '');
       if (driveFileIdInput) driveFileIdInput.value = justDetails.driveFileId || '';
@@ -1541,8 +1536,8 @@ window.JustificationsView = {
           statusDiv.innerHTML = `
             <div style="display: flex; flex-direction: column; gap: 4px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); padding: 8px 12px; border-radius: 6px; color: #38bdf8;">
               <div style="display: flex; align-items: center; justify-content: space-between;">
-                <span><i class="fa-brands fa-google-drive"></i> Foto respaldada en Google Drive</span>
-                <a href="${photoUrl}" target="_blank" class="btn btn-xs btn-secondary" style="font-size: 0.75rem; text-decoration: none;"><i class="fa-solid fa-external-link"></i> Ver en Drive</a>
+                <span><i class="fa-brands fa-google-drive"></i> ${this.uploadedPhotos.length || 1} foto(s) respaldada(s) en Google Drive</span>
+                ${this.uploadedPhotos.length ? this.uploadedPhotos.map((photo, index) => `<a href="${photo.driveUrl || photo.photoUrl}" target="_blank" rel="noopener" class="btn btn-xs btn-secondary" style="font-size: 0.75rem; text-decoration: none;"><i class="fa-solid fa-external-link"></i> Foto ${index + 1}</a>`).join('') : `<a href="${photoUrl}" target="_blank" rel="noopener" class="btn btn-xs btn-secondary" style="font-size: 0.75rem; text-decoration: none;"><i class="fa-solid fa-external-link"></i> Ver en Drive</a>`}
               </div>
               <div style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);">
                 <i class="fa-solid fa-folder-tree"></i> Carpeta: <strong style="color: #38bdf8;">nibol/ciclicos/fotos/justificaciones</strong>
@@ -1570,6 +1565,8 @@ window.JustificationsView = {
         }
       }
       document.getElementById('just-photo-url').value = '';
+      const photoUrlsInput = document.getElementById('just-photo-urls');
+      if (photoUrlsInput) photoUrlsInput.value = '';
       if (driveUrlInput) driveUrlInput.value = '';
       if (driveFileIdInput) driveFileIdInput.value = '';
       document.getElementById('img-just-preview').style.display = 'none';
@@ -1682,6 +1679,7 @@ window.JustificationsView = {
     }
 
     const photoUrl = document.getElementById('just-photo-url').value || this.uploadedDriveUrl || null;
+    const photoUrls = this.uploadedPhotos || [];
     const driveUrl = document.getElementById('just-drive-url')?.value || this.uploadedDriveUrl || null;
     const driveFileId = document.getElementById('just-drive-file-id')?.value || this.uploadedDriveFileId || null;
 
@@ -1716,6 +1714,7 @@ window.JustificationsView = {
         isJustification2: isSecondJust,
         round: isSecondJust ? 2 : 1,
         photoUrl: driveUrl || photoUrl,
+        photoUrls,
         driveUrl: driveUrl || (photoUrl && String(photoUrl).includes('drive.google.com') ? photoUrl : null),
         driveFileId
       });
