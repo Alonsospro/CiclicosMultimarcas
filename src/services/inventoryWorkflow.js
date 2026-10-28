@@ -81,8 +81,11 @@ function initialDiscrepancy(item) {
 
 // Membership is recorded when recount is enabled; a zero difference never removes a member.
 function recountKeys(inv, child) {
-  if (Array.isArray(inv.recountItemKeys) && inv.recountItemKeys.length) return new Set(inv.recountItemKeys);
+  // The linked recount inventory is the concrete membership list. A restored
+  // parent can contain stale keys for the whole inventory, so prefer the child
+  // whenever it exists and is populated.
   if (child?.items?.length) return new Set(child.items.map(contract.member));
+  if (Array.isArray(inv.recountItemKeys) && inv.recountItemKeys.length) return new Set(inv.recountItemKeys);
   if (!(inv.hasRecount || inv.isReconteo || inv.status === 'RECONTEO_COMPLETADO' || countStage(inv))) return new Set();
   // Count fields describe observations, not recount membership. Inferring membership
   // from them can incorrectly pull every counted item into second justification.
