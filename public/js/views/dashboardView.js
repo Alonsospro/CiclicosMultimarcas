@@ -612,18 +612,19 @@ window.DashboardView = {
 
     // Header
     const header = document.createElement('div');
-    header.style.cssText = 'display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem;';
+    header.className = 'weekly-groups__header';
     
     const titleBox = document.createElement('div');
-    titleBox.style.cssText = 'display: flex; align-items: center; gap: 0.65rem;';
+    titleBox.className = 'weekly-groups__title';
     titleBox.innerHTML = `
-      <div style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 0.45rem 0.65rem; border-radius: var(--radius-sm); font-size: 1.1rem;">
+      <div class="weekly-groups__brand-icon">
         <i class="fa-solid fa-layer-group"></i>
       </div>
       <div>
-        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-main);">
+        <h4 class="weekly-groups__heading">
           Consolidados de semanas
         </h4>
+        <span class="weekly-groups__subtitle">Selecciona una semana para ver sus métricas</span>
       </div>
     `;
     header.appendChild(titleBox);
