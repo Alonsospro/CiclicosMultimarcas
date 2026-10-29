@@ -675,7 +675,7 @@ window.DashboardView = {
     grid.setAttribute('role', 'region');
     grid.setAttribute('aria-label', 'Consolidados semanales');
 
-    const accents = ['#0ea5e9', '#8b5cf6', '#f97316', '#22c55e', '#ec4899', '#14b8a6'];
+    const accents = ['#1f9a8f', '#2f86c4', '#6b4f9e', '#7a6cf0', '#e5352f', '#b94277'];
     groups.forEach((g, index) => {
       const isCurrentGroupActive = selectedInvVal === `GRUPO:${g.groupId}`;
       const weekLabel = this.getInventoryWeekLabel(g.groupId);
@@ -686,10 +686,12 @@ window.DashboardView = {
       tile.setAttribute('aria-label', `Ver consolidado ${weekLabel}, ${g.inventoryCount} inventarios`);
       tile.style.setProperty('--week-accent', accents[index % accents.length]);
       tile.innerHTML = `
-        <span class="weekly-groups__tile-icon"><i class="fa-solid fa-layer-group"></i></span>
-        <span class="weekly-groups__tile-name">${weekLabel}</span>
-        <span class="weekly-groups__tile-count">${g.inventoryCount} inventarios</span>
-        <span class="weekly-groups__tile-check"><i class="fa-solid fa-check"></i></span>
+        <span class="weekly-groups__tile-content">
+          <span class="weekly-groups__tile-icon"><i class="fa-solid fa-calendar-week"></i></span>
+          <span class="weekly-groups__tile-name">${weekLabel}</span>
+          <span class="weekly-groups__tile-count">${g.inventoryCount} inventarios</span>
+        </span>
+        <span class="weekly-groups__tile-check" aria-hidden="true"><i class="fa-solid fa-check"></i></span>
       `;
       tile.onclick = () => {
         if (currentInvSelect) currentInvSelect.value = 'TODOS';
@@ -699,6 +701,25 @@ window.DashboardView = {
       };
       grid.appendChild(tile);
     });
+
+    grid.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+      const tiles = [...grid.querySelectorAll('.weekly-groups__tile')];
+      const currentIndex = tiles.indexOf(document.activeElement);
+      if (currentIndex < 0) return;
+      const nextIndex = event.key === 'ArrowRight'
+        ? Math.min(currentIndex + 1, tiles.length - 1)
+        : Math.max(currentIndex - 1, 0);
+      if (nextIndex === currentIndex) return;
+      event.preventDefault();
+      tiles[nextIndex].focus();
+      tiles[nextIndex].scrollIntoView({inline: 'center', block: 'nearest', behavior: 'smooth'});
+    });
+    grid.addEventListener('wheel', event => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      grid.scrollLeft += event.deltaY;
+      event.preventDefault();
+    }, {passive: false});
 
     card.appendChild(grid);
   },
