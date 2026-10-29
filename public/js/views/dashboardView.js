@@ -610,65 +610,6 @@ window.DashboardView = {
     card.style.display = 'block';
     card.replaceChildren();
 
-    // Header
-    const header = document.createElement('div');
-    header.className = 'weekly-groups__header';
-    
-    const titleBox = document.createElement('div');
-    titleBox.className = 'weekly-groups__title';
-    titleBox.innerHTML = `
-      <div class="weekly-groups__brand-icon">
-        <i class="fa-solid fa-layer-group"></i>
-      </div>
-      <div>
-        <h4 class="weekly-groups__heading">
-          Consolidados de semanas
-        </h4>
-        <span class="weekly-groups__subtitle">Selecciona una semana para ver sus métricas</span>
-      </div>
-    `;
-    header.appendChild(titleBox);
-
-    const headerActions = document.createElement('div');
-    headerActions.className = 'weekly-groups__controls';
-    const scrollRibbon = amount => card.querySelector('.weekly-groups__ribbon')?.scrollBy({left: amount, behavior: 'smooth'});
-    const scrollLeft = document.createElement('button');
-    scrollLeft.type = 'button';
-    scrollLeft.className = 'btn btn-secondary btn-xs';
-    scrollLeft.setAttribute('aria-label', 'Desplazar semanas hacia la izquierda');
-    scrollLeft.title = 'Desplazar hacia la izquierda';
-    scrollLeft.innerHTML = '<i class="fa-solid fa-chevron-left"></i>';
-    scrollLeft.onclick = () => scrollRibbon(-360);
-    headerActions.appendChild(scrollLeft);
-    const scrollRight = document.createElement('button');
-    scrollRight.type = 'button';
-    scrollRight.className = 'btn btn-secondary btn-xs';
-    scrollRight.setAttribute('aria-label', 'Desplazar semanas hacia la derecha');
-    scrollRight.title = 'Desplazar hacia la derecha';
-    scrollRight.innerHTML = '<i class="fa-solid fa-chevron-right"></i>';
-    scrollRight.onclick = () => scrollRibbon(360);
-    headerActions.appendChild(scrollRight);
-
-    const isGroupOrSingleSelected = selectedInvVal !== 'TODOS';
-    if (isGroupOrSingleSelected) {
-      const btnAll = document.createElement('button');
-      btnAll.type = 'button';
-      btnAll.className = 'btn btn-secondary btn-xs';
-      btnAll.innerHTML = '<i class="fa-solid fa-layer-group"></i> Ver todas';
-      btnAll.onclick = () => {
-        if (currentInvSelect) {
-          currentInvSelect.value = 'TODOS';
-        }
-        const numberSelect = document.getElementById('dash-filter-week');
-        if (numberSelect) numberSelect.value = 'TODOS';
-        this.loadDashboard();
-      };
-      headerActions.appendChild(btnAll);
-    }
-    header.appendChild(headerActions);
-
-    card.appendChild(header);
-
     // Horizontal ribbon: forward scrolling moves later weeks from right to left.
     const grid = document.createElement('div');
     grid.className = 'weekly-groups__ribbon';
