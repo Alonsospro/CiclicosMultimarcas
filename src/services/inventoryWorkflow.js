@@ -121,7 +121,10 @@ function plan(inv, child, records = []) {
         ? inv.status === 'PENDIENTE_JUSTIFICACION' && !keys.size
         : inv.status === 'RECONTEO_COMPLETADO' && recountComplete)
         && hasCount(item, stage, stage ? (inv.countNotBefore || inv.recountEnabledAt) : inv.countNotBefore));
-    return {...item, justificationRound: round, requiresSecondJustification: recounted,
+    // A stale or oversized recount membership list must not pull an item into
+    // second justification when its original count already matched the system.
+    const requiresSecondJustification = recounted && initialDiscrepancy(item);
+    return {...item, justificationRound: round, requiresSecondJustification,
       canJustify, isJustified: current.complete, reviewComplete: current.complete,
       // Keep imported decisions visible in the review form even when they are
       // incomplete; closure still depends on reviewComplete below.
