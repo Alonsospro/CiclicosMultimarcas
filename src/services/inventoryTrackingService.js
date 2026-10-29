@@ -65,13 +65,12 @@ class InventoryTrackingService {
       const suffix = getInventoryIdentifier(inventory);
       const name = inventory.name || inventory.fileName || inventory.id;
       const normalizedName = String(name || '').trim().toLocaleLowerCase('es');
-      const groupKey = `${inventory.type || 'OTRO'}:${normalizedName}:${suffix || 'SIN_TERMINACION'}`;
+      const groupKey = `${inventory.type || 'OTRO'}:${suffix || 'SIN_TERMINACION'}`;
       if (!groups.has(groupKey)) groups.set(groupKey, {
         groupId:suffix || 'SIN_TERMINACION',
         suffix,
         type:inventory.type || 'OTRO',
-        name,
-        label:name || 'Inventario sin nombre',
+        label:suffix ? `${inventory.type || 'OTRO'} · ${suffix}` : `${inventory.type || 'OTRO'} · Sin terminación`,
         inventories:[]
       });
 

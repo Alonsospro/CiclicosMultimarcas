@@ -1441,14 +1441,15 @@
           <div class="card-header">
             <div>
               <h2 class="card-title"><i class="fa-solid fa-bars-progress" style="color: var(--primary);"></i> Seguimiento de avance</h2>
-              <p class="stat-subtext">Avance por etapa, agrupado por nombre y terminación del inventario. Las reaperturas se consolidan en el mismo registro.</p>
+              <p class="stat-subtext">Inventarios agrupados por terminación, con nombre y avance por etapa. Las reaperturas se consolidan en el mismo registro.</p>
             </div>
             <div class="inventory-list-tools">
               <select id="progress-filter-type" class="form-select" aria-label="Filtrar por tipo de inventario">
                 <option value="TODOS">Todos los tipos</option><option value="CICLICO">Cíclico</option><option value="BARRIDO">Barrido</option><option value="SEMANAL">Semanal</option><option value="MENSUAL">Mensual</option>
               </select>
               <select id="progress-filter-center" class="form-select role-admin-only" aria-label="Filtrar por centro"><option value="TODOS">Todos los centros</option></select>
-              <input id="progress-search" class="form-input" type="search" placeholder="Buscar lanzamiento, centro o etapa..." aria-label="Buscar inventarios">
+              <select id="progress-filter-suffix" class="form-select" aria-label="Filtrar por terminación"><option value="TODOS">Todas las terminaciones</option></select>
+              <input id="progress-search" class="form-input" type="search" placeholder="Buscar inventario, terminación, centro o etapa..." aria-label="Buscar inventarios">
               <button id="progress-refresh" class="btn btn-secondary" type="button"><i class="fa-solid fa-rotate"></i> Actualizar</button>
             </div>
           </div>

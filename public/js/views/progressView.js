@@ -6,6 +6,7 @@ window.ProgressView = {
   init() {
     document.getElementById('progress-filter-type')?.addEventListener('change', () => this.render());
     document.getElementById('progress-filter-center')?.addEventListener('change', () => this.render());
+    document.getElementById('progress-filter-suffix')?.addEventListener('change', () => this.render());
     document.getElementById('progress-search')?.addEventListener('input', () => this.render());
     document.getElementById('progress-refresh')?.addEventListener('click', () => this.load(true));
   },
@@ -31,6 +32,7 @@ window.ProgressView = {
       this.groups = response.groups || [];
       this.discoveryIssues = response.discoveryIssues || [];
       this.populateCenters();
+      this.populateSuffixes();
       this.render();
     } catch (error) {
       if (groupsNode) groupsNode.innerHTML = `<div class="empty-state"><i class="fa-solid fa-triangle-exclamation"></i><p>No se pudo cargar el seguimiento.</p><small>${this.escape(error.message)}</small></div>`;
@@ -51,16 +53,30 @@ window.ProgressView = {
     select.value = centers.includes(previous) ? previous : 'TODOS';
   },
 
+  populateSuffixes() {
+    const select = document.getElementById('progress-filter-suffix');
+    if (!select) return;
+    const previous = select.value;
+    const suffixes = [...new Set(this.groups.map(group => group.suffix || 'SIN_TERMINACION'))]
+      .sort((a, b) => a === 'SIN_TERMINACION' ? 1 : b === 'SIN_TERMINACION' ? -1 :
+        Number.isFinite(Number(a)) && Number.isFinite(Number(b)) ? Number(b) - Number(a) : String(b).localeCompare(String(a), 'es'));
+    select.replaceChildren(new Option('Todas las terminaciones', 'TODOS'), ...suffixes.map(suffix =>
+      new Option(suffix === 'SIN_TERMINACION' ? 'Sin terminación' : `Terminación ${suffix}`, suffix)));
+    select.value = suffixes.includes(previous) ? previous : 'TODOS';
+  },
+
   render() {
     const host = document.getElementById('progress-groups');
     const summary = document.getElementById('progress-summary');
     if (!host || !summary) return;
     const type = document.getElementById('progress-filter-type')?.value || 'TODOS';
     const center = document.getElementById('progress-filter-center')?.value || 'TODOS';
+    const suffix = document.getElementById('progress-filter-suffix')?.value || 'TODOS';
     const query = (document.getElementById('progress-search')?.value || '').trim().toLocaleLowerCase('es');
     const filtered = this.groups.map(group => ({
       ...group,
       inventories:group.inventories.filter(inventory => (type === 'TODOS' || inventory.type === type)
+        && (suffix === 'TODOS' || (group.suffix || 'SIN_TERMINACION') === suffix)
         && (center === 'TODOS' || inventory.center === center)
         && (!query || `${group.label} ${inventory.name} ${inventory.id} ${inventory.center} ${inventory.state} ${inventory.stageLabel}`.toLocaleLowerCase('es').includes(query)))
     })).filter(group => group.inventories.length);
@@ -92,7 +108,7 @@ window.ProgressView = {
           <td>${this.formatDate(inventory.createdAt)}</td>
         </tr>`;
       }).join('');
-      return `<article class="progress-group"><header><div><span class="progress-group-type">${this.escape(group.type)}</span><h3>${this.escape(group.label)}</h3><small>Terminación ${this.escape(group.suffix || 'sin numeración')} · ${group.inventories.length} inventario(s)</small></div><div class="progress-group-counts"><span class="progress-state is-open">${group.inventories.filter(item => item.state === 'ABIERTO').length} abiertos</span><span class="progress-state is-closed">${group.inventories.filter(item => item.state === 'FINALIZADO').length} finalizados</span></div></header><div class="table-responsive"><table class="data-table progress-table"><thead><tr><th>Inventario</th><th>Centro</th><th>Estado</th><th>Etapa actual</th><th>Avance de etapa</th><th>Historial</th><th>Lanzado</th></tr></thead><tbody>${rows}</tbody></table></div></article>`;
+      return `<article class="progress-group"><header><div><span class="progress-group-type">${this.escape(group.type)}</span><h3>${this.escape(group.label)}</h3><small>${group.inventories.length} inventario(s) en esta terminación</small></div><div class="progress-group-counts"><span class="progress-state is-open">${group.inventories.filter(item => item.state === 'ABIERTO').length} abiertos</span><span class="progress-state is-closed">${group.inventories.filter(item => item.state === 'FINALIZADO').length} finalizados</span></div></header><div class="table-responsive"><table class="data-table progress-table"><thead><tr><th>Inventario</th><th>Centro</th><th>Estado</th><th>Etapa actual</th><th>Avance de etapa</th><th>Historial</th><th>Lanzado</th></tr></thead><tbody>${rows}</tbody></table></div></article>`;
     }).join('');
   }
 };
