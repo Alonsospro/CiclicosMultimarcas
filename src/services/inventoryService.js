@@ -138,12 +138,16 @@ class InventoryService {
         });
 
         const isAssigned = isDirectlyAssigned || hasAssignedItems;
+        const countStage = workflow.countStage(inv);
+        const activeRecount = countStage > 0 && ['EN_PROGRESO', 'EN_RECONTEO'].includes(inv.status);
+        const activeRecountKeys = activeRecount ? workflow.recountKeys(inv) : new Set();
 
         // Role-based visibility
         if (user.role === 'AUXILIAR') {
           // Auxiliares strictly see only active/in-progress inventories assigned to them
           // (Una vez terminado el conteo o reconteo, ya no aparece en su bandeja)
-          if (!isAssigned || inv.status !== 'EN_PROGRESO') {
+          if (!isAssigned || (inv.status !== 'EN_PROGRESO' && !activeRecount) ||
+              (activeRecount && !activeRecountKeys.size)) {
             return;
           }
         } else if (user.role !== 'ADMIN' && !user.isSuperadmin) {
@@ -163,7 +167,6 @@ class InventoryService {
           if (inv.type !== filterType) return;
         }
 
-        const countStage = workflow.countStage(inv);
         const recountKeys = countStage > 0 ? workflow.recountKeys(inv) : new Set();
         const progressItems = countStage > 0 && recountKeys.size
           ? inv.items.filter(it => recountKeys.has(contract.member(it)))
@@ -239,6 +242,18 @@ class InventoryService {
       throw new Error(`Inventario con ID '${id}' no encontrado`);
     }
 
+    // During an active recount the primary record retains every original item,
+    // but the counter view must contain only the explicit recount membership.
+    const countStage = workflow.countStage(inv);
+    const activeRecount = countStage > 0 && ['EN_PROGRESO', 'EN_RECONTEO'].includes(inv.status);
+    const recountKeys = activeRecount ? workflow.recountKeys(inv) : new Set();
+    if (activeRecount && !recountKeys.size) {
+      throw new Error('El inventario principal se conserva, pero esta etapa no tiene ítems autorizados para reconteo.');
+    }
+    const visibleItems = activeRecount
+      ? inv.items.filter(item => recountKeys.has(contract.member(item)))
+      : inv.items;
+
     const isReconteoInv = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
     if (isReconteoInv && Array.isArray(inv.items)) {
       inv.items.forEach(it => {
@@ -268,7 +283,7 @@ class InventoryService {
       return s === u || (c && s === c) || (d && (s === d || d.includes(s) || s.includes(d)));
     });
 
-    const hasAssignedItems = Array.isArray(inv.items) && inv.items.some(it => {
+    const hasAssignedItems = Array.isArray(visibleItems) && visibleItems.some(it => {
       if (!it || !it.Responsable) return false;
       const r = String(it.Responsable || '').toLowerCase().trim();
       return r === u || (c && r === c) || (d && (r === d || d.includes(r) || r.includes(d)));
@@ -291,7 +306,7 @@ class InventoryService {
     // 1. Filter items strictly to those assigned to this auxiliary (or unassigned/creator rows if user is assigned)
     // 2. Hide columns H, I, K, L, O (Blind Count)
     if (user.role === 'AUXILIAR') {
-      if (inv.status !== 'EN_PROGRESO') {
+      if (inv.status !== 'EN_PROGRESO' && !activeRecount) {
         throw new Error('Este inventario ya ha sido completado y finalizado. Ya no está disponible para conteo.');
       }
       const isConteoPhase = inv.status !== 'REVISADO';
@@ -321,7 +336,7 @@ class InventoryService {
         return false;
       };
 
-      const userItems = inv.items.filter(it => {
+      const userItems = visibleItems.filter(it => {
         if (!it) return false;
         if (it.Responsable && userMatches(it.Responsable)) {
           return true;
@@ -357,9 +372,11 @@ class InventoryService {
       };
     }
 
-    // ADMIN and ENCARGADO see complete inventory with full columns
+    // Keep the primary record intact; in an active recount, expose only its
+    // authorized recount members to every role using this count view.
     return {
       ...inv,
+      items: visibleItems,
       isBlindCount: false
     };
   }
