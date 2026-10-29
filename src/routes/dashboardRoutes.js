@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const metricsService = require('../services/metricsService');
+const inventoryTrackingService = require('../services/inventoryTrackingService');
 const auditService = require('../services/auditService');
-const { authenticate } = require('../middlewares/authMiddleware');
+const { authenticate, requireRole } = require('../middlewares/authMiddleware');
 
 // Aggregate scores may be visible to auxiliaries; signed quantities remain private during blind counts.
 router.use((req, res, next) => {
@@ -15,6 +16,19 @@ router.use((req, res, next) => {
     return json(body);
   };
   next();
+});
+
+// GET /api/dashboard/tracking — status and active workflow stage per inventory launch.
+router.get('/tracking', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
+  try {
+    const type = req.query.type || 'TODOS';
+    const center = (req.user.role === 'ADMIN' || req.user.isSuperadmin) ? (req.query.center || 'TODOS') : req.user.center;
+    const data = await inventoryTrackingService.getTracking({type, center, refresh:req.query.refresh === 'true' || req.query.refresh === '1'});
+    res.json({success:true, ...data});
+  } catch (err) {
+    console.error('[dashboardRoutes] Error in /tracking:', err);
+    res.status(500).json({success:false, message:err.message});
+  }
 });
 
 // GET /api/dashboard/metrics

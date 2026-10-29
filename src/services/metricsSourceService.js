@@ -117,7 +117,7 @@ class MetricsSourceService {
     return value;
   }
 
-  async load({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', startDate = null, endDate = null, refresh = false } = {}) {
+  async load({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', startDate = null, endDate = null, refresh = false, includeChildren = false } = {}) {
     const candidates = [];
     for (const [dir, isHistory] of [[storage.getHistoryDirectory(), true], [storage.getInventoriesDirectory(), false]]) {
       for (const file of storage.listFiles(dir).filter(f => f.endsWith('.json'))) {
@@ -125,7 +125,7 @@ class MetricsSourceService {
         if (!record || snapshots.isSnapshotDeleted(file) || snapshots.isSnapshotDeleted(record)) continue;
         const inventoryId = record.inventoryId || (!isHistory ? record.id : null);
         candidates.push({ ...record, center: record.center ? config.getCenterCode(record.center) : null, inventoryId, id: inventoryId || record.fileId || file.replace(/\.json$/, ''),
-          name: record.name || record.fileName || record.id, isHistory,
+          name: record.name || record.fileName || record.id, isHistory, launchedAt:record.launchedAt || record.createdAt,
           createdAt: isHistory ? (record.closedAt || record.createdAt) : record.createdAt });
       }
     }
@@ -133,6 +133,7 @@ class MetricsSourceService {
     for (const record of remoteHistory) {
       if (snapshots.isSnapshotDeleted(record)) continue;
       candidates.push({ ...record, center: record.center ? config.getCenterCode(record.center) : null, id: record.inventoryId || record.fileId, name: record.fileName, isHistory: true,
+        launchedAt:record.createdAt || record.launchedAt,
         createdAt: record.closedAt, status: 'REVISADO' });
     }
 
@@ -150,7 +151,7 @@ class MetricsSourceService {
       }
     }
 
-    const primaryGroups = groups.filter(group => group.some(record => !child(record)));
+    const primaryGroups = includeChildren ? groups : groups.filter(group => group.some(record => !child(record)));
     const inventories = new Array(primaryGroups.length);
     let next = 0;
     await Promise.all(Array.from({length:Math.min(3, primaryGroups.length)}, async () => {
@@ -175,7 +176,7 @@ class MetricsSourceService {
     group.sort((a, b) => rank(b) - rank(a) ||
       ((Date.parse(b.manifest?.closedAt || b.closedAt || b.createdAt) || 0) - (Date.parse(a.manifest?.closedAt || a.closedAt || a.createdAt) || 0)));
     const primary = group.filter(record => !child(record));
-    const anchor = primary[0];
+    const anchor = primary[0] || group[0];
     const reopened = !closed(anchor) && !!anchor.reopenedAt;
     const linked = reopened ? null : (closed(anchor) ? primary.find(r => closed(r) && sheetKey(r)) : (primary.find(r => sheetKey(r)) || null));
     const record = { ...anchor, items: [], aliases: [...new Set(group.flatMap(r => [r.id, r.inventoryId, r.fileId, r.driveFileId, r.fileName]).filter(Boolean))] };

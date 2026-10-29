@@ -60,6 +60,7 @@
           <li class="role-encargado-admin"><button class="nav-item-btn" data-view="assignments"><i class="fa-solid fa-user-tag"></i> Asignaciones</button></li>
           <li class="role-encargado-admin"><button class="nav-item-btn" data-view="justifications" style="color: #f59e0b;"><i class="fa-solid fa-clipboard-check"></i> Justificaciones</button></li>
           <li class="role-encargado-admin"><button class="nav-item-btn" data-view="dashboard"><i class="fa-solid fa-chart-pie"></i> Métricas & ERU</button></li>
+          <li class="role-encargado-admin"><button class="nav-item-btn" data-view="progress"><i class="fa-solid fa-bars-progress"></i> Seguimiento de avance</button></li>
         </ul>
       </nav>
 
@@ -1432,6 +1433,30 @@
           </div>
         </div>
         </div><!-- dash-metrics-results -->
+      </section>
+
+      <!-- VIEW: INVENTORY ADVANCEMENT TRACKING -->
+      <section id="view-progress" class="view-container">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title"><i class="fa-solid fa-bars-progress" style="color: var(--primary);"></i> Seguimiento de avance</h2>
+              <p class="stat-subtext">Avance por etapa, agrupado por nombre y terminación del inventario. Las reaperturas se consolidan en el mismo registro.</p>
+            </div>
+            <div class="inventory-list-tools">
+              <select id="progress-filter-type" class="form-select" aria-label="Filtrar por tipo de inventario">
+                <option value="TODOS">Todos los tipos</option><option value="CICLICO">Cíclico</option><option value="BARRIDO">Barrido</option><option value="SEMANAL">Semanal</option><option value="MENSUAL">Mensual</option>
+              </select>
+              <select id="progress-filter-center" class="form-select role-admin-only" aria-label="Filtrar por centro"><option value="TODOS">Todos los centros</option></select>
+              <input id="progress-search" class="form-input" type="search" placeholder="Buscar lanzamiento, centro o etapa..." aria-label="Buscar inventarios">
+              <button id="progress-refresh" class="btn btn-secondary" type="button"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+            </div>
+          </div>
+          <div id="progress-summary" class="progress-summary" aria-live="polite"></div>
+          <div id="progress-groups" class="progress-groups" aria-live="polite">
+            <div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i><p>Cargando seguimiento...</p></div>
+          </div>
+        </div>
       </section>
 
       <!-- VIEW: USER MANAGEMENT (SUPERADMIN & ADMIN) -->
@@ -2910,6 +2935,7 @@
   <script src="/js/components/snapshotManagerModal.js?v=2.2"></script>
   <script src="/js/components/counterReliabilityPanel.js?v=1.0"></script>
   <script src="/js/views/dashboardView.js?v=exact-week-month-1"></script>
+  <script src="/js/views/progressView.js?v=1.0"></script>
   <script src="/js/views/userManagementView.js?v=2.2"></script>
   <script src="/js/app.js?v=2.4"></script>
 </body>

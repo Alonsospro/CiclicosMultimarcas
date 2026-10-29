@@ -31,6 +31,11 @@ window.Router = {
       return;
     }
 
+    if (viewName === 'progress' && !window.Auth.hasRole(['ADMIN', 'ENCARGADO'])) {
+      window.Toast.warning('Acceso exclusivo para encargados y administradores');
+      return;
+    }
+
     if (viewName === 'users' && !window.Auth.isAlonso() && !window.Auth.canManageUsers()) {
       window.Toast.warning('Acceso exclusivo para el superadministrador y administradores autorizados');
       return;
@@ -122,6 +127,9 @@ window.Router = {
       case 'dashboard':
         window.DashboardView.loadDashboard();
         break;
+      case 'progress':
+        window.ProgressView.load();
+        break;
       case 'users':
         window.UserManagementView.loadUsers();
         break;
@@ -167,6 +175,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.AssignmentsView.init();
   window.JustificationsView.init();
   window.HistoryView.init();
+  window.ProgressView.init();
   if (window.MetricsReportModal) {
     window.MetricsReportModal.init();
   }

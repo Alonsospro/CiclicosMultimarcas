@@ -352,6 +352,10 @@ window.API = {
     return this.request(`/dashboard/metrics${this.buildQueryString(params)}`, { timeoutMs: 60000 });
   },
 
+  getInventoryTracking(params = {}) {
+    return this.request(`/dashboard/tracking${this.buildQueryString(params)}`, { timeoutMs: 60000 });
+  },
+
   recalculateDashboardMetrics(params = {}) {
     return this.request('/dashboard/recalculate', {
       method: 'POST',
