@@ -143,7 +143,12 @@ class MetricsSourceService {
       if (type !== 'TODOS' && record.type !== type) continue;
       if (center !== 'TODOS' && center !== 'GLOBAL' && !config.isSameCenter(record.center, center)) continue;
       const sheet = sheetKey(record);
-      const related = groups.filter(g => g.some(r => (sheet && sheet === sheetKey(r)) || (record.inventoryId && r.inventoryId === record.inventoryId)));
+      const related = groups.filter(g => g.some(r => {
+        // Inventory IDs and spreadsheet links can be reused across centers or
+        // inventory types. Only merge aliases within the same reporting scope.
+        if (r.type !== record.type || !config.isSameCenter(r.center, record.center)) return false;
+        return (sheet && sheet === sheetKey(r)) || (record.inventoryId && r.inventoryId === record.inventoryId);
+      }));
       if (!related.length) groups.push([record]);
       else {
         related[0].push(record);
