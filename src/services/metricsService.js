@@ -163,11 +163,18 @@ class MetricsService {
     });
     const isGroupFilter = String(cleanInventoryId || '').startsWith('GRUPO:');
     const groupSuffix = isGroupFilter ? String(cleanInventoryId).slice(6) : null;
-    const selected = cleanInventoryId === 'TODOS'
+    const matching = cleanInventoryId === 'TODOS'
       ? eligible
       : (isGroupFilter
           ? eligible.filter(inv => getInventoryIdentifier(inv) === groupSuffix)
           : eligible.filter(inv => metricsSources.matchesId(inv, cleanInventoryId)));
+    // Consolidated figures must match the final files: an inventory still in
+    // progress only appears when it is selected on its own.
+    const isClosedInventory = inv => !!inv.isHistory || String(inv.status || '').toUpperCase() === 'REVISADO';
+    const explicitSelection = cleanInventoryId !== 'TODOS' && !isGroupFilter;
+    const selected = explicitSelection ? matching : matching.filter(isClosedInventory);
+    const excludedInProgress = explicitSelection ? [] : matching.filter(inv => !isClosedInventory(inv))
+      .map(inv => ({id:inv.id, name:inv.name, center:inv.center, status:inv.status, totalItems:inv.totalItems ?? (inv.items || []).length}));
     const sourceDiagnostics = selected.map(inv => ({id:inv.id, name:inv.name, center:inv.center,
       spreadsheetUrl:inv.spreadsheetUrl || inv.driveUrl, ...inv.sourceValidation}));
     if (cleanInventoryId !== 'TODOS' && !selected.length) sourceDiagnostics.push({id:cleanInventoryId,
@@ -433,6 +440,7 @@ class MetricsService {
     let finalDamagedItems = 0;
     let reconciledCount = 0;
     let totalDamagedItems = 0;
+    let finalDamagedRows = 0;
     let totalDamagedCost = 0;
 
     // Multi-location ERU tracking (Evaluando cada estante/ubicación individual)
@@ -862,6 +870,7 @@ class MetricsService {
         }
         finalDamagedItems += finalDamaged;
         finalDamagedCost += (finalDamaged * unitCost);
+        if (finalDamaged > 0) finalDamagedRows++;
 
         if ((hasRec || weekly) && isExactFinal && !isExact1) {
           reconciledCount++;
@@ -1488,8 +1497,21 @@ class MetricsService {
       centerManagers: uniqueNames(usersForReport.filter(person => person.role === 'ENCARGADO' && reportCenters.has(config.getCenterCode(person.center))).map(person => person.displayName || person.name || person.username))
     };
 
+    // Legacy summary fields (chart, compatibility aliases) describe the final
+    // state; they were declared but never accumulated and always reported 0.
+    totalExactItems = itemsCuadradosFinalCount;
+    totalDiscrepantItems = discrepanciasFinalCount;
+    exactItemsTotalUnits = itemsCuadradosFinalUnits;
+    exactItemsTotalValue = itemsCuadradosFinalValue;
+    sobrantesItemsCount = sobrantesFinalCount;
+    sobrantesUnits = sobrantesFinalUnits;
+    sobrantesCost = sobrantesFinalCost;
+    faltantesItemsCount = faltantesFinalCount;
+    faltantesUnits = faltantesFinalUnits;
+    faltantesCost = faltantesFinalCost;
+
     const result = {
-      metricsValid, metricsComplete, sourceDiagnostics,
+      metricsValid, metricsComplete, sourceDiagnostics, excludedInProgress,
       reportSignatories,
       filters: {
         type: cleanType,
@@ -1684,9 +1706,9 @@ class MetricsService {
             cost: Math.round(faltantesCost * 100) / 100
           },
           danados: {
-            itemsCount: totalDamagedItems > 0 ? 1 : 0,
-            units: totalDamagedItems,
-            cost: Math.round(totalDamagedCost * 100) / 100
+            itemsCount: finalDamagedRows,
+            units: finalDamagedItems,
+            cost: Math.round(finalDamagedCost * 100) / 100
           }
         },
 

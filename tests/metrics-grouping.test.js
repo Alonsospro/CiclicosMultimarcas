@@ -20,9 +20,9 @@ test('getDashboardMetrics groups inventories sharing the same terminal identifie
   const item3 = { SKU: 'SKU-003', Stock_Sistema: 15, Stock_Fisico: 15, Stock_Total: 15, Diferencia: 0, Costo_Unitario: 8, Ubicacion: 'C1', Almacen: 'R1' };
 
   const testInventories = [
-    { id: 'INV-CICLICO-1340-1', center: '1340', type: 'CICLICO', items: [item1], createdAt: '2026-10-20T10:00:00.000Z' },
-    { id: 'INV-CICLICO-1120-1', center: '1120', type: 'CICLICO', items: [item2], createdAt: '2026-11-03T11:00:00.000Z' },
-    { id: 'INV-CICLICO-1340-2', center: '1340', type: 'CICLICO', items: [item3], createdAt: '2026-10-21T10:00:00.000Z' }
+    { id: 'INV-CICLICO-1340-1', isHistory: true, status: 'REVISADO', center: '1340', type: 'CICLICO', items: [item1], createdAt: '2026-10-20T10:00:00.000Z' },
+    { id: 'INV-CICLICO-1120-1', isHistory: true, status: 'REVISADO', center: '1120', type: 'CICLICO', items: [item2], createdAt: '2026-11-03T11:00:00.000Z' },
+    { id: 'INV-CICLICO-1340-2', isHistory: true, status: 'REVISADO', center: '1340', type: 'CICLICO', items: [item3], createdAt: '2026-10-21T10:00:00.000Z' }
   ];
 
   const origGetAll = metricsService.getAllInventoriesData;
@@ -87,6 +87,61 @@ test('getDashboardMetrics groups inventories sharing the same terminal identifie
     assert.equal(dateRangeGroup1.summary.totalInventories, 2, 'Both inventories with suffix -1 stay together despite different recorded dates');
     assert.ok(dateRangeGroup1.availableInventories.some(inv => inv.id === 'INV-CICLICO-1120-1' && inv.createdAt.startsWith('2026-11-03')),
       'Recorded inventory date remains available as metadata');
+  } finally {
+    metricsService.getAllInventoriesData = origGetAll;
+  }
+});
+
+test('consolidated metrics only use finalized inventories; an open one is shown only when selected', async () => {
+  const item = (sku, physical) => ({ SKU: sku, Stock_Sistema: 10, Stock_Fisico: physical, Stock_Total: physical,
+    Diferencia: physical - 10, Costo_Unitario: 10, Ubicacion: 'A010101001', Almacen: 'R1' });
+  const inventories = [
+    { id: 'INV-CICLICO-1120-1', isHistory: true, status: 'REVISADO', center: '1120', type: 'CICLICO',
+      items: [item('CLOSED', 10)], createdAt: '2026-10-20T10:00:00.000Z' },
+    { id: 'INV-CICLICO-1120-2', status: 'PENDIENTE_JUSTIFICACION', center: '1120', type: 'CICLICO',
+      items: [item('OPEN-1', 4), item('OPEN-2', 6)], createdAt: '2026-10-23T10:00:00.000Z' }
+  ];
+  const origGetAll = metricsService.getAllInventoriesData;
+  metricsService.getAllInventoriesData = async () => inventories;
+  try {
+    metricsService.invalidateCache?.();
+    const all = await metricsService.getDashboardMetrics({ center: '1120', type: 'CICLICO', period: 'TODO' });
+    assert.equal(all.summary.totalInventories, 1);
+    assert.equal(all.summary.totalItemsPlanned, 1);
+    assert.equal(all.summary.impactoFinanciero1erAbsoluto, 0);
+    assert.deepEqual(all.excludedInProgress.map(inv => inv.id), ['INV-CICLICO-1120-2']);
+    assert.equal(all.availableInventories.length, 2, 'The open inventory stays selectable');
+
+    metricsService.invalidateCache?.();
+    const open = await metricsService.getDashboardMetrics({ center: '1120', type: 'CICLICO', period: 'TODO',
+      inventoryId: 'INV-CICLICO-1120-2' });
+    assert.equal(open.summary.totalItemsPlanned, 2);
+    assert.deepEqual(open.excludedInProgress, []);
+  } finally {
+    metricsService.getAllInventoriesData = origGetAll;
+  }
+});
+
+test('legacy discrepancy fields and the chart breakdown report the same final counts', async () => {
+  const row = (sku, physical, damaged = 0) => ({ SKU: sku, Stock_Sistema: 10, Stock_Fisico: physical, Mal_estado: damaged,
+    Stock_Total: physical + damaged, Diferencia: physical + damaged - 10, Costo_Unitario: 10,
+    Costo_Diferencia: (physical + damaged - 10) * 10, Ubicacion: 'A010101001', Almacen: 'R1' });
+  const inventories = [{ id: 'INV-CICLICO-5100-1', isHistory: true, status: 'REVISADO', center: '5100', type: 'CICLICO',
+    createdAt: '2026-10-20T10:00:00.000Z', items: [row('OK', 10), row('SHORT', 3), row('OVER', 12), row('DAMAGED', 9, 1)] }];
+  const origGetAll = metricsService.getAllInventoriesData;
+  metricsService.getAllInventoriesData = async () => inventories;
+  try {
+    metricsService.invalidateCache?.();
+    const {summary} = await metricsService.getDashboardMetrics({ center: '5100', type: 'CICLICO', period: 'TODO' });
+    assert.equal(summary.discrepanciasFinal, 2);
+    assert.equal(summary.totalDiscrepancies, summary.discrepanciasFinal);
+    assert.equal(summary.faltantesItemsCount, summary.faltantesFinal.itemsCount);
+    assert.equal(summary.faltantesFinal.itemsCount, 1);
+    assert.equal(summary.faltantesUnits, 7);
+    assert.equal(summary.sobrantesItemsCount, 1);
+    assert.deepEqual(summary.discrepancias.faltantes, {itemsCount: 1, units: 7, cost: 70});
+    assert.equal(summary.discrepancias.danados.itemsCount, 1);
+    assert.equal(summary.impactoFinanciero.faltantesCost, 70);
   } finally {
     metricsService.getAllInventoriesData = origGetAll;
   }

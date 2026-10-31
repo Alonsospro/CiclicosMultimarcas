@@ -20,7 +20,7 @@ test('report exposes damage identified only in a recount and preserves the initi
   });
   const service = module.exports;
   const item = { SKU: 'FINAL-DAMAGE', Responsable: 'contador', Fecha_Ultimo_Conteo: '2026-10-15', Stock_Sistema: 10, Stock_Fisico: 10, Stock_Total: 10, Mal_estado: 0, Diferencia: 0, Costo_Unitario: 5, Reconteo_2: 7, Malestado_Reconteo_2: 3, Stock_Total_Reconteo_2: 10, Diferencia_Final_2: 0, Ubicacion: 'A1', Almacen: 'RFO7' };
-  service.getAllInventoriesData = async () => [{ id: 'INV-1160-1', center: '1160', type: 'CICLICO', items: [item], createdAt: '2026-10-15' }];
+  service.getAllInventoriesData = async () => [{ id: 'INV-1160-1', isHistory: true, status: 'REVISADO', center: '1160', type: 'CICLICO', items: [item], createdAt: '2026-10-15' }];
   const before = JSON.stringify(item);
   const metrics = await service.getDashboardMetrics({});
   assert.equal(JSON.stringify(metrics.reportSignatories), JSON.stringify({ counters: ['Contador Real'], centerManagers: ['Encargado Real'] }));

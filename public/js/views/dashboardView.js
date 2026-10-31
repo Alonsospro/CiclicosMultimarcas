@@ -694,6 +694,14 @@ window.DashboardView = {
         ' Use Recalcular Métricas para exigir una lectura directa.';
       panel.appendChild(notice);
     }
+    const inProgress = data.excludedInProgress || [];
+    if (inProgress.length) {
+      const notice = document.createElement('div');
+      notice.textContent = 'No incluidos (en curso, sin archivo final): ' +
+        inProgress.map(inv => '[' + inv.center + '] ' + (inv.name || inv.id) + ' · ' + inv.status + ' · ' + inv.totalItems + ' ítems').join('; ') +
+        '. Selecciónelo en el filtro de inventario para ver su avance.';
+      panel.appendChild(notice);
+    }
     if (!sources.length) return;
     const details = document.createElement('details');
     details.open = false;
@@ -1001,7 +1009,7 @@ window.DashboardView = {
     const sobrantesCount = disc.sobrantes?.itemsCount || 0;
     const faltantesCount = disc.faltantes?.itemsCount || 0;
     const exactCount = summary.totalExactItems || 0;
-    const damagedCount = summary.totalDamagedItems > 0 ? 1 : 0;
+    const damagedCount = disc.danados?.itemsCount || 0;
 
     // 1. Donut Chart: ERI vs ERU vs Cuadrados vs Discrepancias
     const canvasDonut = document.getElementById('chart-accuracy-donut');

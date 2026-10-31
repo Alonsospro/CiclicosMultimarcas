@@ -153,7 +153,7 @@ function metricsService(items) {
   vm.runInNewContext(fs.readFileSync(path.join(root,'src/services/metricsService.js'),'utf8'), {
     module, console, Date, require:name=>Object.hasOwn(mocks,name)?mocks[name]:require(name)
   });
-  module.exports.getAllInventoriesData = async()=>[{id:'WEEKLY',name:'Semanal',type:'SEMANALES',center:'1120',createdAt:t0,items}];
+  module.exports.getAllInventoriesData = async()=>[{id:'WEEKLY',name:'Semanal',isHistory:true,status:'REVISADO',type:'SEMANALES',center:'1120',createdAt:t0,items}];
   return module.exports;
 }
 
