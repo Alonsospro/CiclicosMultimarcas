@@ -217,3 +217,17 @@ test('Sheet sync keeps blank master cells from erasing the first count and resto
   assert.equal(item.Stock_Total,10);
   assert.equal(item.Diferencia,0);
 });
+
+test('a reclosure asks Google to rewrite the previous final file; a first closure does not',async()=>{
+  const payloads=[];
+  const drive=isolated('src/services/driveService.js',{
+    './inventoryContract':contract,'../config':{},'./storagePath':{getHistoryDirectory:()=>'/history',getPhotosDirectory:()=>'/photos',writeJson:()=>{}},
+    './gasService':{syncFinalInventoryToGAS:async(type,payload)=>{payloads.push(payload);
+      return {success:true,fileId:'file-1',fileName:'final',spreadsheetUrl:'https://example.test/sheet',manifest:{itemCount:1}};}}
+  });
+  const inventory={id:'INV',type:'CICLICO',center:'1120',closeOperationId:'CLOSE',items:[base]};
+  await drive.createFinalDriveFile({inventory,justifications:[],user});
+  await drive.createFinalDriveFile({inventory:{...inventory,closedAt:'2026-10-14T18:00:00.000Z',driveFileId:'file-1'},justifications:[],user});
+  assert.equal('replaceFileId' in payloads[0],false);
+  assert.equal(payloads[1].replaceFileId,'file-1');
+});

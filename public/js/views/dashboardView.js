@@ -573,8 +573,13 @@ window.DashboardView = {
           titleEl.textContent = `[${selectedInventory.center}] ${selectedInventory.name || selectedInventory.id}`;
         }
         if (metaEl) {
-          metaEl.style.display = 'none';
-          metaEl.textContent = `Tipo: ${selectedInventory.type} | Creado: ${dateStr} | Total Ítems: ${selectedInventory.totalItems || 0} | Estado: ${selectedInventory.status || 'En Proceso'}`;
+          metaEl.style.display = 'block';
+          const isFinalSource = !!selectedInventory.isHistory || selectedInventory.status === 'REVISADO';
+          const sourceText = isFinalSource
+            ? `Fuente de datos: archivo final ${selectedInventory.name || selectedInventory.id}`
+            : 'Fuente de datos: inventario en curso (datos de la app, aún sin archivo final)';
+          metaEl.textContent = `Tipo: ${selectedInventory.type} | Creado: ${dateStr} | Total Ítems: ${selectedInventory.totalItems || 0} | Estado: ${selectedInventory.status || 'En Proceso'} | ${sourceText}`;
+          // Only administrators receive the link from the server.
           const sheetUrl = selectedInventory.spreadsheetUrl || selectedInventory.previousSpreadsheetUrl;
           if (/^https:\/\/docs\.google\.com\/spreadsheets\//.test(sheetUrl || '')) {
             const link = document.createElement('a');

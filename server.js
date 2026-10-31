@@ -26,6 +26,7 @@ app.get('/api/health', async (req, res) => {
 });
 app.post('/api/photos/upload', require('./src/middlewares/photoUploadMiddleware'));
 app.use('/api', persistence);
+app.use('/api', require('./src/middlewares/sourceLinkMiddleware'));
 
 // API Routes
 app.use('/api/auth', require('./src/routes/authRoutes'));

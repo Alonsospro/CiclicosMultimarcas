@@ -168,8 +168,10 @@ class DriveService {
     const record={inventoryId:inventory.id,type:inventory.type,center:inventory.center,
       closedBy:user.username,closedAt:new Date().toISOString(),reviewNotes:reviewNotes||'',items,
       justifications:(justifications||[]).map(j=>({...j,photoBase64:''})),totalItems:items.length};
+    // A reclosure rewrites the previous final file instead of creating another one.
     const result=await gasService.syncFinalInventoryToGAS(inventory.type,{
-      operationId:inventory.closeOperationId,center:inventory.center,driveRecord:record});
+      operationId:inventory.closeOperationId,center:inventory.center,driveRecord:record,
+      ...(inventory.closedAt&&inventory.driveFileId?{replaceFileId:inventory.driveFileId}:{})});
     if(!result.success||!result.fileId||!result.spreadsheetUrl)throw new Error('Google no confirmó el archivo final');
     const history={...record,fileId:result.fileId,fileName:result.fileName,spreadsheetUrl:result.spreadsheetUrl,
       driveUrl:result.spreadsheetUrl,manifest:result.manifest};

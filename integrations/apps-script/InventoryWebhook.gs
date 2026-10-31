@@ -659,14 +659,23 @@ function createFinalFile_(p){
       if(m.complete)return m.result;
     }
   }
-  let copy,evidenceFile;
+  const target=replaceTarget_(p,folder,record);
+  let copy,evidenceFile,restore;
   try{
     const stamp=Utilities.formatDate(new Date(),Session.getScriptTimeZone()||'America/La_Paz','yyyyMMdd_HHmmss');
-    const ss=SpreadsheetApp.create('Inventario_'+p.type+'_'+p.center+'_FINAL_'+stamp);
-    copy=DriveApp.getFileById(ss.getId());copy.moveTo(folder);
-    ss.setSpreadsheetLocale(sourceBook.getSpreadsheetLocale());ss.setSpreadsheetTimeZone(sourceBook.getSpreadsheetTimeZone());
-    const sh=source.copyTo(ss).setName(String(p.center));sh.showSheet();
-    ss.getSheets().forEach(s=>{if(s.getSheetId()!==sh.getSheetId())ss.deleteSheet(s);});
+    const fileName='Inventario_'+p.type+'_'+p.center+'_FINAL_'+stamp;
+    let sh;
+    if(target){
+      copy=target.file;sh=target.sh;
+      restore=snapshotFinalFile_(copy,sh,40);
+      copy.setName(fileName);
+    }else{
+      const ss=SpreadsheetApp.create(fileName);
+      copy=DriveApp.getFileById(ss.getId());copy.moveTo(folder);
+      ss.setSpreadsheetLocale(sourceBook.getSpreadsheetLocale());ss.setSpreadsheetTimeZone(sourceBook.getSpreadsheetTimeZone());
+      sh=source.copyTo(ss).setName(String(p.center));sh.showSheet();
+      ss.getSheets().forEach(s=>{if(s.getSheetId()!==sh.getSheetId())ss.deleteSheet(s);});
+    }
     if(sh.getMaxRows()<items.length+1)sh.insertRowsAfter(sh.getMaxRows(),items.length+1-sh.getMaxRows());
     if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,40).clearContent();
     formatFinalSheet_(sh,source,items);
@@ -681,13 +690,53 @@ function createFinalFile_(p){
     });
     evidenceFile=folder.createFile(copy.getName()+'.metadata.json',JSON.stringify({inventoryManifest:manifest,justifications}),MimeType.PLAIN_TEXT);
     SpreadsheetApp.flush();
+    const revisions=closureRevisions_(target,manifest,p.operationId);
     const result={fileId:copy.getId(),fileName:copy.getName(),spreadsheetUrl:copy.getUrl()+'#gid='+sh.getSheetId(),
-      folderId:folder.getId(),center:p.center,type:p.type,itemsSynced:items.length,evidenceFileId:evidenceFile.getId(),manifest};
+      folderId:folder.getId(),center:p.center,type:p.type,itemsSynced:items.length,evidenceFileId:evidenceFile.getId(),manifest,
+      replaced:!!target,revision:revisions.length};
     const summary={...manifest};delete summary.members;
-    copy.setDescription(JSON.stringify({complete:true,operationId:p.operationId,payloadHash,inventoryManifest:summary,evidenceFileId:evidenceFile.getId(),result}));
+    copy.setDescription(JSON.stringify({complete:true,operationId:p.operationId,payloadHash,inventoryManifest:summary,evidenceFileId:evidenceFile.getId(),result,revisions}));
+    if(target)trashQuietly_(target.metadata.evidenceFileId);
     return result;
-  }catch(e){if(evidenceFile)evidenceFile.setTrashed(true);if(copy)copy.setTrashed(true);throw e;}
+  }catch(e){
+    if(evidenceFile)evidenceFile.setTrashed(true);
+    // A reclosure never trashes the inventory's existing file: it restores the previous closure.
+    if(target){if(restore)restore();}else if(copy)copy.setTrashed(true);
+    throw e;
+  }
 }
+// A reclosure rewrites the previous final file of the same inventory, so each inventory keeps
+// a single final file and link. Drive's version history keeps the earlier contents.
+function replaceTarget_(p,folder,record){
+  if(!p.replaceFileId)return null;
+  let file;try{file=DriveApp.getFileById(String(p.replaceFileId));}catch(_){return null;}
+  if(!file||(file.isTrashed&&file.isTrashed()))return null;
+  let inFolder=false;const parents=file.getParents();
+  while(parents.hasNext())if(parents.next().getId()===folder.getId())inFolder=true;
+  if(!inFolder)return null;
+  let metadata;try{metadata=JSON.parse(file.getDescription()||'{}')||{};}catch(_){return null;}
+  const previous=metadata.inventoryManifest;
+  if(!previous||metadata.complete===false||String(previous.inventoryId)!==String(record.inventoryId)
+    ||String(previous.center)!==String(p.center))return null;
+  const sh=SpreadsheetApp.openById(file.getId()).getSheets().find(s=>String(s.getSheetId())===String(previous.gid));
+  if(!sh||sh.getName()!==String(p.center))return null;
+  return {file,sh,metadata};
+}
+function snapshotFinalFile_(file,sh,width){
+  const name=file.getName(),description=file.getDescription(),lastRow=sh.getLastRow();
+  const rows=lastRow>1?sh.getRange(2,1,lastRow-1,width).getValues():[];
+  return ()=>{
+    if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,width).clearContent();
+    if(rows.length)sh.getRange(2,1,rows.length,width).setValues(rows);
+    file.setName(name);file.setDescription(description);SpreadsheetApp.flush();
+  };
+}
+function closureRevisions_(target,manifest,operationId){
+  const previous=target?(target.metadata.revisions||[{closedAt:target.metadata.inventoryManifest.closedAt,
+    operationId:target.metadata.operationId,itemCount:target.metadata.inventoryManifest.itemCount}]):[];
+  return previous.concat([{closedAt:manifest.closedAt,operationId,itemCount:manifest.itemCount,contentHash:manifest.contentHash}]).slice(-20);
+}
+function trashQuietly_(fileId){if(!fileId)return;try{DriveApp.getFileById(String(fileId)).setTrashed(true);}catch(_){}}
 function allowedRoots_(){
   const props=PropertiesService.getScriptProperties().getProperties();
   const configured=Object.entries(props).filter(([k])=>k.startsWith('ROOT_')).map(([k,v])=>driveFolderId_(v,k));

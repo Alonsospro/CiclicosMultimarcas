@@ -20,7 +20,7 @@ function fixture(weekly = false, corruptWrite = false) {
     createFile(name, text) {const f=file('evidence_'+(++serial), name);f.text=text;calls.push('evidence');return f;}};
   function iterator(values) {let i=0;return {hasNext:()=>i<values.length,next:()=>values[i++]};}
   function file(id, name) {
-    const f={id,name,description:'',getId:()=>id,getName:()=>name,getUrl:()=>`https://docs.google.com/spreadsheets/d/${id}/edit`,
+    const f={id,name,description:'',getId:()=>id,getName:()=>f.name,setName:value=>{f.name=value;},getUrl:()=>`https://docs.google.com/spreadsheets/d/${id}/edit`,
       getDescription:()=>f.description,setDescription:value=>{f.description=value;},moveTo:()=>calls.push('move'),
       getParents:()=>iterator([folder]),getLastUpdated:()=>new Date(),getDateCreated:()=>new Date(),setTrashed:value=>{f.trashed=value;}};
     files.set(id,f);return f;
@@ -134,4 +134,42 @@ test('previous closures with a hidden manifest keep membership verification',()=
   assert.equal(read.manifest.inventoryId,'INV');assert.equal(read.manifest.members.length,1);
   f.source.grid[1][6]='OTHER';
   assert.throws(()=>f.context.readFinalInventory_({spreadsheetId:generated.fileId,center:'5100'}),/manifiesto/);
+});
+
+for(const weekly of [false,true]) test(`${weekly?'weekly 43':'legacy 40'} reclosure rewrites the same final file and keeps its revisions`,()=>{
+  const f=fixture(weekly);
+  const row=(sku,qty)=>{const base={...f.sourceItem,SKU:sku,Stock_Buen_Estado:qty,Stock_Total:qty};return weekly?contract.normalize(base):base;};
+  const close=(operationId,items,replaceFileId)=>f.context.createFinalFile_({type:weekly?'SEMANAL':'CICLICO',center:'5100',operationId,
+    ...(weekly?{schemaVersion:contract.weeklyVersion}:{}),...(replaceFileId?{replaceFileId}:{}),
+    driveRecord:{inventoryId:'INV-5100-1',items,justifications:[]}});
+  const first=close('CLOSE-1',[row('A',2),row('B',1)]);
+  const second=close('CLOSE-2',[row('A',3)],first.fileId);
+  assert.equal(second.fileId,first.fileId,'Same Drive file and link');
+  assert.equal(second.replaced,true);assert.equal(second.revision,2);
+  assert.equal(f.calls.filter(c=>c==='create').length,1,'No new spreadsheet');
+  assert.equal(f.files.get(first.evidenceFileId).trashed,true,'Previous evidence replaced');
+  const read=f.context.readFinalInventory_({spreadsheetId:second.fileId,center:'5100'});
+  assert.equal(read.rows.length,1,'Rows from the previous closure are removed');
+  const revisions=JSON.parse(f.files.get(second.fileId).description).revisions;
+  assert.deepEqual(revisions.map(r=>[r.operationId,r.itemCount]),[['CLOSE-1',2],['CLOSE-2',1]]);
+  assert.equal(close('CLOSE-2',[row('A',3)],first.fileId).revision,2,'A retry returns the same revision');
+  // A file of another inventory is never overwritten.
+  const other=f.context.createFinalFile_({type:weekly?'SEMANAL':'CICLICO',center:'5100',operationId:'OTHER',
+    ...(weekly?{schemaVersion:contract.weeklyVersion}:{}),replaceFileId:first.fileId,
+    driveRecord:{inventoryId:'INV-5100-2',items:[row('Z',1)],justifications:[]}});
+  assert.notEqual(other.fileId,first.fileId);assert.equal(other.replaced,false);
+});
+
+test('a failed reclosure restores the previous final file instead of trashing it',()=>{
+  const f=fixture();
+  const first=f.context.createFinalFile_({type:'CICLICO',center:'5100',operationId:'CLOSE-1',driveRecord:{inventoryId:'INV-5100-1',items:[item]}});
+  const book=f.books.get(first.fileId),before=JSON.stringify(book.sheets[0].grid),description=f.files.get(first.fileId).description;
+  const sheet=book.sheets[0],setRange=sheet.getRange;
+  sheet.getRange=(...args)=>{const range=setRange(...args),set=range.setValues;
+    range.setValues=values=>{set(values);if(values[0]?.[0]==='CHANGED')sheet.grid[1][9]=999;};return range;};
+  assert.throws(()=>f.context.createFinalFile_({type:'CICLICO',center:'5100',operationId:'CLOSE-2',replaceFileId:first.fileId,
+    driveRecord:{inventoryId:'INV-5100-1',items:[{...item,SKU:'CHANGED'}]}}),/no conserva/);
+  assert.equal(f.files.get(first.fileId).trashed,undefined);
+  assert.equal(JSON.stringify(sheet.grid),before);
+  assert.equal(f.files.get(first.fileId).description,description);
 });

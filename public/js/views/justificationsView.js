@@ -380,6 +380,8 @@ window.JustificationsView = {
       const isReconteoTask = !!(task.isReconteo || task.phase === 'RECONTEO' || task.hasRecount || String(task.inventoryId).startsWith('REC-') || task.status === 'RECONTEO_COMPLETADO');
       const sourceUrl = task.spreadsheetUrl || task.driveUrl || task.previousSpreadsheetUrl || '';
       const sourceName = task.driveFileName || (sourceUrl ? 'Archivo vinculado (nombre no guardado)' : `Hoja general ${task.type} · centro ${task.center}`);
+      // An open inventory works on the general sheet; its previous final file is rewritten when it closes again.
+      const sourceLabel = isFinalized ? 'Archivo final:' : (task.driveFileName ? 'Último archivo final (se actualizará al cerrar):' : 'Fuente Sheets:');
       const escapeHtml = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
       const safeSourceUrl = /^https:\/\/(docs|drive)\.google\.com\//i.test(sourceUrl) ? escapeHtml(sourceUrl) : '';
 
@@ -586,7 +588,7 @@ window.JustificationsView = {
                 </p>
                 <div title="Archivo o fuente usado para sincronizar este inventario" style="display: inline-flex; align-items: center; gap: 0.4rem; max-width: 100%; padding: 4px 9px; border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 6px; background: rgba(56, 189, 248, 0.045); color: var(--text-muted); font-size: 0.74rem; opacity: 0.9;">
                   <i class="fa-solid fa-file-excel" style="color: #38bdf8;"></i>
-                  <span>Fuente Sheets:</span>
+                  <span>${sourceLabel}</span>
                   <strong style="color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(sourceName)}</strong>
                   ${safeSourceUrl ? `<a href="${safeSourceUrl}" target="_blank" rel="noopener" style="white-space: nowrap; color: #38bdf8;">Abrir</a>` : ''}
                 </div>

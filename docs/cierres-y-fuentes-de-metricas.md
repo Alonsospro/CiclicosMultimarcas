@@ -12,6 +12,16 @@ El panel de fuentes muestra un resumen compacto y mantiene el detalle cerrado, c
 
 Guardar un conteo invalida el cálculo, pero conserva las lecturas recientes de los archivos finales durante su caché de 30 segundos. Los filtros específicos pueden reutilizar el historial global ya consultado. Se mantienen como máximo tres lecturas en curso y una lectura lenta no deja inactivos los otros puestos. **Actualizar** y **Recalcular métricas** fuerzan la relectura de Google. La primera consulta puede seguir tardando según la cantidad de cierres y la respuesta de Google.
 
+## Reaperturas: un solo archivo por inventario
+
+Al cerrar de nuevo un inventario reabierto, la app envía el archivo final del cierre anterior (`replaceFileId`). Apps Script reescribe ese mismo archivo: conserva el enlace y la pestaña (`gid`), lo renombra con la fecha del nuevo cierre, reemplaza el archivo `.metadata.json` y agrega la revisión a la lista `revisions` de la descripción (fecha, operación y cantidad de ítems de cada cierre). El contenido anterior queda en el historial de versiones de Google Sheets. Si la escritura o la verificación fallan, se restauran las filas, el nombre y la descripción anteriores; el archivo nunca se envía a la papelera.
+
+Solo se reescribe un archivo que está en la carpeta `Archivos Finales` del centro y cuyo manifiesto corresponde al mismo inventario y centro. En cualquier otro caso (archivo antiguo sin manifiesto, eliminado o de otro inventario) se crea un archivo nuevo, como antes. Los archivos duplicados de reaperturas anteriores a este cambio no se modifican.
+
+## Enlaces visibles solo para administradores
+
+El servidor elimina de todas las respuestas de la API los enlaces a hojas de Google Sheets y a carpetas de Drive cuando el usuario no es administrador (`src/middlewares/sourceLinkMiddleware.js`). Encargados y auxiliares siguen viendo el nombre del archivo fuente; los enlaces de fotos de evidencia no se modifican.
+
 ## Activación
 
 1. Revisar y publicar el cambio de la appweb desde GitHub/AI Studio.
