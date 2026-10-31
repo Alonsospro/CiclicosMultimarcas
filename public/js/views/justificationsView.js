@@ -318,8 +318,7 @@ window.JustificationsView = {
     if (task.isFinalized || task.status === 'REVISADO') return '<span class="badge badge-success">Finalizado en Drive · Solo lectura</span>';
     if (task.status === 'EN_RECONTEO') return '<span class="badge badge-info">Reconteo en curso · Justificación bloqueada</span>';
     if (task.canEnableRecount) return `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableRecount('${task.inventoryId}')">Habilitar Reconteo</button>`;
-    const pendingCount = (task.items || []).filter(item => !item.reviewComplete).length;
-    if (task.canClose || (pendingCount === 0 && (task.items || []).length > 0 && !task.canEnableRecount)) return `<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>`;
+    if (task.canClose) return `<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>`;
     return '<span class="badge badge-warning">Complete las justificaciones pendientes para continuar</span>';
   },
 
@@ -1772,9 +1771,6 @@ window.JustificationsView = {
     if (!task) return;
     task.pendingJustificationsCount = task.items.filter(item => !item.reviewComplete).length;
     task.justifiedItemsCount = task.items.length - task.pendingJustificationsCount;
-    if (task.pendingJustificationsCount === 0 && !task.canEnableRecount) {
-      task.canClose = true;
-    }
     const scrolls = [...document.querySelectorAll('[id^="just-table-responsive-"]')].map(el => [el.id, el.scrollLeft, el.scrollTop]);
     this.renderTasks();
     for (const [id, left, top] of scrolls) {
@@ -1981,9 +1977,8 @@ window.JustificationsView = {
       return;
     }
 
-    const pendingCount = task?.items ? task.items.filter(item => !item.reviewComplete).length : (task?.pendingJustificationsCount || 0);
-    if (!task?.canClose && pendingCount > 0) {
-      window.Toast.warning('Complete la etapa y todas sus justificaciones, incluidas las de los ítems que cuadraron en reconteo.');
+    if (!task?.canClose) {
+      window.Toast.warning('El servidor aún no habilita el cierre: complete y firme la etapa activa y todas sus justificaciones. Actualice la lista para ver el estado vigente.');
       return;
     }
 
