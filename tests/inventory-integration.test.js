@@ -153,7 +153,7 @@ test('photo uploads reach Google for damaged evidence and both justification rou
   for(const [category,round,expected] of [
     ['malestado',1,'SKU-1-R008.jpg'],
     ['justificaciones',1,'JUST-SKU-1-R008.jpg'],
-    ['justificaciones',2,'JUST-SKU-1-R008.jpg']
+    ['justificaciones',2,'JUST-SKU-1-R008-R2.jpg']
   ]){
     const result=await drive.savePhotoFile(Buffer.from('photo'),'photo.jpg','image/jpeg',{
       category,round,sku:'SKU-1',almacen:'R008',center:'1340',type:'CICLICO',

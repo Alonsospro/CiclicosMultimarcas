@@ -41,7 +41,7 @@ for (const round of [1, 2]) {
     element('just-modal-almacen-input').value = 'R002';
     element('just-modal-item-id').value = 'ITEM-3';
     element('just-modal-is-second-just').value = String(round === 2);
-    await element('input-just-photo-file').listeners.change({target: {files: [{name: 'photo.jpg'}]}});
+    await element('input-just-photo-file').listeners.change({target: {files: [{name: 'photo.jpg', type: 'image/jpeg', size: 1024}]}});
     assert.deepEqual(errors, []);
     assert.equal(uploads.length, 1);
     assert.equal(uploads[0].sku, 'SKU-1');

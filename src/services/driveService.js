@@ -108,7 +108,7 @@ class DriveService {
   /**
    * Generates exact Google Drive path and filename:
    * Mal Estado: nibol/ciclicos/fotos/malestado/{fecha}/{centro y tipo de inventario}/{sku}-{almacen}.jpg
-   * Justificaciones: nibol/ciclicos/fotos/justificaciones/{fecha}/{centro y tipo de inventario}/JUST-{sku}-{almacen}.jpg
+   * Justificaciones: nibol/ciclicos/fotos/justificaciones/{fecha}/{centro y tipo de inventario}/JUST-{sku}-{almacen}[-R2][-EVIDENCIA-NN].jpg
    */
   getPhotoDriveDetails({ category = 'malestado', sku = 'SKU', warehouse = 'ALMACEN', center = '1120', date = new Date(), ext = '.jpg', type = 'CICLICO', round = 1, evidenceIndex = 0 }) {
     const cleanCategory = String(category).toLowerCase().includes('just') ? 'justificaciones' : 'malestado';

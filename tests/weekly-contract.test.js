@@ -10,8 +10,10 @@ const t0 = '2026-10-14T10:00:00.000Z';
 const t1 = '2026-10-14T11:00:00.000Z';
 const t2 = '2026-10-14T12:00:00.000Z';
 const t3 = '2026-10-14T13:00:00.000Z';
+// ERU only accepts 10-character alphanumeric locations.
+const [L1, L2, L3] = ['A010101001', 'A010101002', 'A010101003'];
 const base = (overrides = {}) => contract.normalize({Schema_Version:contract.weeklyVersion, id:'ITEM',
-  SKU:'SKU1', Almacen:'A', Ubicacion:'L1', Stock_Sistema:10, Costo_Unitario:5,
+  SKU:'SKU1', Almacen:'A', Ubicacion:L1, Stock_Sistema:10, Costo_Unitario:5,
   Stock_Buen_Estado:8, Mal_estado:0, Fecha_Ultimo_Conteo:t0, ...overrides});
 const justify = (item, quantity, options = {}) => contract.update(item, {action:'saveJustification',
   corroboracion:'CUADRA', justifiedQuantity:quantity, fecha:t1, comentarioJustificacion:'Documentación verificada',
@@ -125,7 +127,7 @@ test('the actual weekly Apps Script validates headers and never includes K in co
   const {context,grid,sheet,writes} = scriptContext();
   context.validateHeaders_(sheet);
   const result = context.upsertCount_({schemaVersion:contract.weeklyVersion, action:'saveJustification',
-    center:'1120',sku:'SKU1',almacen:'A',location:'L1',round:1,corroboracion:'CUADRA',justifiedQuantity:2,
+    center:'1120',sku:'SKU1',almacen:'A',location:L1,round:1,corroboracion:'CUADRA',justifiedQuantity:2,
     fecha:t1,comentarioJustificacion:'Documento revisado',
     workflow:{version:1,status:'PENDIENTE_JUSTIFICACION',round:1,countStage:0}});
   assert.equal(result.item.Cantidad_Fisica_Final, 10);
@@ -156,7 +158,7 @@ function metricsService(items) {
 }
 
 test('weekly metrics compare original M and reconciled L against fixed K, including compensation without recount', async () => {
-  const item = justify(base({Ubicacion_1:'L2',corroboracion:'CUADRA'}),2);
+  const item = justify(base({Ubicacion_1:L2,corroboracion:'CUADRA'}),2);
   const before = JSON.stringify(item);
   const metrics = await metricsService([item]).getDashboardMetrics({});
   assert.equal(metrics.summary.eriItemInicial,80);
@@ -165,26 +167,26 @@ test('weekly metrics compare original M and reconciled L against fixed K, includ
   assert.equal(metrics.summary.eriSkuFinal,100);
   assert.equal(metrics.summary.eriMonetarioInicial,80);
   assert.equal(metrics.summary.eriMonetarioFinal,100);
-  assert.equal(metrics.summary.eruPercent,50);
+  assert.equal(metrics.summary.eruPercent,0, 'A second location disqualifies the SKU');
   assert.equal(metrics.discrepanciesList[0].stockFisicoFinal,10);
   assert.equal(metrics.discrepanciesList[0].physicalQuantityFinal,8);
   assert.equal(JSON.stringify(item),before);
 });
 
-test('weekly ERU averages 100, 50 and 33.33 percent independently of quantity or CUADRA', async () => {
-  const items = [base({SKU:'ONE'}),base({SKU:'TWO',Ubicacion_1:'L2'}),
-    base({SKU:'THREE',Ubicacion_1:'L2',Ubicacion_2:'L3'})];
+test('weekly ERU scores only a single valid primary location, independently of quantity or CUADRA', async () => {
+  const items = [base({SKU:'ONE'}),base({SKU:'TWO',Ubicacion_1:L2}),
+    base({SKU:'THREE',Ubicacion_1:L2,Ubicacion_2:L3}),base({SKU:'BAD',Ubicacion:'L1'})];
   const before = await metricsService(items).getDashboardMetrics({});
   const after = await metricsService(items.map(item=>justify(item,2))).getDashboardMetrics({});
-  assert.equal(before.summary.eruPercent,61.11);
-  assert.equal(after.summary.eruPercent,61.11);
-  assert.equal(after.summary.totalLocationsEvaluated,3);
-  assert.equal(after.summary.eruModel,'LOCATION_CONCENTRATION');
+  assert.equal(before.summary.eruPercent,25);
+  assert.equal(after.summary.eruPercent,25);
+  assert.equal(after.summary.totalLocationsEvaluated,4);
+  assert.equal(after.summary.eruModel,'SKU_LOCATION_VALIDITY');
 });
 
 test('same SKU in different warehouses cannot cancel shortages and surpluses in weekly SKU accuracy', async () => {
   const metrics = await metricsService([base(),base({Almacen:'B',Stock_Buen_Estado:12})]).getDashboardMetrics({});
   assert.equal(metrics.summary.eriSkuInicial,0);
   assert.equal(metrics.summary.eriSkuFinal,0);
-  assert.equal(metrics.summary.eruPercent,100);
+  assert.equal(metrics.summary.eruPercent,100, 'Weekly SKUs are scored per warehouse');
 });
