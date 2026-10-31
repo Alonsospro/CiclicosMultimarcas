@@ -79,13 +79,29 @@ const InventoryContract = (() => {
   }
   function latestStage(r){return has(r.Stock_Total_Reconteo_2)?2:has(r.Stock_Total_Reconteo)?1:0;}
   function latestPhysical(r){return r[stages[latestStage(r)][2]];}
+  function timestamp(value){
+    if(value instanceof Date)return Number.isFinite(value.getTime())?value.getTime():0;
+    if(typeof value!=='string'||!value.trim())return 0;
+    // Sheets in es_BO emits d/M/yyyy; Date.parse can treat it as US m/d/yyyy.
+    const local=value.trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+    if(local){
+      const [,dayText,monthText,yearText,hourText='0',minuteText='0',secondText='0']=local;
+      const day=Number(dayText),month=Number(monthText),year=Number(yearText);
+      const hour=Number(hourText),minute=Number(minuteText),second=Number(secondText);
+      const parsed=new Date(Date.UTC(year,month-1,day,hour,minute,second));
+      if(parsed.getUTCFullYear()!==year||parsed.getUTCMonth()!==month-1||parsed.getUTCDate()!==day||hour>23||minute>59||second>59)return 0;
+      return parsed.getTime();
+    }
+    const parsed=Date.parse(value);
+    return Number.isFinite(parsed)?parsed:0;
+  }
   function adjustment(r,round){
     const second=round===2,key=second?'Cantidad_Justificada_2':'Cantidad_Justificada_1';
     const state=identity(r[second?'Estado_Justificacion_2':'Estado']);
-    const reviewed=Date.parse(r[second?'Fecha_Justificacion_2':'Fecha_Primera_Justificacion']);
-    const counted=Date.parse(r[stages[latestStage(r)][5]]);
+    const reviewed=timestamp(r[second?'Fecha_Justificacion_2':'Fecha_Primera_Justificacion']);
+    const counted=timestamp(r[stages[latestStage(r)][5]]);
     // A new physical observation supersedes an earlier compensation, without erasing its history.
-    return state==='CUADRA'&&has(r[key])&&Number.isFinite(reviewed)&&Number.isFinite(counted)&&reviewed>=counted
+    return state==='CUADRA'&&has(r[key])&&reviewed>0&&counted>0&&reviewed>=counted
       ? number(r[key],key):0;
   }
   function compensationNeeded(raw,round){
