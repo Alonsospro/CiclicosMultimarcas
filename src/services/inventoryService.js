@@ -1523,7 +1523,7 @@ class InventoryService {
         reopenedPhase: inv.reopenedPhase || null, assignedTo: inv.assignedTo || [], totalItems: inv.items.length,
         totalDiscrepancies: plan.items.length, pendingJustificationsCount: plan.pending.length,
         justifiedItemsCount: plan.items.length - plan.pending.length,
-        canClose: plan.canClose, canEnableRecount: plan.canEnableRecount,
+        canClose: plan.canClose, canEnableRecount: plan.canEnableRecount, closeBlockers: plan.closeBlockers,
         items: plan.items
       });
     }
@@ -1555,8 +1555,9 @@ class InventoryService {
     }
 
     if (!this.canModifyInventory(primaryInv, user)) throw new Error('Inventario fuera de su centro');
-    if (!this.getReviewPlan(primaryInv).canClose) {
-      throw new Error('No se puede cerrar: termine y firme la etapa activa y registre una explicación CUADRA o NO CUADRA para cada ítem revisado, incluidos todos los recontados.');
+    const closePlan = this.getReviewPlan(primaryInv);
+    if (!closePlan.canClose) {
+      throw new Error(`No se puede cerrar: ${closePlan.closeBlockers.join(' ')}`);
     }
 
     // If recount exists, merge recount values into primary inventory

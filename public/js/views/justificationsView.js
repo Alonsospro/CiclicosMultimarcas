@@ -319,7 +319,9 @@ window.JustificationsView = {
     if (task.status === 'EN_RECONTEO') return '<span class="badge badge-info">Reconteo en curso · Justificación bloqueada</span>';
     if (task.canEnableRecount) return `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableRecount('${task.inventoryId}')">Habilitar Reconteo</button>`;
     if (task.canClose) return `<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>`;
-    return '<span class="badge badge-warning">Complete las justificaciones pendientes para continuar</span>';
+    const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+    const blockers = Array.isArray(task.closeBlockers) && task.closeBlockers.length ? task.closeBlockers : ['Complete las justificaciones pendientes para continuar'];
+    return `<div class="badge badge-warning" style="display:block; white-space:normal; text-align:left; line-height:1.4;"><strong>No se puede finalizar todavía:</strong>${blockers.map(b => `<br>• ${escape(b)}`).join('')}</div>`;
   },
 
   reviewHistory(item) {

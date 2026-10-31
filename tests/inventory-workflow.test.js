@@ -340,3 +340,36 @@ test('a pending recount modal asks for an actual explanation and never autofills
   item.canJustify=false;view.openJustifyModalAtIndex('INV',0);
   assert.ok(messages.some(msg=>msg.includes('bloqueada')));
 });
+
+test('a blocked closure names the unmet condition instead of only pending justifications', () => {
+  const justified = {...counted('A'), Estado:'NO CUADRA', Comentario_Justificacion:'Faltante confirmado',
+    Fecha_Primera_Justificacion:'2020-01-02T00:00:00.000Z'};
+  const uncounted = contract.normalize({id:'B', SKU:'B', Almacen:'R001', Ubicacion:'LOC', Stock_Sistema:3});
+  const recountDone = {id:'INV', status:'RECONTEO_COMPLETADO', hasRecount:true, recountItemKeys:[contract.member(justified),
+    JSON.stringify(['GONE','R009','LOC'])], items:[justified, uncounted]};
+  const result = workflow.plan(recountDone, null, []);
+  assert.equal(result.canClose, false);
+  assert.ok(result.closeBlockers.some(b => /1 ítem\(s\) sin primer conteo: B \(R001\)/.test(b)));
+  assert.ok(result.closeBlockers.some(b => /ya no coinciden.*GONE \/ R009 \/ LOC/.test(b)));
+  assert.deepEqual(workflow.plan({...recountDone, items:[justified], recountItemKeys:[contract.member(justified)],
+    status:'PENDIENTE_JUSTIFICACION'}, null, []).closeBlockers,
+    ['Hay ítems marcados para reconteo, pero el reconteo no figura como completado.',
+     '1 justificación(es) pendiente(s): A (R001).']);
+});
+
+test('a recount copied from the whole inventory only requires recounts for items that had a difference', () => {
+  const recounted = {...counted('A'), Reconteo:10, Malestado_Reconteo:0, Fecha_Reconteo:'2020-01-03T00:00:00.000Z',
+    Estado_Justificacion_2:'CUADRA', Comentario_Justificacion_2:'Reconteo cuadra',
+    Fecha_Justificacion_2:'2020-01-04T00:00:00.000Z'};
+  const balanced = contract.normalize({id:'B', SKU:'B', Almacen:'R001', Ubicacion:'LOC', Stock_Sistema:3,
+    Stock_Buen_Estado:3, Mal_estado:0, Fecha_Ultimo_Conteo:old});
+  const child = {id:'REC-INV', status:'REVISADO', items:[recounted, balanced]};
+  const inv = {id:'INV', status:'RECONTEO_COMPLETADO', hasRecount:true, reopenedPhase:'JUSTIFICACION',
+    items:[recounted, balanced]};
+  const result = workflow.plan(inv, child, []);
+  assert.equal(result.keys.size, 2);
+  assert.equal(result.canClose, true, result.closeBlockers.join(' '));
+  const missing = workflow.plan({...inv, items:[{...recounted, Reconteo:null, Stock_Total_Reconteo:null}, balanced]}, child, []);
+  assert.equal(missing.canClose, false);
+  assert.ok(missing.closeBlockers.some(b => /1 ítem\(s\) sin cantidad de reconteo 1: A \(R001\)/.test(b)));
+});
