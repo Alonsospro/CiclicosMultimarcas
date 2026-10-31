@@ -746,7 +746,8 @@ window.DashboardView = {
     const elDashTotalItems = document.getElementById('stat-dash-total-items');
     if (elDashTotalItems) {
       const itemsCount = summary.totalItemsAudited !== undefined ? summary.totalItemsAudited : totalAudited;
-      elDashTotalItems.textContent = `${itemsCount.toLocaleString()} ítems / registros evaluados`;
+      const physicalUnits = Number(summary.totalAuditedPhysicalUnitsFinal ?? summary.totalAuditedSystemUnits ?? totalAudited);
+      elDashTotalItems.textContent = `${physicalUnits.toLocaleString()} ítems físicos al cierre · ${itemsCount.toLocaleString()} líneas auditadas`;
     }
     const elDashPlanBadge = document.getElementById('stat-dash-plan-badge');
     if (elDashPlanBadge) {
@@ -838,7 +839,8 @@ window.DashboardView = {
     }
     const elEriItemsDetail = document.getElementById('stat-eri-items-detail');
     if (elEriItemsDetail) {
-      elEriItemsDetail.textContent = `${unitsExactFinal} de ${totalAuditedUnits} existencias cuadradas (${exactItemsFinal} registros)`;
+      const physicalUnits = Number(summary.totalAuditedPhysicalUnitsFinal ?? summary.totalAuditedSystemUnits ?? totalAudited);
+      elEriItemsDetail.textContent = `${unitsExactFinal} de ${totalAuditedUnits} unidades del sistema · conteo físico final: ${physicalUnits.toLocaleString()} (${exactItemsFinal} registros exactos)`;
     }
 
     // 2. ERI de SKU
@@ -908,7 +910,8 @@ window.DashboardView = {
 
     // 1.3 Impacto Financiero 1er Conteo (Col. P)
     const elCost1 = document.getElementById('stat-diff-cost-1er');
-    const cost1Val = summary.impactoFinanciero1er !== undefined ? summary.impactoFinanciero1er : (summary.impactoFinanciero?.initialAbsoluteDiffCost || summary.totalAbsoluteDiffCost || 0);
+    const cost1Val = summary.impactoFinanciero1erNeto !== undefined ? summary.impactoFinanciero1erNeto : (summary.impactoFinanciero1er !== undefined ? summary.impactoFinanciero1er : (summary.impactoFinanciero?.initialNetDiffCost ?? summary.impactoFinanciero?.initialAbsoluteDiffCost ?? summary.totalAbsoluteDiffCost ?? 0));
+    const absoluteInitialImpact = Number(summary.impactoFinanciero1erAbsoluto ?? summary.impactoFinanciero?.initialAbsoluteDiffCost ?? Math.abs(cost1Val));
     if (elCost1) {
       elCost1.textContent = fmtMoney(cost1Val);
       elCost1.style.color = cost1Val === 0 ? 'var(--success)' : 'var(--danger)';
@@ -923,7 +926,7 @@ window.DashboardView = {
     const elSqFinal = document.getElementById('stat-squared-final');
     if (elSqFinal) elSqFinal.textContent = sqFinalCount.toLocaleString();
     const elSqFinalDetail = document.getElementById('stat-squared-final-detail');
-    if (elSqFinalDetail) elSqFinalDetail.textContent = `${unitsExactFinal} de ${totalAuditedUnits} existencias (${sqFinalCount} SKUs)`;
+    if (elSqFinalDetail) elSqFinalDetail.textContent = `${unitsExactFinal} de ${totalAuditedUnits} unidades del sistema (${sqFinalCount} SKUs)`;
     const elSqFinalBadge = document.getElementById('stat-squared-final-badge');
     if (elSqFinalBadge) {
       const subsanados = summary.subsanadosCount || 0;
@@ -946,6 +949,7 @@ window.DashboardView = {
     const fin = summary.impactoFinanciero || {};
     const elCostFinal = document.getElementById('stat-diff-cost-final');
     const costFinalVal = summary.impactoFinancieroFinal !== undefined ? summary.impactoFinancieroFinal : (fin.finalAbsoluteDiffCost !== undefined ? fin.finalAbsoluteDiffCost : (summary.totalAbsoluteDiffCost || 0));
+    const absoluteFinalImpact = Number(summary.impactoFinancieroFinalAbsoluto ?? fin.finalAbsoluteDiffCost ?? Math.abs(costFinalVal));
     if (elCostFinal) {
       elCostFinal.textContent = fmtMoney(costFinalVal);
       elCostFinal.style.color = costFinalVal === 0 ? 'var(--success)' : 'var(--danger)';
@@ -953,8 +957,8 @@ window.DashboardView = {
 
     const elCostFinalDetail = document.getElementById('stat-diff-cost-final-detail');
     if (elCostFinalDetail) {
-      const clarified = (cost1Val - costFinalVal);
-      elCostFinalDetail.textContent = clarified > 0 ? `Aclarado: ${fmtMoney(clarified)}` : 'Saldo definitivo';
+      const clarified = absoluteInitialImpact - absoluteFinalImpact;
+      elCostFinalDetail.textContent = `Exposición absoluta: ${fmtMoney(absoluteFinalImpact)} · ${clarified > 0 ? `Aclarado: ${fmtMoney(clarified)}` : 'Saldo definitivo'}`;
     }
 
     const elClarifiedBadge = document.getElementById('stat-clarified-badge');
@@ -1754,7 +1758,9 @@ window.DashboardView = {
       const exactSkusFinal = summary.totalSkusExactFinal !== undefined ? summary.totalSkusExactFinal : (summary.eriSku?.exactFinal || 129);
 
       const totalSysValue = summary.totalAuditedSystemValue || 21873505.16;
-      const netShortageCost = Math.abs(summary.finalAbsoluteDiffCost || summary.faltantesFinal?.cost || 26023.89);
+      const finalGrossImpact = Number(summary.impactoFinancieroFinalAbsoluto ?? summary.impactoFinanciero?.finalAbsoluteDiffCost ?? summary.totalAbsoluteDiffCost ?? 0);
+      const finalNetImpact = Number(summary.impactoFinancieroFinalNeto ?? summary.impactoFinancieroFinal ?? summary.impactoFinanciero?.finalNetDiffCost ?? 0);
+      const finalDeficitCost = Number(summary.faltantesFinal?.cost || 0);
 
       // Función de evaluación según la meta corporativa definida por NIBOL:
       // • menos del 90%: MAL
@@ -1780,7 +1786,7 @@ window.DashboardView = {
         ['Indicador de Exactitud', '1er Conteo (%)', 'Conteo Final (%)', 'Conformes / Exactos', 'Total Evaluado', 'Escala Corporativa', 'Dictamen Gerencial'],
         ['ERI Cantidad de Ítems (Principal)', eriItem1, eriItemF, `${exactUnitsFinal} existencias exactas`, `${totalAuditedUnits} existencias físicas`, '≥95.00% (Mínimo)', getCorporateEvalText(eriItemF)],
         ['ERI de SKU (Códigos)', eriSku1, eriSkuF, `${exactSkusFinal} SKUs exactos`, `${totalSkus} códigos auditados`, '≥95.00% (Mínimo)', getCorporateEvalText(eriSkuF)],
-        ['ERI Monetario (Valor Patrimonial)', eriMoney1, eriMoneyF, `$ ${(totalSysValue - netShortageCost).toLocaleString('es-BO', {minimumFractionDigits: 2})}`, `$ ${totalSysValue.toLocaleString('es-BO', {minimumFractionDigits: 2})}`, '≥95.00% (Mínimo)', getCorporateEvalText(eriMoneyF)],
+        ['ERI Monetario (Valor Patrimonial)', eriMoney1, eriMoneyF, `$ ${(totalSysValue - finalGrossImpact).toLocaleString('es-BO', {minimumFractionDigits: 2})}`, `$ ${totalSysValue.toLocaleString('es-BO', {minimumFractionDigits: 2})}`, '≥95.00% (Mínimo)', getCorporateEvalText(eriMoneyF)],
         [],
         ['2. CONCORDANCIA DE UBICACIONES EN ALMACÉN (ERU)'],
         ['Métrica ERU', 'Valor', 'Unidad de Medida', 'Observación Operativa'],
@@ -1791,9 +1797,9 @@ window.DashboardView = {
         ['3. BALANCE FINANCIERO Y VALUACIÓN DE STOCK ($)'],
         ['Concepto Financiero', 'Monto Inicial ($)', 'Monto Final ($)', 'Variación Regularizada ($)', 'Dictamen Contable'],
         ['Valor Total de Stock Auditado', totalSysValue, totalSysValue, 0, 'Valor patrimonial de sistema evaluado'],
-        ['Impacto por Faltantes (-$)', summary.faltantes1er?.cost || 0, netShortageCost, Math.max(0, (summary.faltantes1er?.cost || 0) - netShortageCost), 'Faltantes confirmados sujetos a nota de baja'],
+        ['Impacto por Faltantes (-$)', summary.faltantes1er?.cost || 0, finalDeficitCost, Math.max(0, (summary.faltantes1er?.cost || 0) - finalDeficitCost), 'Faltantes confirmados sujetos a nota de baja'],
         ['Impacto por Sobrantes (+$)', summary.sobrantes1er?.cost || 0, summary.sobrantesFinal?.cost || 0, Math.max(0, (summary.sobrantes1er?.cost || 0) - (summary.sobrantesFinal?.cost || 0)), 'Mercadería sobrante regularizada en sistema'],
-        ['Impacto Financiero Neto ($)', summary.initialAbsoluteDiffCost || summary.impactoFinanciero1er || 0, netShortageCost, summary.recountClarifiedAmount || 0, 'Diferencia neta absoluta final'],
+        ['Impacto Financiero Neto (Bs.)', summary.impactoFinanciero1erNeto ?? summary.impactoFinanciero1er ?? 0, summary.impactoFinancieroFinalNeto ?? summary.impactoFinancieroFinal ?? 0, summary.recountClarifiedAmount || 0, 'Suma firmada del costo de diferencia final'],
         [],
         ['4. BALANCE FÍSICO DE EXISTENCIAS / UNIDADES'],
         ['Estado de Conteo Físico', 'Existencias Físicas', '% Respecto al Total', 'Causa / Dictamen'],
@@ -1853,9 +1859,9 @@ window.DashboardView = {
           eriMoneyF,
           summary.eruPercent ?? null,
           totalSkus,
-          netShortageCost,
+          finalDeficitCost,
           summary.sobrantesFinal?.cost || 0,
-          netShortageCost,
+          finalNetImpact,
           '≥95.00% (Mínimo)',
           getCorporateEvalText(eriItemF)
         ]);

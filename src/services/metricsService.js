@@ -419,9 +419,12 @@ class MetricsService {
     // Impacto Financiero
     let totalAuditedSystemValue = 0;
     let totalAuditedSystemUnits = 0;
+    let totalFinalPhysicalUnits = 0;
     let totalAbsoluteDiffCost = 0;
     let totalInitialDiffCost = 0;
+    let totalInitialNetDiffCost = 0;
     let totalFinalDiffCost = 0;
+    let totalFinalNetDiffCost = 0;
     let initialSobrantesCost = 0;
     let initialFaltantesCost = 0;
     let finalSobrantesCost = 0;
@@ -767,6 +770,10 @@ class MetricsService {
         totalItemsAudited++;
         totalAuditedSystemUnits += stockSistema;
         totalAuditedSystemValue += (stockSistema * unitCost);
+        const finalPhysicalUnits = weekly
+          ? contract.finalQuantity(item)
+          : (stockFinal ?? stockTotal1 ?? stockFisico ?? 0);
+        totalFinalPhysicalUnits += Number(finalPhysicalUnits) || 0;
         centerBreakdown[invCenter].totalAudited++;
         centerBreakdown[invCenter].auditedSystemValue = (centerBreakdown[invCenter].auditedSystemValue || 0) + (stockSistema * unitCost);
         centerBreakdown[invCenter].auditedSystemUnits = (centerBreakdown[invCenter].auditedSystemUnits || 0) + stockSistema;
@@ -800,6 +807,7 @@ class MetricsService {
           centerBreakdown[invCenter].itemsExactFirstUnits = (centerBreakdown[invCenter].itemsExactFirstUnits || 0) + matchedUnits1;
         }
         totalInitialDiffCost += absDiffCost1;
+        totalInitialNetDiffCost += Number(diffCost1) || 0;
 
         let matchedUnitsFinal = 0;
         if (isExactFinal) {
@@ -841,6 +849,7 @@ class MetricsService {
           centerBreakdown[invCenter].itemsExactFinalUnits = (centerBreakdown[invCenter].itemsExactFinalUnits || 0) + matchedUnitsFinal;
         }
         totalFinalDiffCost += absDiffCostFinal;
+        totalFinalNetDiffCost += Number(diffCostFinal) || 0;
 
         const isAdditionalLoc = !!item.isAdditionalLocation;
         const hasRec = (hasRec1 || hasRec2);
@@ -1504,6 +1513,7 @@ class MetricsService {
         totalSkusAudited,
         totalSkusExact,
         totalAuditedSystemUnits,
+        totalAuditedPhysicalUnitsFinal: Math.round(totalFinalPhysicalUnits * 100) / 100,
         totalAuditedSystemValue: Math.round(totalAuditedSystemValue * 100) / 100,
 
         // =========================================================================
@@ -1590,7 +1600,9 @@ class MetricsService {
           units: faltantes1erUnits,
           cost: Math.round(faltantes1erCost * 100) / 100
         },
-        impactoFinanciero1er: Math.round(totalInitialDiffCost * 100) / 100,
+        impactoFinanciero1er: Math.round(totalInitialNetDiffCost * 100) / 100,
+        impactoFinanciero1erNeto: Math.round(totalInitialNetDiffCost * 100) / 100,
+        impactoFinanciero1erAbsoluto: Math.round(totalInitialDiffCost * 100) / 100,
 
         // Métricas Pareadas: Estado Final (Última diferencia entre AM, AB y O)
         itemsCuadradosFinal: itemsCuadradosFinalCount,
@@ -1612,7 +1624,11 @@ class MetricsService {
           units: faltantesFinalUnits,
           cost: Math.round(faltantesFinalCost * 100) / 100
         },
-        impactoFinancieroFinal: Math.round(totalFinalDiffCost * 100) / 100,
+        // Net signed impact matches the signed final-cost column in Sheets.
+        // Keep gross absolute exposure separately so opposing differences remain visible.
+        impactoFinancieroFinal: Math.round(totalFinalNetDiffCost * 100) / 100,
+        impactoFinancieroFinalNeto: Math.round(totalFinalNetDiffCost * 100) / 100,
+        impactoFinancieroFinalAbsoluto: Math.round(totalFinalDiffCost * 100) / 100,
         reduccionDiscrepancias: Math.max(0, discrepancias1erCount - discrepanciasFinalCount),
         reduccionErrorPercent: discrepancias1erCount > 0
           ? parseFloat((((discrepancias1erCount - discrepanciasFinalCount) / discrepancias1erCount) * 100).toFixed(1))
@@ -1678,7 +1694,10 @@ class MetricsService {
         impactoFinanciero: {
           totalAbsoluteDiffCost: Math.round(((totalRecountsDone > 0 || weeklyMetrics) ? totalFinalDiffCost : totalAbsoluteDiffCost) * 100) / 100,
           initialAbsoluteDiffCost: Math.round(totalInitialDiffCost * 100) / 100,
+          initialNetDiffCost: Math.round(totalInitialNetDiffCost * 100) / 100,
           finalAbsoluteDiffCost: Math.round(totalFinalDiffCost * 100) / 100,
+          finalNetDiffCost: Math.round(totalFinalNetDiffCost * 100) / 100,
+          finalNetImpact: Math.round(Math.abs(totalFinalNetDiffCost) * 100) / 100,
           clarifiedCost: Math.round(Math.max(0, totalInitialDiffCost - totalFinalDiffCost) * 100) / 100,
           hasRecountData: totalRecountsDone > 0,
           reconciledItemsCount: reconciledCount,
