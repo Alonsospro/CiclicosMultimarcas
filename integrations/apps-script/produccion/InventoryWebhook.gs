@@ -539,12 +539,22 @@ function createFinalFile_(p){
       if(m.complete)return m.result;
     }
   }
-  let copy;
+  const target=replaceTarget_(p,folder,record);
+  let copy,restore;
   try{
     const stamp=Utilities.formatDate(new Date(),Session.getScriptTimeZone()||'America/La_Paz','yyyyMMdd_HHmmss');
-    copy=DriveApp.getFileById(spreadsheet_().getId()).makeCopy('Inventario_'+p.type+'_'+p.center+'_FINAL_'+stamp,folder);
-    const ss=SpreadsheetApp.openById(copy.getId()),sh=getCenterSheet_(p.center,ss);
-    ss.getSheets().forEach(s=>{if(s.getSheetId()!==sh.getSheetId())ss.deleteSheet(s);});
+    const fileName='Inventario_'+p.type+'_'+p.center+'_FINAL_'+stamp;
+    let ss,sh;
+    if(target){
+      // Reclosure: rewrite the previous final file of this inventory instead of creating another one.
+      copy=target.file;ss=target.ss;sh=target.sh;
+      restore=snapshotFinalFile_(copy,ss,sh);
+      copy.setName(fileName);
+    }else{
+      copy=DriveApp.getFileById(spreadsheet_().getId()).makeCopy(fileName,folder);
+      ss=SpreadsheetApp.openById(copy.getId());sh=getCenterSheet_(p.center,ss);
+      ss.getSheets().forEach(s=>{if(s.getSheetId()!==sh.getSheetId())ss.deleteSheet(s);});
+    }
     if(sh.getMaxRows()<items.length+1)sh.insertRowsAfter(sh.getMaxRows(),items.length+1-sh.getMaxRows());
     if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,40).clearContent();
     sh.getRange(1,1,1,40).setValues([DEFAULT_HEADERS]);
@@ -571,11 +581,62 @@ function createFinalFile_(p){
       evidence.getRange(2,1,entries.length,1).setValues(entries);evidence.hideSheet();
     }
     SpreadsheetApp.flush();
+    const revisions=closureRevisions_(target,summary,p.operationId);
     const result={fileId:copy.getId(),fileName:copy.getName(),spreadsheetUrl:copy.getUrl()+'#gid='+sh.getSheetId(),
-      folderId:folder.getId(),center:p.center,type:p.type,itemsSynced:items.length,manifest:summary};
-    copy.setDescription(JSON.stringify({complete:true,operationId:p.operationId,payloadHash,inventoryManifest:summary,result}));
+      folderId:folder.getId(),center:p.center,type:p.type,itemsSynced:items.length,manifest:summary,
+      replaced:!!target,revision:revisions.length};
+    copy.setDescription(JSON.stringify({complete:true,operationId:p.operationId,payloadHash,inventoryManifest:summary,result,revisions}));
+    if(restore)restore.commit();
     return result;
-  }catch(e){if(copy)copy.setTrashed(true);throw e;}
+  }catch(e){
+    // A failed reclosure restores the previous closure; the inventory's file is never trashed.
+    if(target){if(restore)restore.rollback();}else if(copy)copy.setTrashed(true);
+    throw e;
+  }
+}
+// Only a complete final file of the same inventory and center, in this center's
+// "Archivos Finales" folder, is rewritten. Otherwise a new file is created as before.
+function replaceTarget_(p,folder,record){
+  if(!p.replaceFileId)return null;
+  let file;try{file=DriveApp.getFileById(String(p.replaceFileId));}catch(_){return null;}
+  if(!file||file.isTrashed())return null;
+  let inFolder=false;const parents=file.getParents();
+  while(parents.hasNext())if(parents.next().getId()===folder.getId())inFolder=true;
+  if(!inFolder)return null;
+  let metadata;try{metadata=JSON.parse(file.getDescription()||'{}')||{};}catch(_){return null;}
+  const previous=metadata.inventoryManifest;
+  if(!previous||metadata.complete===false||String(previous.inventoryId)!==String(record.inventoryId)
+    ||String(previous.center)!==String(p.center))return null;
+  const ss=SpreadsheetApp.openById(file.getId());
+  const sh=ss.getSheets().find(s=>String(s.getSheetId())===String(previous.gid));
+  if(!sh||sh.getName()!==String(p.center))return null;
+  try{validateHeaders_(sh);}catch(_){return null;}
+  return {file,ss,sh,metadata};
+}
+// Keeps the previous rows, name, description and hidden sheets until the new closure is complete.
+function snapshotFinalFile_(file,ss,sh){
+  const name=file.getName(),description=file.getDescription(),lastRow=sh.getLastRow();
+  const rows=lastRow>1?sh.getRange(2,1,lastRow-1,40).getValues():[];
+  const hiddenNames=['__INVENTORY_MANIFEST','__JUSTIFICATIONS'];
+  hiddenNames.forEach(n=>{const stale=ss.getSheetByName(n+'_ANTERIOR');if(stale)ss.deleteSheet(stale);});
+  const previous=hiddenNames.map(n=>ss.getSheetByName(n)).filter(Boolean);
+  previous.forEach(s=>s.setName(s.getName()+'_ANTERIOR'));
+  return {
+    commit(){previous.forEach(s=>ss.deleteSheet(s));},
+    rollback(){
+      hiddenNames.forEach(n=>{const created=ss.getSheetByName(n);if(created)ss.deleteSheet(created);});
+      previous.forEach(s=>s.setName(s.getName().replace(/_ANTERIOR$/,'')));
+      if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,40).clearContent();
+      if(rows.length)sh.getRange(2,1,rows.length,40).setValues(rows);
+      file.setName(name);file.setDescription(description);SpreadsheetApp.flush();
+    }
+  };
+}
+// Audit trail of every closure written to this file (latest 20).
+function closureRevisions_(target,manifest,operationId){
+  const prior=target?(target.metadata.revisions||[{closedAt:target.metadata.inventoryManifest.closedAt,
+    operationId:target.metadata.operationId,itemCount:target.metadata.inventoryManifest.itemCount}]):[];
+  return prior.concat([{closedAt:manifest.closedAt,operationId,itemCount:manifest.itemCount,membershipHash:manifest.membershipHash}]).slice(-20);
 }
 function allowedRoots_(){
   const props=PropertiesService.getScriptProperties().getProperties();
