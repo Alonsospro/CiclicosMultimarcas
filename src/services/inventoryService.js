@@ -662,7 +662,7 @@ class InventoryService {
     }
     const startsWeeklyCycle = targetItem && contract.isWeekly(targetItem) && !contract.has(targetItem.Stock_Total) && workflow.countStage(inv) === 0;
     let previousQty = targetItem ? targetItem.Stock_Fisico : null;
-    if(contract.isWeeklyType(inv.type)&&targetItem&&!contract.isWeekly(targetItem))throw new Error('Sincronice este inventario con el Apps Script semanal de 43 columnas antes de contar.');
+    if(contract.isWeeklyType(inv.type)&&targetItem&&!contract.isWeekly(targetItem))throw new Error('Sincronice este inventario con el Apps Script semanal de 44 columnas antes de contar.');
     const stageMembers = workflow.recountKeys(inv);
     if (targetItem && workflow.countStage(inv) && stageMembers.size && !stageMembers.has(contract.member(targetItem))) {
       throw new Error('Este ítem no pertenece a la lista de reconteo habilitada.');
@@ -1264,7 +1264,7 @@ class InventoryService {
     }
     if (candidates.length !== 1) throw new Error('Ítem ambiguo o inexistente; indique almacén y ubicación');
     const item=candidates[0],round=Number(p.round||(p.isJustification2?2:1)),reviewer=p.user.displayName||p.user.username;
-    if(contract.isWeeklyType(inv.type)&&!contract.isWeekly(item))throw new Error('Sincronice primero el inventario semanal de 43 columnas.');
+    if(contract.isWeeklyType(inv.type)&&!contract.isWeekly(item))throw new Error('Sincronice primero el inventario semanal de 44 columnas.');
     const context=this.getReviewPlan(inv);
     workflow.assertJustification(inv,item,round,context,p.justification);
     const payload={action:'saveJustification',center:inv.center,inventoryId:inv.id,itemId:item.id,sku:item.SKU,
@@ -2056,7 +2056,7 @@ class InventoryService {
     }
 
     const qty = contract.quantity(stockFisico,'stockFisico');
-    if(contract.isWeeklyType(inv.type)&&!contract.isWeekly(targetItem))throw new Error('Sincronice primero el inventario semanal de 43 columnas.');
+    if(contract.isWeeklyType(inv.type)&&!contract.isWeekly(targetItem))throw new Error('Sincronice primero el inventario semanal de 44 columnas.');
     const damagedQty = contract.quantity(malEstado,'malEstado');
     const unitCost = Number(targetItem.Costo_Unitario) || 0;
     const sysStock = Number(targetItem.Stock_Sistema) || 0;

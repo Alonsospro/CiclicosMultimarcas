@@ -65,7 +65,7 @@ function fixture(weekly = false, corruptWrite = false) {
   return {context,files,books,source,calls,sourceItem,folder};
 }
 
-for(const weekly of [false,true]) test(`${weekly?'weekly 43':'legacy 40'} closure copies just the center, keeps formats and round-trips its confirmed values`,()=>{
+for(const weekly of [false,true]) test(`${weekly?'weekly 44':'legacy 40'} closure copies just the center, keeps formats and round-trips its confirmed values`,()=>{
   const f=fixture(weekly),before=JSON.stringify(f.source.grid);
   const counted=contract.normalize({...f.sourceItem,Reconteo:1,Malestado_Reconteo:0,
     Stock_Total_Reconteo:1,Fecha_Reconteo:'2026-10-20T13:00:00.000Z'});
@@ -74,9 +74,10 @@ for(const weekly of [false,true]) test(`${weekly?'weekly 43':'legacy 40'} closur
     driveRecord:{inventoryId:'INV-5100-1',items:[counted],justifications:[{sku:item.SKU,almacen:item.Almacen,round:2,justification:'Revisado'}]}};
   const result=f.context.createFinalFile_(payload),book=f.books.get(result.fileId),final=book.sheets[0];
   assert.equal(book.sheets.length,1);assert.equal(final.name,'5100');assert.equal(book.locale,'es_BO');
-  assert.equal(final.formats[1][9],'[$Bs]#,##0.00');assert.equal(final.formats[1][10],'#,##0');
-  assert.equal(final.formats[1][weekly?17:16],'d/M/yyyy H:mm:ss');
-  assert.equal(final.grid[1][9],875.45);assert.equal(final.grid[1][weekly?12:11],2);
+  const at=key=>(weekly?contract.weeklyColumns:contract.columns).indexOf(key);
+  assert.equal(final.formats[1][at('Costo_Unitario')],'[$Bs]#,##0.00');assert.equal(final.formats[1][at('Stock_Sistema')],'#,##0');
+  assert.equal(final.formats[1][at('Fecha_Ultimo_Conteo')],'d/M/yyyy H:mm:ss');
+  assert.equal(final.grid[1][at('Costo_Unitario')],875.45);assert.equal(final.grid[1][at('Stock_Total')],2);
   assert.equal(JSON.stringify(f.source.grid),before);assert.equal(result.spreadsheetUrl.endsWith('#gid=900'),true);
   const evidence=JSON.parse(f.files.get(result.evidenceFileId).text);
   assert.equal(evidence.justifications[0].round,2);assert.equal(evidence.inventoryManifest.members.length,1);

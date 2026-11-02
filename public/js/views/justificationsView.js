@@ -1602,15 +1602,18 @@ window.JustificationsView = {
     const enabled = contract?.isWeekly(item) && document.getElementById('just-select-corroboration')?.value === 'CUADRA';
     panel.hidden = !enabled;
     panel.style.display = enabled ? '' : 'none';
-    input.disabled = !enabled;
-    input.required = !!enabled;
+    // CUADRA compensates automatically: Cantidad Física Final becomes Stock Sistema (zero difference),
+    // while Stock Sistema and the counted totals stay as they were.
+    input.disabled = true;
+    input.required = false;
+    input.readOnly = true;
     if (!enabled) return;
     const round = this.currentIsSecondJustification ? 2 : 1;
     const needed = contract.compensationNeeded(item, round);
-    if (needed === 0) input.value = '0';
-    hint.textContent = 'Stock inicial: ' + item.Stock_Sistema + '. Último total físico: ' + contract.latestPhysical(contract.normalize(item))
-      + '. ' + (needed > 0 ? 'Debe sumar ' + needed : needed < 0 ? 'Debe descontar ' + Math.abs(needed) : 'Sin diferencia: ingrese 0')
-      + ' unidades. El conteo físico se conserva; la compensación queda registrada por separado.';
+    input.value = String(Math.abs(needed));
+    hint.textContent = 'Stock sistema (no cambia): ' + item.Stock_Sistema + '. Último total físico: ' + contract.latestPhysical(contract.normalize(item))
+      + '. ' + (needed > 0 ? 'Se compensa un faltante de ' + needed : needed < 0 ? 'Se compensa un sobrante de ' + Math.abs(needed) : 'Sin diferencia')
+      + ' unidades: la Cantidad Física Final queda en ' + item.Stock_Sistema + ' y el conteo físico se conserva.';
   },
 
   navigatePopup(direction) {
@@ -1694,11 +1697,11 @@ window.JustificationsView = {
     const isSecondJust = !!(this.currentIsSecondJustification || document.getElementById('just-modal-is-second-just')?.value === 'true');
 
     try {
-      let justifiedQuantity;
+      // Weekly CUADRA compensation is computed by the contract; nothing is typed by the user.
+      const justifiedQuantity = undefined;
       if (window.InventoryContract?.isWeekly(selectedItem)) {
-        justifiedQuantity = document.getElementById('just-compensation-quantity')?.value;
         window.InventoryContract.update(selectedItem, {action:'saveJustification', corroboracion:corroboration,
-          round:isSecondJust ? 2 : 1, justifiedQuantity});
+          round:isSecondJust ? 2 : 1});
       }
       const savedResponse=await window.API.saveJustification({
         justifiedQuantity,

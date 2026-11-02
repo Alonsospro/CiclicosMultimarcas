@@ -1219,6 +1219,14 @@ window.InventoryView = {
                     </span>
                   ` : ''}
 
+                  <!-- UBICACIÓN DE SOBRESTOCK (SEMANALES, COLUMNA G): informativa, no cuenta para el ERU -->
+                  ${item.Sobrestock ? `
+                    <span title="Ubicación de sobrestock (no cuenta para el ERU)" style="display: inline-flex; align-items: center; gap: 5px; background: #0f172a; color: #fbbf24; padding: 5px 10px; border-radius: 6px; font-weight: 800; font-size: 0.88rem; border: 1.5px dashed #d97706; box-shadow: 0 1px 4px rgba(0,0,0,0.3);">
+                      <i class="fa-solid fa-boxes-stacked" style="font-size: 0.8rem; color: #fbbf24;"></i>
+                      <span>Sobrestock: <strong>${String(item.Sobrestock).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}</strong></span>
+                    </span>
+                  ` : ''}
+
                   <!-- BOTÓN + PARA AGREGAR UBICACIÓN ADICIONAL (HASTA 2) -->
                   ${(!item.Ubicacion_1 || !item.Ubicacion_2) ? `
                     <button

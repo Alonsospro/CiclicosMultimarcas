@@ -341,7 +341,7 @@ class GasService {
   async fetchSpreadsheetItems(spreadsheetUrl, record={}) {
     const source=await this.readInventorySpreadsheet({...record,spreadsheetUrl});
     const weekly=source.schemaVersion===contract.weeklyVersion || source.manifest?.schemaVersion===contract.weeklyVersion;
-    if(contract.isWeeklyType(record.type)&&!weekly)throw new Error('El cierre semanal no utiliza el esquema confirmado de 43 columnas.');
+    if(contract.isWeeklyType(record.type)&&!weekly)throw new Error('El cierre semanal no utiliza el esquema semanal confirmado de 44 columnas.');
     const columns=weekly?contract.weeklyColumns:contract.columns;
     return source.rows.map(row=>contract.normalize({...Object.fromEntries(columns.map((key,i)=>[key,row[i]])),
       ...(weekly?{Schema_Version:contract.weeklyVersion}:{})}));
@@ -358,7 +358,7 @@ class GasService {
     const result=await gasRequest(this.getUrlForType(type),{action:'getProducts',type,center:config.getCenterCode(center)});
     if(!Array.isArray(result.items))throw new Error('Apps Script no devolvió una lista válida.');
     const weekly=contract.isWeeklyType(type);
-    if(weekly&&result.schemaVersion!==contract.weeklyVersion)throw new Error('Actualice el Apps Script de semanales a las 43 columnas antes de cargar o contar.');
+    if(weekly&&result.schemaVersion!==contract.weeklyVersion)throw new Error('Actualice el Apps Script de semanales a las 44 columnas antes de cargar o contar.');
     const columns=weekly?contract.weeklyColumns:contract.columns;
     return result.items.map((row,index)=>({...contract.normalize({...(Array.isArray(row)?Object.fromEntries(columns.map((key,i)=>[key,row[i]])):row),
       ...(weekly?{Schema_Version:contract.weeklyVersion}:{})}),id:row.id||('ITEM-SHEET-'+index)}));
@@ -366,7 +366,7 @@ class GasService {
 
   mapRawRowsToColumns(rawRows = [], type = '') {
     if(contract.isWeeklyType(type))return rawRows.map((row,index)=>{
-      if(Array.isArray(row)&&row.length!==43)throw new Error('Semanales requiere el formato de 43 columnas.');
+      if(Array.isArray(row)&&row.length!==contract.weeklyColumns.length)throw new Error('Semanales requiere el formato de '+contract.weeklyColumns.length+' columnas.');
       const item=contract.normalize({...(Array.isArray(row)?Object.fromEntries(contract.weeklyColumns.map((key,i)=>[key,row[i]])):row),Schema_Version:contract.weeklyVersion});
       return {...item,id:item.id||'ITEM-'+index};
     });

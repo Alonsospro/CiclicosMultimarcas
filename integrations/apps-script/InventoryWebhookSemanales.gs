@@ -1,5 +1,5 @@
 /**
- * SEMANALES: 43 columnas A:AQ. Generado por scripts/build-apps-script.cjs.
+ * SEMANALES: 44 columnas A:AR (G: Sobrestock; L: Stock Sistema inmutable; M: Cantidad Física Final). Generado por scripts/build-apps-script.cjs.
  * Pegar el archivo completo en el proyecto Apps Script del Sheet semanal.
  * K: stock inicial inmutable. M: total del primer conteo físico.
  * Y / AK: compensaciones firmadas, positivas para faltantes y negativas para sobrantes.
@@ -7,7 +7,7 @@
  * Los cíclicos conservan InventoryWebhook.gs y su formato de 40 columnas.
  */
 
-const SHEET_LAYOUT = 'WEEKLY_43_V1';
+const SHEET_LAYOUT = 'WEEKLY_44_V1';
 
 const CFG = {
   defaultCenterIfMissing: '1120',
@@ -114,10 +114,14 @@ const LEGACY_HEADERS = [
 const InventoryContract = (() => {
   const columns = ["SKU","Codigo_Barras","Descripcion","Ubicacion","Ubicacion_1","Ubicacion_2","Almacen","Clasificacion_ABC","Unidad","Costo_Unitario","Stock_Sistema","Stock_Total","Stock_Buen_Estado","Mal_estado","Diferencia","Costo_Diferencia","Fecha_Ultimo_Conteo","Responsable","Fecha_Primera_Justificacion","Estado","Razon","Comentario_Justificacion","Responsable_Justificacion","Fecha_Reconteo","Stock_Total_Reconteo","Reconteo","Malestado_Reconteo","Diferencia_Final","Costo_Diferencia_Final","Fecha_Justificacion_2","Estado_Justificacion_2","Razon_Justificacion_2","Comentario_Justificacion_2","Responsable_Justificacion_2","Fecha_Reconteo_2","Stock_Total_Reconteo_2","Reconteo_2","Malestado_Reconteo_2","Diferencia_Final_2","Costo_Diferencia_Final_2"];
   const has = v => v !== undefined && v !== null && String(v).trim() !== '';
-  const weeklyVersion = 'WEEKLY_43_V1';
-  const weeklyColumns = [...columns.slice(0,11), 'Cantidad_Fisica_Final', ...columns.slice(11,23),
+  // Weekly sheets (44 columns A:AR): G holds the overstock location, K the system stock
+  // as the immutable starting point and M the reconciled final physical quantity.
+  const weeklyVersion = 'WEEKLY_44_V1';
+  const weeklyVersions = [weeklyVersion, 'WEEKLY_43_V1'];
+  const weeklyColumns = [...columns.slice(0,6), 'Sobrestock', ...columns.slice(6,11), 'Cantidad_Fisica_Final', ...columns.slice(11,23),
     'Cantidad_Justificada_1', ...columns.slice(23,34), 'Cantidad_Justificada_2', ...columns.slice(34)];
-  const weeklyHeaders = ['Sku','Codigo de Barras','Descripcion','Ubicacion','Ubicación 1','Ubicación 2','Almacen',
+  const weeklyMasterColumns = weeklyColumns.slice(0, weeklyColumns.indexOf('Stock_Sistema') + 1);
+  const weeklyHeaders = ['Sku','Codigo de Barras','Descripcion','Ubicacion','Ubicación 1','Ubicación 2','Sobrestock','Almacen',
     'CLasificacion ABC','Unidad','Costo Unitario','Stock Sistema','Cantidad Fisica Final','Total Conteo','Conteo B/E',
     'Conteo M/E','Diferencia','Costo Diferencia','Fecha Ultimo Conteo','Responsable Conteo','Fech. Primera Justificacion',
     'Estado','Razón','Comentario Justificación','Responsable Justificación','Cant. Justificada 1','Fecha Reconteo 1',
@@ -125,7 +129,7 @@ const InventoryContract = (() => {
     'Fecha de Justificacion 2','Estado de Jutificacion 2','Razon Justificacion 2','Comentario Justificacion 2',
     'Responsable Justificacion 2','Cant. Justificada 2','Fecha Reconteo 2','Total Reconteo 2','Reconteo B/E 2',
     'Reconteo M/E 2','Diferencia Reconteo 2','Costo Diferencia Reconteo 2'];
-  const isWeekly = r => r?.Schema_Version === weeklyVersion;
+  const isWeekly = r => weeklyVersions.includes(r?.Schema_Version);
   const isWeeklyType = type => ['SEMANAL','SEMANALES'].includes(String(type || '').trim().toUpperCase());
   const first = (...v) => v.find(has);
   const identity = v => String(v ?? '').trim().toUpperCase();
@@ -222,9 +226,13 @@ const InventoryContract = (() => {
     return r.Stock_Sistema-physical-adjustment(r,round===2?1:2);
   }
   function finalQuantity(raw){const r=normalize(raw);return isWeekly(r)?r.Cantidad_Fisica_Final:latestPhysical(r);}
+  function isValidLocation(value){return /^[A-Z0-9]{10}$/.test(String(value??'').trim().toUpperCase());}
   function locationScore(raw){
-    const locations=new Set([raw.Ubicacion,raw.Ubicacion_1,raw.Ubicacion_2].filter(has).map(identity));
-    return locations.size?1/locations.size:0;
+    const primary=first(raw.Ubicacion,raw.ubicacion,raw.location);
+    const locations=[primary,raw.Ubicacion_1,raw.ubicacion1,raw.Ubicacion1,raw.Ubicacion_2,raw.ubicacion2,raw.Ubicacion2,
+      ...(Array.isArray(raw.additionalLocations)?raw.additionalLocations.map(location=>typeof location==='string'?location:location?.location):[])];
+    const distinct=new Set(locations.filter(has).map(identity));
+    return isValidLocation(primary)&&distinct.size===1?1:0;
   }
   function status(p) {
     const raw=identity(first(p.corroboracion,p.corroboration,p.estadoJustificacion2,p.estadoJustificacion,p.estado,p.status)).replace(/_/g,' ');
@@ -238,7 +246,7 @@ const InventoryContract = (() => {
         ||[p.countPhase].some(v=>String(v||'').startsWith('RECONTEO'))
         ||![p.stockBuenEstado,p.stockFisico,p.stockTotal].some(has))throw new Error('Inicio semanal inválido');
       // A newly created inventory starts its own observations; the previous cycle stays in its archived copy.
-      original={...Object.fromEntries(weeklyColumns.slice(0,11).map(key=>[key,original[key]])),
+      original={...Object.fromEntries(weeklyMasterColumns.map(key=>[key,original[key]])),
         Schema_Version:weeklyVersion,id:original.id};
     }
     const r=normalize(original);
@@ -288,10 +296,12 @@ const InventoryContract = (() => {
       const originalStock=first(p.originalStockSistema,p.stockSistemaOriginal,r.Stock_Sistema_Original,r.Stock_Sistema);
       r.Stock_Sistema_Original=isWeekly(r)?r.Stock_Sistema:number(originalStock,'Stock_Sistema_Original');
       if(isWeekly(r)){
+        // K never changes: CUADRA records the compensation that makes M equal to K (zero difference),
+        // while the counted totals keep showing what was physically observed.
         const needed=compensationNeeded(r,round);
-        const amount=state==='CUADRA'?quantity(first(p.justifiedQuantity,p.cantidadJustificada), 'cantidad justificada'):0;
-        if(state==='CUADRA'&&(!has(first(p.justifiedQuantity,p.cantidadJustificada))&&needed!==0))throw new Error('Ingrese la cantidad que compensa la diferencia');
-        if(state==='CUADRA'&&amount!==Math.abs(needed))throw new Error('La cantidad justificada debe ser '+Math.abs(needed)+' para cuadrar la diferencia');
+        const supplied=first(p.justifiedQuantity,p.cantidadJustificada);
+        if(state==='CUADRA'&&has(supplied)&&quantity(supplied,'cantidad justificada')!==Math.abs(needed))
+          throw new Error('La cantidad justificada debe ser '+Math.abs(needed)+' para cuadrar la diferencia');
         r[round===2?'Cantidad_Justificada_2':'Cantidad_Justificada_1']=state==='CUADRA'?needed:0;
       }else if(state==='CUADRA'){
         const latest=[r.Stock_Total_Reconteo_2,r.Stock_Total_Reconteo,r.Stock_Total].find(has);
@@ -319,8 +329,8 @@ const InventoryContract = (() => {
     return result;
   }
   function member(r){return JSON.stringify([identity(r.SKU||r.sku),identity(r.Almacen||r.almacen||r.warehouse),identity(r.Ubicacion||r.ubicacion||r.location)]);}
-  return {columns,weeklyColumns,weeklyHeaders,weeklyVersion,isWeekly,isWeeklyType,stages,has,first,identity,number,quantity,date,
-    normalize,status,update,finalItem,member,latestStage,latestPhysical,adjustment,compensationNeeded,finalQuantity,locationScore};
+  return {columns,weeklyColumns,weeklyMasterColumns,weeklyHeaders,weeklyVersion,weeklyVersions,isWeekly,isWeeklyType,stages,has,first,identity,number,quantity,date,
+    normalize,status,update,finalItem,member,latestStage,latestPhysical,adjustment,compensationNeeded,finalQuantity,isValidLocation,locationScore};
 })();
 
 
@@ -428,7 +438,7 @@ function validateHeaders_(sh){
   const headers=sh.getRange(1,1,1,SHEET_WIDTH).getDisplayValues()[0];
   DEFAULT_HEADERS.forEach((h,i)=>{
     const aliases=[h,SHEET_COLUMNS[i]];
-    if(SHEET_LAYOUT===InventoryContract.weeklyVersion&&i===32)aliases.push('Estado de Justificacion 2');
+    if(SHEET_COLUMNS[i]==='Estado_Justificacion_2')aliases.push('Estado de Justificacion 2');
     if(!aliases.some(alias=>headerKey_(headers[i])===headerKey_(alias)))throw new Error('Encabezado inesperado en '+sh.getName()+', columna '+(i+1)+': se esperaba '+h);
   });
 }
@@ -441,7 +451,7 @@ function findRowInSheet_(sh,p,rows){
   const loc=InventoryContract.identity(p.originalLocation||(p.isNewLocation?'':p.location||p.ubicacion||p.Ubicacion));
   const data=rows|| (sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,SHEET_WIDTH).getValues():[]);
   const sameProduct=row=>sku?InventoryContract.identity(row[0])===sku:!!bar&&InventoryContract.identity(row[1])===bar;
-  const sameWarehouse=row=>!war||InventoryContract.identity(row[6])===war;
+  const sameWarehouse=row=>!war||InventoryContract.identity(row[COL.Almacen-1])===war;
   const sameLocation=row=>!loc||row.slice(3,6).some(value=>InventoryContract.identity(value)===loc);
   const choose=matches=>{
     if(matches.length>1)throw new Error('SKU ambiguo: indique almacén y ubicación');
@@ -459,7 +469,7 @@ function findJustificationRow_(sh,p,rows){
   const data=rows|| (sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,SHEET_WIDTH).getValues():[]);
   const products=data.map((row,index)=>({rowNumber:index+2,row})).filter(({row})=>
     sku?InventoryContract.identity(row[0])===sku:!!bar&&InventoryContract.identity(row[1])===bar);
-  const matches=war?products.filter(({row})=>InventoryContract.identity(row[6])===war):products;
+  const matches=war?products.filter(({row})=>InventoryContract.identity(row[COL.Almacen-1])===war):products;
   if(matches.length>1)throw new Error('SKU y almacén ambiguos: se requiere una sola fila para guardar la justificación');
   return matches[0]||null;
 }
@@ -475,7 +485,7 @@ function validateJustificationStage_(item,p){
   if(!String(p.comentarioJustificacion||p.justification||'').trim())throw new Error('Explique el resultado CUADRA o NO CUADRA.');
 }
 function upsertCount_(p,batch){
-  if(SHEET_LAYOUT===InventoryContract.weeklyVersion&&p.schemaVersion!==SHEET_LAYOUT)throw new Error('Actualice la appweb para usar semanales de 43 columnas.');
+  if(SHEET_LAYOUT===InventoryContract.weeklyVersion&&p.schemaVersion!==SHEET_LAYOUT)throw new Error('Actualice la appweb para usar semanales de 44 columnas.');
   if(!p.sku&&!p.SKU&&!p.barcode&&!p.Codigo_Barras)throw new Error('Falta SKU o código de barras');
   const sh=batch?.sheet||getCenterSheet_(p.center||p.centro);
   let found=p.action==='saveJustification'?findJustificationRow_(sh,p,batch?.rows):findRowInSheet_(sh,p,batch?.rows),created=false,original;
@@ -499,7 +509,8 @@ function upsertCount_(p,batch){
   if(found.rowNumber>sh.getMaxRows())sh.insertRowsAfter(sh.getMaxRows(),1);
   if(created)sh.getRange(found.rowNumber,1,1,SHEET_WIDTH).setValues([rowValues_(item)]);
   else {sh.getRange(found.rowNumber,5,1,2).setValues([[item.Ubicacion_1||'',item.Ubicacion_2||'']]);
-    const first=SHEET_LAYOUT===InventoryContract.weeklyVersion?12:11;
+    // Weekly writes start at M (Cantidad Física Final): L (Stock Sistema) and G (Sobrestock) are never rewritten.
+    const first=SHEET_LAYOUT===InventoryContract.weeklyVersion?COL.Cantidad_Fisica_Final:11;
     sh.getRange(found.rowNumber,first,1,SHEET_WIDTH-first+1).setValues([rowValues_(item).slice(first-1)]);}
   if(batch){if(created)batch.rows.push(rowValues_(item));else batch.rows[found.rowNumber-2]=rowValues_(item);}
   return {center:p.center,row:found.rowNumber,sku:item.SKU,isNewItem:created,item,stockSistemaReescrito:item.Stock_Sistema,photoSaved,justPhotoSaved};
@@ -572,7 +583,7 @@ function formatFinalSheet_(sh,source,items){
   range.setNumberFormats(formats);
 }
 function createFinalFile_(p){
-  if(SHEET_LAYOUT===InventoryContract.weeklyVersion&&p.schemaVersion!==SHEET_LAYOUT)throw new Error('El cierre requiere la appweb de semanales de 43 columnas.');
+  if(SHEET_LAYOUT===InventoryContract.weeklyVersion&&p.schemaVersion!==SHEET_LAYOUT)throw new Error('El cierre requiere la appweb de semanales de 44 columnas.');
   const record=p.driveRecord||{},items=(record.items||p.items||[]).map(item=>{
     if(SHEET_LAYOUT===InventoryContract.weeklyVersion&&!InventoryContract.isWeekly(item))throw new Error('Fila de cierre sin esquema semanal confirmado.');
     return InventoryContract.finalItem(item);
@@ -829,24 +840,25 @@ function distribuirBaseACentros(){
     const all=base.getDataRange().getValues(),headers=all.shift().map(headerKey_);
     const centerIndex=headers.findIndex(h=>['centro','center','codigocentro'].includes(h));
     if(centerIndex<0)throw new Error('Falta columna en BD_BASE: centro (determina la hoja de destino)');
-    // Source headers in BD_BASE map to the master columns A-K in each center sheet.
+    // Source headers in BD_BASE map, by name, to the master columns of each center sheet.
     const sourceHeaders=[
-      ['codigo','sku'], ['codigobarras'], ['descripcion','descipcion'], ['ubic','ubicacion'],
-      ['ubicacion1'], ['ubicacion2'], ['almacen'],
-      ['clasificacioncentro','clasificacioncen','clasificacionabc'], ['unidad'],
-      ['valor','costounitario'], ['stock','stocksistema']
-    ];
-    const indexes=sourceHeaders.map(aliases=>{
+      ['SKU',['codigo','sku'],true], ['Codigo_Barras',['codigobarras']], ['Descripcion',['descripcion','descipcion'],true],
+      ['Ubicacion',['ubic','ubicacion'],true], ['Ubicacion_1',['ubicacion1']], ['Ubicacion_2',['ubicacion2']],
+      ['Sobrestock',['sobrestock','ubicsobrestock','ubicacionsobrestock']], ['Almacen',['almacen'],true],
+      ['Clasificacion_ABC',['clasificacioncentro','clasificacioncen','clasificacionabc'],true], ['Unidad',['unidad']],
+      ['Costo_Unitario',['valor','costounitario'],true], ['Stock_Sistema',['stock','stocksistema'],true]
+    ].filter(([key])=>COL[key]);
+    const indexes=sourceHeaders.map(([key,aliases,required])=>{
       const matches=headers.map((h,i)=>aliases.includes(h)?i:-1).filter(i=>i>=0);
       if(matches.length>1)throw new Error('Columnas ambiguas en BD_BASE: '+aliases.join(' / '));
-      return matches.length?matches[0]:-1;
+      if(required&&!matches.length)throw new Error('Falta columna en BD_BASE: '+aliases[0]);
+      return [COL[key]-1,matches.length?matches[0]:-1];
     });
-    [0,2,3,6,7,9,10].forEach(i=>{if(indexes[i]<0)throw new Error('Falta columna en BD_BASE: '+sourceHeaders[i][0]);});
     const groups={};
     all.filter(r=>r.some(InventoryContract.has)).forEach(r=>{
       const center=String(r[centerIndex]).trim();
       if(!/^\d{4}$/.test(center))throw new Error('Centro inválido en BD_BASE: '+center+' (se requiere un código de cuatro dígitos)');
-      const row=Array(SHEET_WIDTH).fill('');indexes.forEach((idx,i)=>{if(idx>=0)row[i]=r[idx]??'';});
+      const row=Array(SHEET_WIDTH).fill('');indexes.forEach(([target,idx])=>{if(idx>=0)row[target]=r[idx]??'';});
       const item=rowToObject_(row);if(!item.SKU)throw new Error('SKU vacío en BD_BASE');
       if (!groups[center]) groups[center] = [];
       groups[center].push(rowValues_(item));

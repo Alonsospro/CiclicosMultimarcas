@@ -41,8 +41,15 @@ test('weekly surplus records a negative compensation and ignores a supplied repl
   assert.equal(result.Diferencia, 3);
 });
 
-test('CUADRA requires the exact nonnegative integer magnitude; NO CUADRA removes its compensation', () => {
-  for (const amount of [undefined, '', -2, 1.5, 1, 3, true, 'abc']) {
+test('CUADRA compensates automatically; a supplied magnitude must still be exact; NO CUADRA removes its compensation', () => {
+  for (const amount of [undefined, '']) {
+    const auto = justify(base(), amount);
+    assert.equal(auto.Cantidad_Justificada_1, 2);
+    assert.equal(auto.Cantidad_Fisica_Final, 10, 'M equals K: zero difference with the system');
+    assert.equal(auto.Stock_Sistema, 10, 'K, the starting point, never changes');
+    assert.equal(auto.Stock_Total, 8, 'The counted total is preserved');
+  }
+  for (const amount of [-2, 1.5, 1, 3, true, 'abc']) {
     assert.throws(() => justify(base(), amount));
   }
   const reversed = justify(justify(base(), 2), undefined, {corroboracion:'NO CUADRA', fecha:t2});
@@ -97,21 +104,36 @@ test('a fresh weekly inventory cannot inherit the previous weekly cycle recounts
 });
 
 test('the weekly column map places every physical total and compensation at its agreed position', () => {
-  assert.equal(contract.weeklyColumns.length, 43);
-  for (const [index, field] of [[10,'Stock_Sistema'],[11,'Cantidad_Fisica_Final'],[12,'Stock_Total'],
-    [24,'Cantidad_Justificada_1'],[26,'Stock_Total_Reconteo'],[36,'Cantidad_Justificada_2'],
-    [38,'Stock_Total_Reconteo_2'],[42,'Costo_Diferencia_Final_2']]) {
+  assert.equal(contract.weeklyColumns.length, 44);
+  assert.equal(contract.weeklyHeaders.length, 44);
+  for (const [index, field] of [[5,'Ubicacion_2'],[6,'Sobrestock'],[7,'Almacen'],[11,'Stock_Sistema'],
+    [12,'Cantidad_Fisica_Final'],[13,'Stock_Total'],[25,'Cantidad_Justificada_1'],[27,'Stock_Total_Reconteo'],
+    [37,'Cantidad_Justificada_2'],[39,'Stock_Total_Reconteo_2'],[43,'Costo_Diferencia_Final_2']]) {
     assert.equal(contract.weeklyColumns[index], field);
   }
+  assert.equal(contract.weeklyHeaders[6], 'Sobrestock');
 });
 
-function scriptContext(item = base()) {
+test('items saved with the previous 43-column weekly tag are still weekly', () => {
+  const legacy = contract.normalize({...base(), Schema_Version:'WEEKLY_43_V1'});
+  assert.equal(contract.isWeekly(legacy), true);
+  assert.equal(justify(legacy, 2).Cantidad_Fisica_Final, 10);
+});
+
+test('the overstock location is kept but never counts as a location', () => {
+  const item = base({Sobrestock:'9Z99999Z99'});
+  assert.equal(contract.locationScore(item), 1);
+  assert.equal(contract.update(item, {stockBuenEstado:9, malEstado:0, fechaUltimoConteo:t1}).Sobrestock, '9Z99999Z99');
+  assert.equal(contract.finalItem(item).Sobrestock, '9Z99999Z99');
+});
+
+function scriptContext(item = base(), script = 'InventoryWebhookSemanales.gs') {
   const context = vm.createContext({console, Date});
-  vm.runInContext(fs.readFileSync(path.join(root,'integrations/apps-script/InventoryWebhookSemanales.gs'),'utf8'), context);
+  vm.runInContext(fs.readFileSync(path.join(root,'integrations/apps-script',script),'utf8'), context);
   const grid = [contract.weeklyHeaders.slice(), contract.weeklyColumns.map(key => item[key] ?? '')];
   const writes = [];
   const sheet = {
-    getName:()=>'1120',getMaxColumns:()=>43,getLastRow:()=>2,getMaxRows:()=>100,
+    getName:()=>'1120',getMaxColumns:()=>44,getLastRow:()=>2,getMaxRows:()=>100,
     getRange(row, column, height=1, width=1) {
       return {getDisplayValues:()=>grid.slice(row-1,row-1+height).map(r=>r.slice(column-1,column-1+width).map(String)),
         getValues:()=>grid.slice(row-1,row-1+height).map(r=>r.slice(column-1,column-1+width)),
@@ -123,23 +145,26 @@ function scriptContext(item = base()) {
   return {context, grid, sheet, writes};
 }
 
-test('the actual weekly Apps Script validates headers and never includes K in count or justification writes', () => {
-  const {context,grid,sheet,writes} = scriptContext();
-  context.validateHeaders_(sheet);
-  const result = context.upsertCount_({schemaVersion:contract.weeklyVersion, action:'saveJustification',
-    center:'1120',sku:'SKU1',almacen:'A',location:L1,round:1,corroboracion:'CUADRA',justifiedQuantity:2,
-    fecha:t1,comentarioJustificacion:'Documento revisado',
-    workflow:{version:1,status:'PENDIENTE_JUSTIFICACION',round:1,countStage:0}});
-  assert.equal(result.item.Cantidad_Fisica_Final, 10);
-  assert.equal(grid[1][10], 10);
-  assert.equal(grid[1][11], 10);
-  assert.equal(grid[1][12], 8);
-  assert.equal(grid[1][24], 2);
-  assert.ok(writes.every(w => !(w.column <= 11 && w.column + w.width > 11)));
-  assert.throws(()=>context.upsertCount_({sku:'SKU1'}), /Actualice la appweb/);
-  grid[0][11]='Total Conteo';
-  assert.throws(()=>context.validateHeaders_(sheet), /columna 12/);
-});
+for (const script of ['InventoryWebhookSemanales.gs', 'produccion/InventoryWebhookSemanales.gs']) {
+  test(`${script}: validates the 44 headers and never writes Stock Sistema (L) or Sobrestock (G)`, () => {
+    const {context,grid,sheet,writes} = scriptContext(base({Sobrestock:'9Z99999Z99'}), script);
+    context.validateHeaders_(sheet);
+    const result = context.upsertCount_({schemaVersion:contract.weeklyVersion, action:'saveJustification',
+      center:'1120',sku:'SKU1',almacen:'A',location:L1,round:1,corroboracion:'CUADRA',
+      fecha:t1,comentarioJustificacion:'Documento revisado',
+      workflow:{version:1,status:'PENDIENTE_JUSTIFICACION',round:1,countStage:0}});
+    assert.equal(result.item.Cantidad_Fisica_Final, 10);
+    assert.equal(grid[1][6], '9Z99999Z99', 'G: Sobrestock preserved');
+    assert.equal(grid[1][11], 10, 'L: Stock Sistema unchanged');
+    assert.equal(grid[1][12], 10, 'M: Cantidad Física Final reconciled');
+    assert.equal(grid[1][13], 8, 'N: Total Conteo preserved');
+    assert.equal(grid[1][25], 2, 'Z: Cant. Justificada 1');
+    assert.ok(writes.every(w => w.column + w.width - 1 < 7 || w.column > 12), 'No write touches G..L');
+    assert.throws(()=>context.upsertCount_({sku:'SKU1'}), /Actualice la appweb/);
+    grid[0][12]='Total Conteo';
+    assert.throws(()=>context.validateHeaders_(sheet), /columna 13/);
+  });
+}
 
 function metricsService(items) {
   const module = {exports:{}};
@@ -174,7 +199,8 @@ test('weekly metrics compare original M and reconciled L against fixed K, includ
 });
 
 test('weekly ERU scores only a single valid primary location, independently of quantity or CUADRA', async () => {
-  const items = [base({SKU:'ONE'}),base({SKU:'TWO',Ubicacion_1:L2}),
+  // ONE also has an overstock location, which must not lower its 100%.
+  const items = [base({SKU:'ONE',Sobrestock:L3}),base({SKU:'TWO',Ubicacion_1:L2}),
     base({SKU:'THREE',Ubicacion_1:L2,Ubicacion_2:L3}),base({SKU:'BAD',Ubicacion:'L1'})];
   const before = await metricsService(items).getDashboardMetrics({});
   const after = await metricsService(items.map(item=>justify(item,2))).getDashboardMetrics({});

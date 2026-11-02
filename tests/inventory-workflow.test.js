@@ -114,9 +114,10 @@ test('weekly CUADRA without recount can close with L reconciled, K/M preserved a
   service.submitInventoryForReview({inventoryId:'WEEK-COMP',user});
   const signedBefore=JSON.stringify(service.getInventoryRaw('WEEK-COMP').items[0].counterEvidence.signed);
   const calls=gasCalls.length;
-  await assert.rejects(save('WEEK-COMP',item,'CUADRA'),/cantidad que compensa/);
+  await assert.rejects(save('WEEK-COMP',item,'CUADRA',1,'Cantidad equivocada.',3),/debe ser 2/);
   assert.equal(gasCalls.length,calls);
-  await save('WEEK-COMP',item,'CUADRA',1,'Dos unidades compensadas con documento.',2);
+  // CUADRA compensates automatically; no quantity has to be typed.
+  await save('WEEK-COMP',item,'CUADRA',1,'Dos unidades compensadas con documento.');
   const stored=service.getInventoryRaw('WEEK-COMP');
   assert.equal(stored.items[0].Stock_Sistema,10);
   assert.equal(stored.items[0].Stock_Total,8);

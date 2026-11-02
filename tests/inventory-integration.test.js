@@ -169,8 +169,9 @@ test('photo uploads reach Google for damaged evidence and both justification rou
 });
 
 test('Apps Script and Node share exactly the same quantity contract',()=>{
-  const server=fs.readFileSync(path.join(root,'src/services/inventoryContract.js'),'utf8').replace("if (typeof module !== 'undefined') module.exports = InventoryContract;",'');
-  const gas=fs.readFileSync(path.join(root,'integrations/apps-script/InventoryWebhook.gs'),'utf8');
+  const lf=text=>text.replace(/\r\n/g,'\n');
+  const server=lf(fs.readFileSync(path.join(root,'src/services/inventoryContract.js'),'utf8')).replace("if (typeof module !== 'undefined') module.exports = InventoryContract;",'').trimEnd();
+  const gas=lf(fs.readFileSync(path.join(root,'integrations/apps-script/InventoryWebhook.gs'),'utf8'));
   assert.ok(gas.includes(server));
   new vm.Script(gas);
 });

@@ -2,10 +2,14 @@
 const InventoryContract = (() => {
   const columns = ["SKU","Codigo_Barras","Descripcion","Ubicacion","Ubicacion_1","Ubicacion_2","Almacen","Clasificacion_ABC","Unidad","Costo_Unitario","Stock_Sistema","Stock_Total","Stock_Buen_Estado","Mal_estado","Diferencia","Costo_Diferencia","Fecha_Ultimo_Conteo","Responsable","Fecha_Primera_Justificacion","Estado","Razon","Comentario_Justificacion","Responsable_Justificacion","Fecha_Reconteo","Stock_Total_Reconteo","Reconteo","Malestado_Reconteo","Diferencia_Final","Costo_Diferencia_Final","Fecha_Justificacion_2","Estado_Justificacion_2","Razon_Justificacion_2","Comentario_Justificacion_2","Responsable_Justificacion_2","Fecha_Reconteo_2","Stock_Total_Reconteo_2","Reconteo_2","Malestado_Reconteo_2","Diferencia_Final_2","Costo_Diferencia_Final_2"];
   const has = v => v !== undefined && v !== null && String(v).trim() !== '';
-  const weeklyVersion = 'WEEKLY_43_V1';
-  const weeklyColumns = [...columns.slice(0,11), 'Cantidad_Fisica_Final', ...columns.slice(11,23),
+  // Weekly sheets (44 columns A:AR): G holds the overstock location, K the system stock
+  // as the immutable starting point and M the reconciled final physical quantity.
+  const weeklyVersion = 'WEEKLY_44_V1';
+  const weeklyVersions = [weeklyVersion, 'WEEKLY_43_V1'];
+  const weeklyColumns = [...columns.slice(0,6), 'Sobrestock', ...columns.slice(6,11), 'Cantidad_Fisica_Final', ...columns.slice(11,23),
     'Cantidad_Justificada_1', ...columns.slice(23,34), 'Cantidad_Justificada_2', ...columns.slice(34)];
-  const weeklyHeaders = ['Sku','Codigo de Barras','Descripcion','Ubicacion','Ubicación 1','Ubicación 2','Almacen',
+  const weeklyMasterColumns = weeklyColumns.slice(0, weeklyColumns.indexOf('Stock_Sistema') + 1);
+  const weeklyHeaders = ['Sku','Codigo de Barras','Descripcion','Ubicacion','Ubicación 1','Ubicación 2','Sobrestock','Almacen',
     'CLasificacion ABC','Unidad','Costo Unitario','Stock Sistema','Cantidad Fisica Final','Total Conteo','Conteo B/E',
     'Conteo M/E','Diferencia','Costo Diferencia','Fecha Ultimo Conteo','Responsable Conteo','Fech. Primera Justificacion',
     'Estado','Razón','Comentario Justificación','Responsable Justificación','Cant. Justificada 1','Fecha Reconteo 1',
@@ -13,7 +17,7 @@ const InventoryContract = (() => {
     'Fecha de Justificacion 2','Estado de Jutificacion 2','Razon Justificacion 2','Comentario Justificacion 2',
     'Responsable Justificacion 2','Cant. Justificada 2','Fecha Reconteo 2','Total Reconteo 2','Reconteo B/E 2',
     'Reconteo M/E 2','Diferencia Reconteo 2','Costo Diferencia Reconteo 2'];
-  const isWeekly = r => r?.Schema_Version === weeklyVersion;
+  const isWeekly = r => weeklyVersions.includes(r?.Schema_Version);
   const isWeeklyType = type => ['SEMANAL','SEMANALES'].includes(String(type || '').trim().toUpperCase());
   const first = (...v) => v.find(has);
   const identity = v => String(v ?? '').trim().toUpperCase();
@@ -130,7 +134,7 @@ const InventoryContract = (() => {
         ||[p.countPhase].some(v=>String(v||'').startsWith('RECONTEO'))
         ||![p.stockBuenEstado,p.stockFisico,p.stockTotal].some(has))throw new Error('Inicio semanal inválido');
       // A newly created inventory starts its own observations; the previous cycle stays in its archived copy.
-      original={...Object.fromEntries(weeklyColumns.slice(0,11).map(key=>[key,original[key]])),
+      original={...Object.fromEntries(weeklyMasterColumns.map(key=>[key,original[key]])),
         Schema_Version:weeklyVersion,id:original.id};
     }
     const r=normalize(original);
@@ -180,10 +184,12 @@ const InventoryContract = (() => {
       const originalStock=first(p.originalStockSistema,p.stockSistemaOriginal,r.Stock_Sistema_Original,r.Stock_Sistema);
       r.Stock_Sistema_Original=isWeekly(r)?r.Stock_Sistema:number(originalStock,'Stock_Sistema_Original');
       if(isWeekly(r)){
+        // K never changes: CUADRA records the compensation that makes M equal to K (zero difference),
+        // while the counted totals keep showing what was physically observed.
         const needed=compensationNeeded(r,round);
-        const amount=state==='CUADRA'?quantity(first(p.justifiedQuantity,p.cantidadJustificada), 'cantidad justificada'):0;
-        if(state==='CUADRA'&&(!has(first(p.justifiedQuantity,p.cantidadJustificada))&&needed!==0))throw new Error('Ingrese la cantidad que compensa la diferencia');
-        if(state==='CUADRA'&&amount!==Math.abs(needed))throw new Error('La cantidad justificada debe ser '+Math.abs(needed)+' para cuadrar la diferencia');
+        const supplied=first(p.justifiedQuantity,p.cantidadJustificada);
+        if(state==='CUADRA'&&has(supplied)&&quantity(supplied,'cantidad justificada')!==Math.abs(needed))
+          throw new Error('La cantidad justificada debe ser '+Math.abs(needed)+' para cuadrar la diferencia');
         r[round===2?'Cantidad_Justificada_2':'Cantidad_Justificada_1']=state==='CUADRA'?needed:0;
       }else if(state==='CUADRA'){
         const latest=[r.Stock_Total_Reconteo_2,r.Stock_Total_Reconteo,r.Stock_Total].find(has);
@@ -211,7 +217,7 @@ const InventoryContract = (() => {
     return result;
   }
   function member(r){return JSON.stringify([identity(r.SKU||r.sku),identity(r.Almacen||r.almacen||r.warehouse),identity(r.Ubicacion||r.ubicacion||r.location)]);}
-  return {columns,weeklyColumns,weeklyHeaders,weeklyVersion,isWeekly,isWeeklyType,stages,has,first,identity,number,quantity,date,
+  return {columns,weeklyColumns,weeklyMasterColumns,weeklyHeaders,weeklyVersion,weeklyVersions,isWeekly,isWeeklyType,stages,has,first,identity,number,quantity,date,
     normalize,status,update,finalItem,member,latestStage,latestPhysical,adjustment,compensationNeeded,finalQuantity,isValidLocation,locationScore};
 })();
 if (typeof module !== 'undefined') module.exports = InventoryContract;

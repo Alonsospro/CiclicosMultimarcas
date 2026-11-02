@@ -37,4 +37,4 @@ Los registros anteriores a esta actualización, sin autoría y firma suficientes
 
 La evaluación conserva la evidencia en la aplicación. Este cambio también incluye el contrato semanal de 43 columnas, K fija, las compensaciones Y/AK y el resultado conciliado L. El verificador siempre confirma cantidades físicas: una compensación documental no altera el conteo firmado ni aumenta automáticamente la confiabilidad del contador.
 
-Para instalarlo, seguir [Semanales: 43 columnas y compensaciones](semanales-43-columnas.md). Se debe actualizar el Apps Script semanal y publicar la appweb de esta misma versión.
+Para instalarlo, seguir [Semanales: 43 columnas y compensaciones](semanales-44-columnas.md). Se debe actualizar el Apps Script semanal y publicar la appweb de esta misma versión.
