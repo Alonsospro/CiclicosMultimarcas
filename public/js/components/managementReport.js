@@ -10,7 +10,7 @@
   };
   const NO_DATA = { key: 'nil', icon: '–', label: 'Sin datos', rank: -1 };
   const CAUSES = {
-    multiple: { label: 'En varias ubicaciones', rule: 'El código aparece en más de una ubicación.', color: '#203f83' },
+    multiple: { label: 'En varias ubicaciones', rule: 'Dentro de un mismo almacén, el código aparece en más de una ubicación.', color: '#203f83' },
     format: { label: 'Ubicación con formato no válido', rule: 'La ubicación no tiene los 10 caracteres de letras y números.', color: '#2a78d6' },
     none: { label: 'Sin ubicación principal', rule: 'El código no tiene ninguna ubicación registrada.', color: '#eda100' },
     additional: { label: 'Solo en ubicación adicional', rule: 'Tiene una sola ubicación, pero no es la principal.', color: '#8a93a3' }
@@ -109,7 +109,7 @@
     const loss = sum(CAUSE_KEYS, key => eru.causes[key]), max = Math.max(...CAUSE_KEYS.map(key => eru.causes[key]));
     const points = value => (eru.evaluated > 0 ? value / eru.evaluated * 100 : 0).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const rows = CAUSE_KEYS.slice().sort((a, b) => eru.causes[b] - eru.causes[a]).map(key => `<tr><td class="mr-strong mr-nowrap">${esc(CAUSES[key].label)}</td><td>${esc(CAUSES[key].rule)}</td><td>${hbar(eru.causes[key], max, 170, CAUSES[key].color, qty(eru.causes[key]))}</td><td class="num">${loss ? Math.round(eru.causes[key] / loss * 100) : 0}%</td><td class="num">− ${points(eru.causes[key])}</td></tr>`).join('');
-    return `<table><thead><tr><th>Causa</th><th>Qué significa</th><th>Códigos afectados</th><th class="num">% de la baja</th><th class="num">Puntos que resta</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="2">Total de códigos con baja</td><td>${qty(loss)} de ${qty(eru.evaluated)}</td><td class="num">${loss ? '100' : '0'}%</td><td class="num">− ${points(loss)}</td></tr></tfoot></table>`;
+    return `<table><thead><tr><th>Causa</th><th>Qué significa</th><th>Afectados</th><th class="num">% de la baja</th><th class="num">Puntos que resta</th></tr></thead><tbody>${rows}</tbody><tfoot><tr><td colspan="2">Total con baja (código por almacén)</td><td>${qty(loss)} de ${qty(eru.evaluated)}</td><td class="num">${loss ? '100' : '0'}%</td><td class="num">− ${points(loss)}</td></tr></tfoot></table>`;
   }
 
   const scaleLegend = `<div class="mr-legend">${Object.values(LEVELS).slice().reverse().map(lvl => `<span><i class="lvl-${lvl.key}"></i>${lvl.key === 'no' ? 'Menos de 95%: no cumple' : lvl.key === 'min' ? '95% a menos de 98%: mínimo' : lvl.key === 'ok' ? '98% o más: cumplimiento' : '100%: perfecto'}</span>`).join('')}</div>`;
@@ -174,7 +174,7 @@
         ${kpi({ label: 'Unidades correctas', value: pct(i.units), status: level(i.units), pair: [i.units1, i.units], line: `${qty(c.unitsExact)} de ${qty(c.units)} unidades`, sub: `Primer conteo: ${qty(c.unitsExact1)} (${pct(i.units1)})` })}
         ${kpi({ label: 'Códigos correctos', value: pct(i.codes), status: level(i.codes), pair: [i.codes1, i.codes], line: `${qty(c.skusExact)} de ${qty(c.skus)} códigos`, sub: `Primer conteo: ${qty(c.skusExact1)} (${pct(i.codes1)})` })}
         ${kpi({ label: 'Valor correcto', value: pct(i.money), status: level(i.money), pair: [i.money1, i.money], line: `${bs(i.valueExact)} de ${bs(c.value)}`, sub: `Primer conteo: ${bs(i.valueExact1)} (${pct(i.money1)})` })}
-        ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(c.eru.exact)} de ${qty(c.eru.evaluated)} códigos`, sub: `${qty(c.eru.evaluated - c.eru.exact)} códigos con baja · detalle en su página · no cuenta para el resultado`, cls: 'top-info' })}
+        ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(c.eru.exact)} de ${qty(c.eru.evaluated)} códigos por almacén`, sub: `${qty(c.eru.evaluated - c.eru.exact)} códigos con baja · detalle en su página · no cuenta para el resultado`, cls: 'top-info' })}
       </div>
       <div class="mr-row mr-c3">
         ${moneyPanel('Faltantes · del primer conteo al cierre', c.firstCount.shortage, c.shortage, 'líneas', c.value, RED)}
@@ -200,14 +200,14 @@
 
     const page3 = sheet('Ubicación (ERU) y causas de la baja', small, `
       <div class="mr-row mr-c13">
-        ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(c.eru.exact)} de ${qty(c.eru.evaluated)} códigos`, sub: 'No cuenta para el resultado de cumplimiento', cls: 'top-info' })}
+        ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(c.eru.exact)} de ${qty(c.eru.evaluated)} códigos por almacén`, sub: 'No cuenta para el resultado de cumplimiento', cls: 'top-info' })}
         ${panel('Causas de la baja', causeTable(c.eru))}
       </div>
       <div class="mr-row mr-c2">
         ${panel('Por almacén', `${eruGroups('Almacén', c.byWarehouse)}${causeLegend}`)}
         ${panel('Por clase ABC', eruGroups('Clase', c.byClass))}
       </div>
-      ${panel('Códigos con mayor valor entre los que tienen baja · lista completa en el Anexo E', issueTable(c.issues.slice(0, 5)), 'mr-plain')}`, 'Cada código entra en una sola causa. Las causas describen el dato registrado.');
+      ${panel('Códigos con mayor valor entre los que tienen baja · lista completa en el Anexo E', issueTable(c.issues.slice(0, 5)), 'mr-plain')}`, 'Cada almacén se evalúa por separado y cada código por almacén entra en una sola causa. Las causas describen el dato registrado.');
 
     const plan = [
       ['Regularizar faltantes principales', helpers.shortages.slice(0, 5), helpers.cost, ''],
@@ -231,13 +231,13 @@
       sheet(`Anexo A · Faltantes`, `${qty(c.shortage.lines)} líneas · ${qty(c.shortage.units)} unidades · ${bs(c.shortage.cost)}`, annexTable(helpers.shortages, helpers, RED, '−', 'Sin faltantes.'), small),
       sheet(`Anexo B · Sobrantes`, `${qty(c.surplus.lines)} líneas · ${qty(c.surplus.units)} unidades · ${bs(c.surplus.cost)}`, annexTable(helpers.surpluses, helpers, BLUE, '+', 'Sin sobrantes.'), small),
       sheet(`Anexo C · Averías`, `${qty(c.damage.lines)} líneas · ${qty(c.damage.units)} unidades · ${bs(c.damage.cost)}`, `<table data-split><thead><tr><th>Código</th><th>Descripción</th><th>Clase</th><th>Almacén · ubicación</th><th class="num">Unidades</th><th>Valor Bs</th><th>Acción</th></tr></thead><tbody>${helpers.damaged.map(item => `<tr><td>${esc(item.sku)}</td><td>${esc(item.descripcion)}</td><td>${esc(item.abc)}</td><td>${esc(item.almacen)} · ${esc(item.ubicacion)}</td><td class="num">${qty(item.malEstadoFinal ?? item.malEstado)}</td><td>${hbar(num(item.costoMalEstadoFinal), Math.max(...helpers.damaged.map(d => num(d.costoMalEstadoFinal)), 1), 80, AMBER, decimal(item.costoMalEstadoFinal))}</td><td>Validar garantía o baja</td></tr>`).join('') || '<tr><td colspan="7">Sin averías.</td></tr>'}</tbody></table>`, small),
-      sheet(`Anexo D · Códigos en varias ubicaciones`, `${qty((metrics.multiLocationSkus || []).length)} códigos`, multiLocationTable(metrics.multiLocationSkus || []), small),
+      sheet(`Anexo D · Códigos en varias ubicaciones`, `${qty((metrics.multiLocationSkus || []).filter(sku => sku.severalInWarehouse).length)} códigos en un mismo almacén`, multiLocationTable((metrics.multiLocationSkus || []).filter(sku => sku.severalInWarehouse)), small),
       sheet(`Anexo E · Códigos con baja de ubicación`, `${qty(c.issues.length)} códigos`, issueTable(c.issues), small),
       sheet('Anexo F · Cálculo y responsables', 'Referencia', `<table class="mr-defs"><tbody>
         <tr><th>Unidades correctas<small>ERI de cantidad</small></th><td>Unidades conformes ÷ unidades del sistema.</td></tr>
         <tr><th>Códigos correctos<small>ERI de SKU</small></th><td>Códigos sin diferencia ÷ códigos revisados.</td></tr>
         <tr><th>Valor correcto<small>ERI monetario</small></th><td>(Valor del sistema − faltantes − sobrantes) ÷ valor del sistema. Un sobrante no compensa un faltante.</td></tr>
-        <tr><th>Ubicación correcta<small>ERU</small></th><td>Códigos con una sola ubicación, que es la principal y tiene 10 caracteres ÷ códigos evaluados. No cuenta para el resultado.</td></tr>
+        <tr><th>Ubicación correcta<small>ERU</small></th><td>Cada almacén se evalúa por separado: códigos con una sola ubicación en ese almacén, que es la principal y tiene 10 caracteres ÷ códigos evaluados por almacén. No cuenta para el resultado.</td></tr>
         <tr><th>Escala NIBOL Multimarcas</th><td>100%: perfecto cumplimiento · 98% o más: cumplimiento · 95% a menos de 98%: mínimo de cumplimiento · menos de 95%: no cumple.</td></tr>
         <tr><th>Resultado del informe</th><td>El nivel más bajo entre unidades, códigos y valor.</td></tr>
         <tr><th>Responsables de conteo</th><td>${counters.map(esc).join(', ') || 'No registrados'}</td></tr>
@@ -313,7 +313,7 @@
         ${kpi({ label: 'Faltantes', value: bs(total.shortage.cost), line: `${qty(total.shortage.lines)} líneas · ${qty(total.shortage.units)} unidades`, sub: `${total.value > 0 ? pct(total.shortage.cost / total.value * 100) : 'No disponible'} del valor revisado`, cls: 'top-short' })}
         ${kpi({ label: 'Sobrantes', value: bs(total.surplus.cost), line: `${qty(total.surplus.lines)} líneas · ${qty(total.surplus.units)} unidades`, sub: `${total.value > 0 ? pct(total.surplus.cost / total.value * 100) : 'No disponible'} del valor revisado`, cls: 'top-surplus' })}
         ${kpi({ label: 'Averías', value: bs(total.damage.cost), line: `${qty(total.damage.lines)} líneas · ${qty(total.damage.units)} unidades`, sub: 'Se informan aparte', cls: 'top-damage' })}
-        ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(total.eru.exact)} de ${qty(total.eru.evaluated)} códigos`, sub: 'No cuenta para el resultado', cls: 'top-info' })}
+        ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(total.eru.exact)} de ${qty(total.eru.evaluated)} códigos por almacén`, sub: 'No cuenta para el resultado', cls: 'top-info' })}
       </div>
       ${panel(`Estado por centro · ${levelsLine}`, `<div class="mr-tiles">${byWorst.map(c => { const low = lowest(c); return `<div class="mr-tile lvl-${c.lvl.key}"><b>${esc(c.name)}</b><strong>${c.lvl.icon} ${pct(low[1])}</strong><small>${esc(c.lvl.label)}<br>${low[0]}: ${low[2]}</small></div>`; }).join('')}${pending.map(c => `<div class="mr-tile lvl-nil"><b>${esc(c.code)} - ${esc(c.name)}</b><strong>–</strong><small>Sin cierre en este corte</small></div>`).join('')}</div>${scaleLegend}`)}`, 'Totales calculados sumando las bases de cada centro. Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%.', 'Resumen consolidado');
 
@@ -347,10 +347,10 @@
     const maxLoss = Math.max(...eruRows.map(lossOf), 1);
     const page4 = sheet('Ubicación (ERU) y causas de la baja', 'Todos los centros', `
       <div class="mr-row mr-c13">
-        ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(total.eru.exact)} de ${qty(total.eru.evaluated)} códigos`, sub: 'No cuenta para el resultado de cumplimiento', cls: 'top-info' })}
+        ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(total.eru.exact)} de ${qty(total.eru.evaluated)} códigos por almacén`, sub: 'No cuenta para el resultado de cumplimiento', cls: 'top-info' })}
         ${panel('Causas de la baja · todos los centros', causeTable(total.eru))}
       </div>
-      ${panel('Por centro · peor ubicación primero', `<table data-split><thead><tr><th>Centro</th><th class="num">Correctos</th><th class="num">%</th><th class="num">Con baja</th><th>Causas</th>${CAUSE_KEYS.map(key => `<th class="num">${esc({ multiple: 'Varias ubic.', format: 'Formato', none: 'Sin ubic.', additional: 'Solo adic.' }[key])}</th>`).join('')}</tr></thead><tbody>${eruRows.map(c => `<tr><td class="mr-strong">${esc(c.name)}</td><td class="num">${qty(c.eru.exact)} / ${qty(c.eru.evaluated)}</td><td class="num">${pct(c.i.eru)}</td><td class="num">${qty(lossOf(c))}</td><td class="mr-wide">${stack(c.eru.causes, maxLoss, 230)}</td>${CAUSE_KEYS.map(key => `<td class="num">${qty(c.eru.causes[key])}</td>`).join('')}</tr>`).join('')}</tbody></table>${causeLegend}`, 'mr-plain')}`, 'Cada código entra en una sola causa. La lista de códigos está en el informe de cada centro.');
+      ${panel('Por centro · peor ubicación primero', `<table data-split><thead><tr><th>Centro</th><th class="num">Correctos</th><th class="num">%</th><th class="num">Con baja</th><th>Causas</th>${CAUSE_KEYS.map(key => `<th class="num">${esc({ multiple: 'Varias ubic.', format: 'Formato', none: 'Sin ubic.', additional: 'Solo adic.' }[key])}</th>`).join('')}</tr></thead><tbody>${eruRows.map(c => `<tr><td class="mr-strong">${esc(c.name)}</td><td class="num">${qty(c.eru.exact)} / ${qty(c.eru.evaluated)}</td><td class="num">${pct(c.i.eru)}</td><td class="num">${qty(lossOf(c))}</td><td class="mr-wide">${stack(c.eru.causes, maxLoss, 230)}</td>${CAUSE_KEYS.map(key => `<td class="num">${qty(c.eru.causes[key])}</td>`).join('')}</tr>`).join('')}</tbody></table>${causeLegend}`, 'mr-plain')}`, 'Cada almacén se evalúa por separado y cada código por almacén entra en una sola causa. La lista está en el informe de cada centro.');
 
     const helpers = differences((metrics.discrepanciesList || []).filter(item => item && typeof item === 'object'));
     const globalTable = (rows, color, sign, all) => `<table><thead><tr><th>Centro</th><th>Código</th><th>Clase</th><th class="num">Unid.</th><th>Bs</th><th class="num">% del total</th><th>Motivo</th></tr></thead><tbody>${rows.map(item => `<tr><td>${esc(item.center)}</td><td>${esc(item.sku)}</td><td>${esc(item.abc)}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), Math.max(helpers.cost(rows[0]), 1), 90, color, qty(helpers.cost(item)))}</td><td class="num">${all ? pct(helpers.cost(item) / all * 100) : '—'}</td><td>${esc(justification(item))}</td></tr>`).join('') || '<tr><td colspan="7">Sin registros.</td></tr>'}</tbody></table>`;

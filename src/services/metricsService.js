@@ -1078,13 +1078,42 @@ class MetricsService {
         if (isSkuAudited) {
           totalSkusAudited++;
           centerBreakdown[invCenter].skusAudited++;
-          const onlyLocation = locationsCount === 1 ? [...distinctLocations.values()][0] : null;
-          const locationScore = onlyLocation?.isPrimary && contract.isValidLocation(onlyLocation.ubicacion) ? 1 : 0;
-          skuObj.eruPercent = locationScore * 100;
-          totalLocationsEvaluated++;
-          exactMatchingLocations += locationScore;
-          centerBreakdown[invCenter].locationsEvaluated++;
-          centerBreakdown[invCenter].locationsExact += locationScore;
+          // ERU: cada almacén del código se evalúa por separado; tener stock en
+          // dos almacenes no baja el indicador si cada uno tiene una ubicación válida.
+          const warehouseLocations = new Map();
+          distinctLocations.forEach(location => {
+            const key = contract.identity(location.almacen);
+            if (!warehouseLocations.has(key)) warehouseLocations.set(key, []);
+            warehouseLocations.get(key).push(location);
+          });
+          const auditedWarehouses = new Set(auditedLocations.map(location => contract.identity(location.almacen)));
+          const evaluatedWarehouses = [...warehouseLocations.entries()].filter(([key]) => auditedWarehouses.has(key));
+          let exactWarehouses = 0;
+          evaluatedWarehouses.forEach(([key, locations]) => {
+            const only = locations.length === 1 ? locations[0] : null;
+            const locationScore = only?.isPrimary && contract.isValidLocation(only.ubicacion) ? 1 : 0;
+            exactWarehouses += locationScore;
+            totalLocationsEvaluated++;
+            exactMatchingLocations += locationScore;
+            centerBreakdown[invCenter].locationsEvaluated++;
+            centerBreakdown[invCenter].locationsExact += locationScore;
+            const rows = [...new Map(skuObj.locations.filter(location => contract.identity(location.almacen) === key).map(location => [location.memberKey, location])).values()];
+            const units = rows.reduce((acc, location) => acc + (location.stockSistema || 0), 0);
+            reportCollector.addLocationResult({
+              center: invCenter,
+              centerName: centerDisplayName,
+              warehouse: locations[0].almacen,
+              abc: skuObj.abc,
+              cause: locationScore === 1 ? null : (reportBreakdown.eruCause(locations, contract.isValidLocation) || 'format'),
+              sku: skuObj.sku,
+              descripcion: skuObj.descripcion,
+              locations,
+              units,
+              value: units * (skuObj.unitCost || 0)
+            });
+          });
+          skuObj.eruPercent = evaluatedWarehouses.length > 0 ? (exactWarehouses / evaluatedWarehouses.length) * 100 : 0;
+          const severalInWarehouse = [...warehouseLocations.values()].some(locations => locations.length > 1);
 
           const totalStockSistema = quantityRows.reduce((acc, l) => acc + (l.stockSistema || 0), 0);
           const totalStockTotal1 = auditedLocations.reduce((acc, l) => {
@@ -1122,20 +1151,13 @@ class MetricsService {
             centerBreakdown[invCenter].skusExactFinal = (centerBreakdown[invCenter].skusExactFinal || 0) + 1;
           }
 
-          const skuSystemUnits = quantityRows.reduce((acc, l) => acc + (l.stockSistema || 0), 0);
           reportCollector.addSku({
             center: invCenter,
             centerName: centerDisplayName,
             warehouse: skuObj.locations[0]?.almacen || '',
             abc: skuObj.abc,
             exact1: isSkuExact1,
-            exactFinal: isSkuExactFinal,
-            cause: locationScore === 1 ? null : (reportBreakdown.eruCause([...distinctLocations.values()], contract.isValidLocation) || 'format'),
-            sku: skuObj.sku,
-            descripcion: skuObj.descripcion,
-            locations: [...distinctLocations.values()],
-            units: skuSystemUnits,
-            value: skuSystemUnits * (skuObj.unitCost || 0)
+            exactFinal: isSkuExactFinal
           });
 
           // Multi-location tracking
@@ -1157,6 +1179,7 @@ class MetricsService {
               totalDiferencia: isFullyAudited ? totalDiff1 : null,
               allLocationsExact,
               eruPercent: skuObj.eruPercent,
+              severalInWarehouse,
               isSkuExact: isSkuExact1,
               isSkuExactFinal,
               status: isSkuExactFinal ? 'EXACTO_ERI_FINAL' : (isSkuExact1 ? 'EXACTO_ERI' : (allLocationsExact ? 'EXACTO' : (isFullyAudited ? 'CON_DIFERENCIAS' : 'EN_PROGRESO')))
@@ -1651,7 +1674,7 @@ class MetricsService {
           ? parseFloat((((discrepancias1erCount - discrepanciasFinalCount) / discrepancias1erCount) * 100).toFixed(1))
           : 0.0,
         
-        // 2. ERU: promedio por SKU; 100% solo para una ubicación primaria válida de 10 caracteres.
+        // 2. ERU: por código y almacén; 100% solo con una ubicación primaria válida de 10 caracteres en ese almacén.
         eruPercent: parseFloat(eruPercent),
         eruModel: 'SKU_LOCATION_VALIDITY',
         totalSkusEvaluatedForEru: totalLocationsEvaluated,

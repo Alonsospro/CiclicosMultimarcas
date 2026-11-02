@@ -772,7 +772,7 @@ window.DashboardView = {
     if (elEru) elEru.textContent = `${eruVal.toFixed(1)}%`;
     const elEruDetail = document.getElementById('stat-eru-detail');
     if (elEruDetail) {
-      elEruDetail.textContent = `${eruExactSkus} de ${eruSkus} SKU con una ubicación válida de 10 caracteres`;
+      elEruDetail.textContent = `${eruExactSkus} de ${eruSkus} códigos por almacén con una ubicación válida de 10 caracteres`;
     }
     const elEruBadge = document.getElementById('stat-eru-multiloc-badge');
     if (elEruBadge) {
@@ -836,7 +836,6 @@ window.DashboardView = {
     const eriMonetarioInicial = Number(summary.eriMonetarioInicial !== undefined ? summary.eriMonetarioInicial : (summary.eriMonetario?.inicial !== undefined ? summary.eriMonetario.inicial : 100.0));
     const eriMonetarioFinal = Number(summary.eriMonetarioFinal !== undefined ? summary.eriMonetarioFinal : (summary.eriMonetario?.final !== undefined ? summary.eriMonetario.final : 100.0));
     const totalSystemValue = summary.totalAuditedSystemValue || summary.eriMonetario?.totalSystemValue || 0;
-    const diffCostFinal = summary.impactoFinancieroFinal !== undefined ? summary.impactoFinancieroFinal : (summary.eriMonetario?.diffCostFinal || 0);
 
     // 1. ERI Principal: Cantidad de Ítems
     const elEriItemsFinal = document.getElementById('stat-eri-items-final');
@@ -889,8 +888,8 @@ window.DashboardView = {
     const elEriMoneyDetail = document.getElementById('stat-eri-money-detail');
     if (elEriMoneyDetail) {
       elEriMoneyDetail.textContent = totalSystemValue > 0
-        ? `Valor auditado: ${fmtMoney(totalSystemValue)} (Desv: ${fmtMoney(diffCostFinal)})`
-        : `Desviación final: ${fmtMoney(diffCostFinal)}`;
+        ? `Valor auditado: ${fmtMoney(totalSystemValue)} · Faltantes: ${fmtMoney(summary.faltantesFinal?.cost || 0)} · Sobrantes: ${fmtMoney(summary.sobrantesFinal?.cost || 0)}`
+        : `Faltantes: ${fmtMoney(summary.faltantesFinal?.cost || 0)} · Sobrantes: ${fmtMoney(summary.sobrantesFinal?.cost || 0)}`;
     }
 
     // ==========================================
@@ -922,13 +921,7 @@ window.DashboardView = {
     if (elFal1Val) elFal1Val.textContent = `-${fal1.units || 0} uds (-${fmtMoney(fal1.cost || 0)})`;
 
     // 1.3 Impacto Financiero 1er Conteo (Col. P)
-    const elCost1 = document.getElementById('stat-diff-cost-1er');
-    const cost1Val = summary.impactoFinanciero1erNeto !== undefined ? summary.impactoFinanciero1erNeto : (summary.impactoFinanciero1er !== undefined ? summary.impactoFinanciero1er : (summary.impactoFinanciero?.initialNetDiffCost ?? summary.impactoFinanciero?.initialAbsoluteDiffCost ?? summary.totalAbsoluteDiffCost ?? 0));
-    const absoluteInitialImpact = Number(summary.impactoFinanciero1erAbsoluto ?? summary.impactoFinanciero?.initialAbsoluteDiffCost ?? Math.abs(cost1Val));
-    if (elCost1) {
-      elCost1.textContent = fmtMoney(cost1Val);
-      elCost1.style.color = cost1Val === 0 ? 'var(--success)' : 'var(--danger)';
-    }
+    this.renderMoneyImpact(document.getElementById('stat-diff-cost-1er'), fal1.cost, sob1.cost, fmtMoney);
 
     // ==========================================
     // SECCIÓN 2: ESTADO FINAL (Última Diferencia completada: AM, AB, O)
@@ -960,18 +953,13 @@ window.DashboardView = {
 
     // 2.4 Impacto Financiero Final
     const fin = summary.impactoFinanciero || {};
-    const elCostFinal = document.getElementById('stat-diff-cost-final');
-    const costFinalVal = summary.impactoFinancieroFinal !== undefined ? summary.impactoFinancieroFinal : (fin.finalAbsoluteDiffCost !== undefined ? fin.finalAbsoluteDiffCost : (summary.totalAbsoluteDiffCost || 0));
-    const absoluteFinalImpact = Number(summary.impactoFinancieroFinalAbsoluto ?? fin.finalAbsoluteDiffCost ?? Math.abs(costFinalVal));
-    if (elCostFinal) {
-      elCostFinal.textContent = fmtMoney(costFinalVal);
-      elCostFinal.style.color = costFinalVal === 0 ? 'var(--success)' : 'var(--danger)';
-    }
+    this.renderMoneyImpact(document.getElementById('stat-diff-cost-final'), falFinal.cost, sobFinal.cost, fmtMoney);
 
     const elCostFinalDetail = document.getElementById('stat-diff-cost-final-detail');
     if (elCostFinalDetail) {
-      const clarified = absoluteInitialImpact - absoluteFinalImpact;
-      elCostFinalDetail.textContent = `Exposición absoluta: ${fmtMoney(absoluteFinalImpact)} · ${clarified > 0 ? `Aclarado: ${fmtMoney(clarified)}` : 'Saldo definitivo'}`;
+      const clearedShortage = Math.max(0, Number(fal1.cost || 0) - Number(falFinal.cost || 0));
+      const clearedSurplus = Math.max(0, Number(sob1.cost || 0) - Number(sobFinal.cost || 0));
+      elCostFinalDetail.textContent = `Aclarado: ${fmtMoney(clearedShortage)} en faltantes · ${fmtMoney(clearedSurplus)} en sobrantes`;
     }
 
     const elClarifiedBadge = document.getElementById('stat-clarified-badge');
@@ -996,8 +984,21 @@ window.DashboardView = {
     if (legacySq) legacySq.textContent = sqFinalCount.toLocaleString();
     const legacyDisc = document.getElementById('stat-discrepancies-count');
     if (legacyDisc) legacyDisc.textContent = discFinalCount.toLocaleString();
-    const legacyCost = document.getElementById('stat-diff-cost');
-    if (legacyCost) legacyCost.textContent = fmtMoney(costFinalVal);
+    this.renderMoneyImpact(document.getElementById('stat-diff-cost'), falFinal.cost, sobFinal.cost, fmtMoney);
+  },
+
+  // Shortages and surpluses are separate impacts: they are never netted.
+  renderMoneyImpact(element, shortage, surplus, fmtMoney) {
+    if (!element) return;
+    element.textContent = '';
+    element.style.fontSize = '1.05rem';
+    element.style.lineHeight = '1.35';
+    element.style.color = 'var(--text-main)';
+    [['Faltantes', shortage], ['Sobrantes', surplus]].forEach(([label, amount]) => {
+      const row = document.createElement('div');
+      row.textContent = `${label}: ${fmtMoney(Number(amount) || 0)}`;
+      element.appendChild(row);
+    });
   },
 
   renderCharts(data) {
@@ -1186,17 +1187,17 @@ window.DashboardView = {
       this.chartCenters = new Chart(ctxCenters, {
         type: 'bar',
         data: {
-          labels: labels.length > 0 ? labels : ['Warnes', 'Av. Banzer', 'Montero'],
+          labels,
           datasets: [
             {
               label: 'ERI % (Registro)',
-              data: eriData.length > 0 ? eriData : [0, 0, 0],
+              data: eriData,
               backgroundColor: '#10b981',
               borderRadius: 6
             },
             {
               label: 'ERU % (Ubicación)',
-              data: eruData.length > 0 ? eruData : [0, 0, 0],
+              data: eruData,
               backgroundColor: '#38bdf8',
               borderRadius: 6
             }
@@ -1739,63 +1740,72 @@ window.DashboardView = {
       // -------------------------------------------------------------
       // HOJA 1: RESUMEN GERENCIAL Y LOS 3 ERIS
       // -------------------------------------------------------------
-      const eriItem1 = Number(summary.eriItemInicial !== undefined ? summary.eriItemInicial : (summary.itemsCuadrados1erPercent !== undefined ? summary.itemsCuadrados1erPercent : 89.63));
-      const eriItemF = Number(summary.eriItemFinal !== undefined ? summary.eriItemFinal : (summary.itemsCuadradosFinalPercent !== undefined ? summary.itemsCuadradosFinalPercent : 99.67));
-      const eriSku1 = Number(summary.eriSkuInicial !== undefined ? summary.eriSkuInicial : (summary.eriSku?.inicial !== undefined ? summary.eriSku.inicial : 90.0));
-      const eriSkuF = Number(summary.eriSkuFinal !== undefined ? summary.eriSkuFinal : (summary.eriSku?.final !== undefined ? summary.eriSku.final : 99.23));
-      const eriMoney1 = Number(summary.eriMonetarioInicial !== undefined ? summary.eriMonetarioInicial : (summary.eriMonetario?.inicial !== undefined ? summary.eriMonetario.inicial : 55.25));
-      const eriMoneyF = Number(summary.eriMonetarioFinal !== undefined ? summary.eriMonetarioFinal : (summary.eriMonetario?.final !== undefined ? summary.eriMonetario.final : 99.88));
+      const NOT_AVAILABLE = 'No disponible';
+      const known = (...values) => {
+        const value = values.find(entry => entry !== undefined && entry !== null && entry !== '' && Number.isFinite(Number(entry)));
+        return value === undefined ? null : Number(value);
+      };
+      const shown = value => value === null || value === undefined ? NOT_AVAILABLE : value;
+      const shareOf = (part, whole) => part === null || !whole ? NOT_AVAILABLE : `%`;
+      const eriItem1 = known(summary.eriItemInicial, summary.itemsCuadrados1erPercent);
+      const eriItemF = known(summary.eriItemFinal, summary.itemsCuadradosFinalPercent);
+      const eriSku1 = known(summary.eriSkuInicial, summary.eriSku?.inicial);
+      const eriSkuF = known(summary.eriSkuFinal, summary.eriSku?.final);
+      const eriMoney1 = known(summary.eriMonetarioInicial, summary.eriMonetario?.inicial);
+      const eriMoneyF = known(summary.eriMonetarioFinal, summary.eriMonetario?.final);
 
-      const totalAuditedUnits = summary.totalAuditedSystemUnits || summary.eriItems?.unitsTotal || 299;
-      const exactUnitsFinal = summary.itemsCuadradosFinalUnits !== undefined ? summary.itemsCuadradosFinalUnits : (summary.eriItems?.unitsExactFinal || 298);
+      const totalAuditedUnits = known(summary.totalAuditedSystemUnits, summary.eriItems?.unitsTotal);
+      const exactUnitsFinal = known(summary.itemsCuadradosFinalUnits, summary.eriItems?.unitsExactFinal);
 
-      const totalSkus = summary.totalSkusAudited || summary.eriSku?.total || 130;
-      const exactSkusFinal = summary.totalSkusExactFinal !== undefined ? summary.totalSkusExactFinal : (summary.eriSku?.exactFinal || 129);
+      const totalSkus = known(summary.totalSkusAudited, summary.eriSku?.total);
+      const exactSkusFinal = known(summary.totalSkusExactFinal, summary.eriSku?.exactFinal);
 
-      const totalSysValue = summary.totalAuditedSystemValue || 21873505.16;
-      const finalGrossImpact = Number(summary.impactoFinancieroFinalAbsoluto ?? summary.impactoFinanciero?.finalAbsoluteDiffCost ?? summary.totalAbsoluteDiffCost ?? 0);
-      const finalNetImpact = Number(summary.impactoFinancieroFinalNeto ?? summary.impactoFinancieroFinal ?? summary.impactoFinanciero?.finalNetDiffCost ?? 0);
-      const finalDeficitCost = Number(summary.faltantesFinal?.cost || 0);
+      const totalSysValue = known(summary.totalAuditedSystemValue);
+      const finalDeficitCost = known(summary.faltantesFinal?.cost);
+      const finalSurplusCost = known(summary.sobrantesFinal?.cost);
+      const moneyText = value => value === null ? NOT_AVAILABLE : `$ ${value.toLocaleString('es-BO', { minimumFractionDigits: 2 })}`;
+      const correctValue = totalSysValue === null ? null : totalSysValue - (finalDeficitCost || 0) - (finalSurplusCost || 0);
 
       // Escala de cumplimiento NIBOL Multimarcas.
       const getCorporateEvalText = (val) => {
+        if (val === null || val === undefined || !Number.isFinite(Number(val))) return NOT_AVAILABLE;
         const num = Number(val);
         if (num >= 100) return 'PERFECTO CUMPLIMIENTO (100%)';
         if (num >= 98) return 'CUMPLIMIENTO (≥98%)';
-        if (num >= 95) return 'MÍNIMO DE CUMPLIMIENTO (95% a <98%)';        return 'NO CUMPLE (<95%)';
+        if (num >= 95) return 'MÍNIMO DE CUMPLIMIENTO (95% a <98%)';
+        return 'NO CUMPLE (<95%)';
       };
 
       const wsResumenData = [
         ['NIBOL S.A. • CONTROL DE GESTIÓN Y AUDITORÍA DE INVENTARIO CÍCLICO'],
         ['CONSOLIDADO GERENCIAL DE MÉTRICAS (ERI, ERU, IMPACTO FINANCIERO)'],
         ['Fecha de Generación:', nowStr, 'Centro Operativo:', centerCode, 'Inventario:', invName],
-        ['Tipo de Inventario:', filters.type || 'CICLICO', 'Período:', filters.period || 'TODO', 'Estado Cierre:', selectedInventory?.status || 'FINALIZADO'],
+        ['Tipo de Inventario:', filters.type || 'TODOS', 'Período:', filters.period || 'TODO', 'Estado Cierre:', selectedInventory?.status || 'No aplica'],
         [],
         ['1. MATRIZ DE EXACTITUD DE REGISTRO (LOS 3 ERIs OFICIALES)'],
         ['Indicador de Exactitud', '1er Conteo (%)', 'Conteo Final (%)', 'Conformes / Exactos', 'Total Evaluado', 'Escala Corporativa', 'Dictamen Gerencial'],
-        ['ERI Cantidad de Ítems (Principal)', eriItem1, eriItemF, `${exactUnitsFinal} existencias exactas`, `${totalAuditedUnits} existencias físicas`, '≥95.00% (Mínimo)', getCorporateEvalText(eriItemF)],
-        ['ERI de SKU (Códigos)', eriSku1, eriSkuF, `${exactSkusFinal} SKUs exactos`, `${totalSkus} códigos auditados`, '≥95.00% (Mínimo)', getCorporateEvalText(eriSkuF)],
-        ['ERI Monetario (Valor Patrimonial)', eriMoney1, eriMoneyF, `$ ${(totalSysValue - finalGrossImpact).toLocaleString('es-BO', {minimumFractionDigits: 2})}`, `$ ${totalSysValue.toLocaleString('es-BO', {minimumFractionDigits: 2})}`, '≥95.00% (Mínimo)', getCorporateEvalText(eriMoneyF)],
+        ['ERI Cantidad de Ítems (Principal)', shown(eriItem1), shown(eriItemF), `${shown(exactUnitsFinal)} existencias exactas`, `${shown(totalAuditedUnits)} existencias físicas`, '≥95.00% (Mínimo)', getCorporateEvalText(eriItemF)],
+        ['ERI de SKU (Códigos)', shown(eriSku1), shown(eriSkuF), `${shown(exactSkusFinal)} SKUs exactos`, `${shown(totalSkus)} códigos auditados`, '≥95.00% (Mínimo)', getCorporateEvalText(eriSkuF)],
+        ['ERI Monetario (Valor Patrimonial)', shown(eriMoney1), shown(eriMoneyF), moneyText(correctValue), moneyText(totalSysValue), '≥95.00% (Mínimo)', getCorporateEvalText(eriMoneyF)],
         [],
         ['2. CONCORDANCIA DE UBICACIONES EN ALMACÉN (ERU)'],
         ['Métrica ERU', 'Valor', 'Unidad de Medida', 'Observación Operativa'],
-        ['Exactitud de Ubicación (ERU)', summary.eruPercent !== undefined ? `${summary.eruPercent}%` : 'Sin evaluación', 'Porcentaje', 'Concordancia entre racks físicos y asignación en sistema'],
+        ['Exactitud de Ubicación (ERU)', summary.eruPercent !== undefined ? `${summary.eruPercent}%` : 'Sin evaluación', 'Porcentaje', 'Cada almacén se evalúa por separado'],
         ['Ítems en Múltiples Ubicaciones', (currentData.multiLocationSkus || []).length, 'Productos / SKUs', 'Artículos distribuidos en dos o más ubicaciones físicas'],
         ['Ítems con Ubicaciones Adicionales', (currentData.multiLocationSkus || []).filter(m => (m.locations || []).some(l => l.isAdditionalLocation)).length, 'Productos / SKUs', 'Mercadería detectada en racks no formalizados'],
         [],
         ['3. BALANCE FINANCIERO Y VALUACIÓN DE STOCK ($)'],
         ['Concepto Financiero', 'Monto Inicial ($)', 'Monto Final ($)', 'Variación Regularizada ($)', 'Dictamen Contable'],
-        ['Valor Total de Stock Auditado', totalSysValue, totalSysValue, 0, 'Valor patrimonial de sistema evaluado'],
-        ['Impacto por Faltantes (-$)', summary.faltantes1er?.cost || 0, finalDeficitCost, Math.max(0, (summary.faltantes1er?.cost || 0) - finalDeficitCost), 'Faltantes confirmados sujetos a nota de baja'],
+        ['Valor Total de Stock Auditado', shown(totalSysValue), shown(totalSysValue), 0, 'Valor patrimonial de sistema evaluado'],
+        ['Impacto por Faltantes (-$)', summary.faltantes1er?.cost || 0, finalDeficitCost || 0, Math.max(0, (summary.faltantes1er?.cost || 0) - (finalDeficitCost || 0)), 'Faltantes confirmados sujetos a nota de baja'],
         ['Impacto por Sobrantes (+$)', summary.sobrantes1er?.cost || 0, summary.sobrantesFinal?.cost || 0, Math.max(0, (summary.sobrantes1er?.cost || 0) - (summary.sobrantesFinal?.cost || 0)), 'Mercadería sobrante regularizada en sistema'],
-        ['Impacto Financiero Neto (Bs.)', summary.impactoFinanciero1erNeto ?? summary.impactoFinanciero1er ?? 0, summary.impactoFinancieroFinalNeto ?? summary.impactoFinancieroFinal ?? 0, summary.recountClarifiedAmount || 0, 'Suma firmada del costo de diferencia final'],
         [],
         ['4. BALANCE FÍSICO DE EXISTENCIAS / UNIDADES'],
         ['Estado de Conteo Físico', 'Existencias Físicas', '% Respecto al Total', 'Causa / Dictamen'],
-        ['Existencias Cuadradas (Exactas)', exactUnitsFinal, `${((exactUnitsFinal / totalAuditedUnits) * 100).toFixed(2)}%`, 'Validado sin observaciones en almacén'],
-        ['Existencias Sobrantes (+)', summary.sobrantesFinal?.units || 0, `${(((summary.sobrantesFinal?.units || 0) / totalAuditedUnits) * 100).toFixed(2)}%`, 'Aclarado en reconteo / Ingreso documentado'],
-        ['Existencias Faltantes (-)', summary.faltantesFinal?.units || 1, `${(((summary.faltantesFinal?.units || 1) / totalAuditedUnits) * 100).toFixed(2)}%`, 'Faltante definitivo / Ajuste contable'],
-        ['Existencias Dañadas / Segregadas', summary.totalDamagedItems || 0, `${(((summary.totalDamagedItems || 0) / totalAuditedUnits) * 100).toFixed(2)}%`, 'Segregación física por garantía de fábrica']
+        ['Existencias Cuadradas (Exactas)', shown(exactUnitsFinal), shareOf(exactUnitsFinal, totalAuditedUnits), 'Validado sin observaciones en almacén'],
+        ['Existencias Sobrantes (+)', shown(known(summary.sobrantesFinal?.units)), shareOf(known(summary.sobrantesFinal?.units), totalAuditedUnits), 'Aclarado en reconteo / Ingreso documentado'],
+        ['Existencias Faltantes (-)', shown(known(summary.faltantesFinal?.units)), shareOf(known(summary.faltantesFinal?.units), totalAuditedUnits), 'Faltante definitivo / Ajuste contable'],
+        ['Existencias Dañadas / Segregadas', shown(known(summary.totalDamagedItems)), shareOf(known(summary.totalDamagedItems), totalAuditedUnits), 'Segregación física por garantía de fábrica']
       ];
 
       const wsResumen = XLSX.utils.aoa_to_sheet(wsResumenData);
@@ -1817,24 +1827,22 @@ window.DashboardView = {
         ['NIBOL S.A. • DESEMPEÑO DE EXACTITUD POR CENTRO OPERATIVO'],
         ['Fecha de Generación:', nowStr],
         [],
-        ['Código Centro', 'Nombre de Sede', 'ERI Cant. Ítems (%)', 'ERI SKU (%)', 'ERI Monetario (%)', 'ERU Ubicación (%)', 'Ítems Auditados', 'Faltantes ($)', 'Sobrantes ($)', 'Impacto Neto ($)', 'Meta Corporativa', 'Cumplimiento Meta']
+        ['Código Centro', 'Nombre de Sede', 'ERI Cant. Ítems (%)', 'ERI SKU (%)', 'ERI Monetario (%)', 'ERU Ubicación (%)', 'Ítems Auditados', 'Faltantes ($)', 'Sobrantes ($)', 'Meta Corporativa', 'Cumplimiento Meta']
       ];
 
       if (centerStats && centerStats.length > 0) {
         centerStats.forEach(c => {
-          const eriVal = parseFloat(c.eri !== undefined ? c.eri : (c.accuracy || 0));
-          const eruVal = parseFloat(c.eru !== undefined ? c.eru : 95.0);
+          const eriVal = known(c.eriItemFinal, c.eri, c.accuracy);
           wsCentrosData.push([
-            c.center || '1300',
-            c.centerName || c.center || 'Warnes',
-            eriVal,
-            c.eriSku !== undefined ? parseFloat(c.eriSku) : eriVal,
-            c.eriMonetario !== undefined ? parseFloat(c.eriMonetario) : eriVal,
-            eruVal,
-            c.totalItems || 0,
+            shown(c.center),
+            shown(c.centerName || c.center),
+            shown(eriVal),
+            shown(known(c.eriSkuFinal)),
+            shown(known(c.eriMonetarioFinal)),
+            shown(known(c.eru)),
+            shown(known(c.totalAudited)),
             c.deficitCost || 0,
             c.surplusCost || 0,
-            c.totalDiffCost || 0,
             '≥95.00% (Mínimo)',
             getCorporateEvalText(eriVal)
           ]);
@@ -1842,15 +1850,14 @@ window.DashboardView = {
       } else {
         wsCentrosData.push([
           centerCode,
-          centerCode === '1300' ? 'Santa Cruz (John Deere)' : `Centro ${centerCode}`,
-          eriItemF,
-          eriSkuF,
-          eriMoneyF,
-          summary.eruPercent ?? null,
-          totalSkus,
-          finalDeficitCost,
-          summary.sobrantesFinal?.cost || 0,
-          finalNetImpact,
+          `Centro ${centerCode}`,
+          shown(eriItemF),
+          shown(eriSkuF),
+          shown(eriMoneyF),
+          shown(known(summary.eruPercent)),
+          shown(totalSkus),
+          finalDeficitCost || 0,
+          finalSurplusCost || 0,
           '≥95.00% (Mínimo)',
           getCorporateEvalText(eriItemF)
         ]);
@@ -1867,7 +1874,6 @@ window.DashboardView = {
         { wch: 16 },
         { wch: 16 },
         { wch: 16 },
-        { wch: 16 },
         { wch: 18 },
         { wch: 18 }
       ];
@@ -1881,9 +1887,9 @@ window.DashboardView = {
         ['Fecha de Generación:', nowStr],
         [],
         ['Categoría ABC', 'Total Ítems', 'Ítems Cuadrados', 'Exactitud (%)', 'Costo Sobrante (+$)', 'Costo Faltante (-$)', 'Diferencia Absoluta ($)', 'Nivel de Criticidad Patrimonial'],
-        ['Categoría A (Alta Valorización)', abc.A?.total || 0, abc.A?.exact || 0, parseFloat(abc.A?.accuracy || '100.0'), abc.A?.surplusCost || 0, abc.A?.deficitCost || 0, abc.A?.diffCost || 0, 'CRÍTICO • Control Quincenal'],
-        ['Categoría B (Valorización Media)', abc.B?.total || 0, abc.B?.exact || 0, parseFloat(abc.B?.accuracy || '100.0'), abc.B?.surplusCost || 0, abc.B?.deficitCost || 0, abc.B?.diffCost || 0, 'MEDIO • Control Mensual'],
-        ['Categoría C (Baja Valorización)', abc.C?.total || 0, abc.C?.exact || 0, parseFloat(abc.C?.accuracy || '100.0'), abc.C?.surplusCost || 0, abc.C?.deficitCost || 0, abc.C?.diffCost || 0, 'BAJO • Control Trimestral']
+        ['Categoría A (Alta Valorización)', abc.A?.total || 0, abc.A?.exact || 0, shown(known(abc.A?.accuracy)), abc.A?.surplusCost || 0, abc.A?.deficitCost || 0, abc.A?.diffCost || 0, 'CRÍTICO • Control Quincenal'],
+        ['Categoría B (Valorización Media)', abc.B?.total || 0, abc.B?.exact || 0, shown(known(abc.B?.accuracy)), abc.B?.surplusCost || 0, abc.B?.deficitCost || 0, abc.B?.diffCost || 0, 'MEDIO • Control Mensual'],
+        ['Categoría C (Baja Valorización)', abc.C?.total || 0, abc.C?.exact || 0, shown(known(abc.C?.accuracy)), abc.C?.surplusCost || 0, abc.C?.deficitCost || 0, abc.C?.diffCost || 0, 'BAJO • Control Trimestral']
       ];
 
       const wsABC = XLSX.utils.aoa_to_sheet(wsABCData);

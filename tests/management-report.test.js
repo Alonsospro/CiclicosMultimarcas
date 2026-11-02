@@ -233,3 +233,39 @@ test('each sheet carries its own styles because the PDF export clones it out of 
   assert.doesNotMatch(css, /\.mr-paper\s*\{[^}]*--mr-/);
   assert.match(css, /\.mr-sheet\s*\{[^}]*--mr-navy:[^}]*font-family/);
 });
+test('each warehouse is scored on its own, so stock in two warehouses does not lower the location score', async () => {
+  const metrics = await load([inventory('INV-1160-1', '1160', [
+    line('TWO-WAREHOUSES', { Almacen: 'RFO7', Ubicacion: VALID[0] }),
+    line('TWO-WAREHOUSES', { Almacen: 'RFO8', Ubicacion: VALID[1] }),
+    line('SAME-WAREHOUSE', { Almacen: 'RFO7', Ubicacion: VALID[2], Ubicacion_1: VALID[3] }),
+    line('ONE-BAD', { Almacen: 'RFO7', Ubicacion: VALID[3] }),
+    line('ONE-BAD', { Almacen: 'RFO8', Ubicacion: 'CORTA' })
+  ])]);
+  const [center] = metrics.reportData.centers;
+  assert.equal(center.eru.evaluated, 5);
+  assert.equal(center.eru.exact, 3);
+  assert.equal(center.eru.causes.multiple, 1);
+  assert.equal(center.eru.causes.format, 1);
+  assert.equal(metrics.summary.eruPercent, 60);
+  assert.equal(metrics.summary.totalSkusEvaluatedForEru, 5);
+  assert.equal(metrics.summary.totalSkusAudited, 3, 'ERI by code keeps counting codes');
+  assert.deepEqual(center.issues.map(issue => [issue.sku, issue.warehouse]).sort(), [['ONE-BAD', 'RFO8'], ['SAME-WAREHOUSE', 'RFO7']]);
+  const warehouse = name => center.byWarehouse.find(group => group.name === name).eru;
+  assert.deepEqual([warehouse('RFO7').evaluated, warehouse('RFO7').exact], [3, 2]);
+  assert.deepEqual([warehouse('RFO8').evaluated, warehouse('RFO8').exact], [2, 1]);
+  const twoWarehouses = metrics.multiLocationSkus.find(sku => sku.sku === 'TWO-WAREHOUSES');
+  assert.equal(twoWarehouses.eruPercent, 100);
+  assert.equal(twoWarehouses.severalInWarehouse, false);
+  const annex = report.render({ id: 'INV' }, metrics).split('<b>Anexo D')[1].split('<b>Anexo E')[0];
+  assert.ok(annex.includes('SAME-WAREHOUSE'));
+  assert.ok(!annex.includes('TWO-WAREHOUSES'));
+});
+
+test('dashboard and Excel show no net impact and no fixed fallback values', () => {
+  const view = fs.readFileSync(path.join(root, 'public/js/views/dashboardView.js'), 'utf8');
+  const page = fs.readFileSync(path.join(root, 'public/index.html'), 'utf8');
+  for (const source of [view, page]) assert.doesNotMatch(source, /[Ii]mpacto [Nn]eto|Financiero Neto|Neto\b|finalNetImpact|NetDiffCost/);
+  for (const invented of ['89.63', '99.67', '99.23', '55.25', '99.88', '21873505', '|| 299', '|| 298', '|| 130', '|| 129', "|| 1,", '95.0)', 'Warnes', 'Santa Cruz (John Deere)', "'100.0'"]) {
+    assert.ok(!view.includes(invented), invented);
+  }
+});

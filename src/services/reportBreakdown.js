@@ -108,12 +108,19 @@ function createCollector() {
       }
     },
 
-    addSku({ center, centerName, warehouse, abc, exact1, exactFinal, cause, sku, descripcion, locations, units, value }) {
+    addSku({ center, centerName, warehouse, abc, exact1, exactFinal }) {
       const entry = centerOf(center, centerName);
       [entry, groupOf(entry.byWarehouse, warehouse), groupOf(entry.byClass, abc)].forEach(group => {
         group.skus += 1;
         if (exact1) group.skusExact1 += 1;
         if (exactFinal) group.skusExact += 1;
+      });
+    },
+
+    // One result per code and warehouse.
+    addLocationResult({ center, centerName, warehouse, abc, cause, sku, descripcion, locations, units, value }) {
+      const entry = centerOf(center, centerName);
+      [entry, groupOf(entry.byWarehouse, warehouse), groupOf(entry.byClass, abc)].forEach(group => {
         group.eru.evaluated += 1;
         if (cause) group.eru.causes[cause] += 1;
         else group.eru.exact += 1;
