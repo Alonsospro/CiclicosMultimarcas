@@ -6,13 +6,15 @@ La habilitación depende del estado guardado del inventario. El servidor calcula
 | --- | --- |
 | EN_PROGRESO | Conteo; no aparece en la bandeja de justificaciones. |
 | PENDIENTE_JUSTIFICACION | Primera revisión, tras completar y firmar el conteo. |
-| EN_RECONTEO | Historial visible; segunda revisión bloqueada. |
-| RECONTEO_COMPLETADO | Segunda revisión de todos los miembros del reconteo, incluso con diferencia cero. |
+| EN_RECONTEO | Historial visible; segunda revisión bloqueada, también durante el segundo reconteo. |
+| RECONTEO_COMPLETADO | Segunda revisión de todos los miembros del reconteo, incluso con diferencia cero. Con NO CUADRA, habilita opcionalmente el segundo reconteo. |
 | REVISADO | Historial en consulta; requiere reapertura para editar. |
 
 - La primera revisión debe tener decisión y explicación. CUADRA resuelve el ítem y NO CUADRA lo envía a reconteo.
 - Se registra la membresía por SKU, almacén y ubicación en `recountItemKeys`. No se reconstruye a partir de diferencias finales.
 - Un cero explícito es un conteo; una celda vacía o una cantidad del primer conteo no completa el reconteo.
+- El segundo reconteo es opcional y solo incluye los ítems con NO CUADRA en la segunda revisión completa (`recount2ItemKeys`). Se puede cerrar sin él, dejando NO CUADRA como resultado final.
+- Al firmar el segundo reconteo, sus ítems deben revisarse de nuevo. Sheets no tiene columnas para una tercera revisión: la nueva reemplaza AD-AH y la anterior se conserva en la app como registro `superseded` (historial y `__JUSTIFICATIONS` del cierre). Los demás ítems conservan su revisión.
 - La segunda revisión tiene su propia decisión, texto, fecha y responsable. La primera explicación, una foto o una diferencia cero no la completan.
 - El cierre exige completar las revisiones correspondientes. Admite NO CUADRA como resultado final documentado, manteniendo sus diferencias.
 - Consultar la bandeja no cambia estados ni guarda inventarios.

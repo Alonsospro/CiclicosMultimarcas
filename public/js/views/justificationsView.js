@@ -318,7 +318,8 @@ window.JustificationsView = {
     if (task.isFinalized || task.status === 'REVISADO') return '<span class="badge badge-success">Finalizado en Drive · Solo lectura</span>';
     if (task.status === 'EN_RECONTEO') return '<span class="badge badge-info">Reconteo en curso · Justificación bloqueada</span>';
     if (task.canEnableRecount) return `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableRecount('${task.inventoryId}')">Habilitar Reconteo</button>`;
-    if (task.canClose) return `<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>`;
+    const secondRecount = task.canEnableRecount2 ? `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableSecondRecount('${task.inventoryId}')">Habilitar 2do Reconteo</button> ` : '';
+    if (task.canClose) return `${secondRecount}<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>`;
     const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
     const blockers = Array.isArray(task.closeBlockers) && task.closeBlockers.length ? task.closeBlockers : ['Complete las justificaciones pendientes para continuar'];
     return `<div class="badge badge-warning" style="display:block; white-space:normal; text-align:left; line-height:1.4;"><strong>No se puede finalizar todavía:</strong>${blockers.map(b => `<br>• ${escape(b)}`).join('')}</div>`;
@@ -326,7 +327,7 @@ window.JustificationsView = {
 
   reviewHistory(item) {
     const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
-    return (item.justificationHistory || []).map(entry => `<div style="margin-bottom:6px; white-space:normal; overflow-wrap:anywhere;"><strong>${entry.round}ª justificación · ${escape(entry.corroboracion)}</strong><br>${escape(entry.justification)}${window.InventoryContract?.isWeekly(item) && window.InventoryContract.has(entry.justifiedQuantity) ? `<br>Compensación: ${Number(entry.justifiedQuantity) > 0 ? '+' : ''}${escape(entry.justifiedQuantity)}` : ''}<br><small>${escape(entry.reviewedBy)} · ${escape(entry.reviewedAt)}</small></div>`).join('') || '-';
+    return (item.justificationHistory || []).map(entry => `<div style="margin-bottom:6px; white-space:normal; overflow-wrap:anywhere;"><strong>${entry.round}ª justificación${entry.superseded ? ' (del 1er reconteo)' : ''} · ${escape(entry.corroboracion)}</strong><br>${escape(entry.justification)}${window.InventoryContract?.isWeekly(item) && window.InventoryContract.has(entry.justifiedQuantity) ? `<br>Compensación: ${Number(entry.justifiedQuantity) > 0 ? '+' : ''}${escape(entry.justifiedQuantity)}` : ''}<br><small>${escape(entry.reviewedBy)} · ${escape(entry.reviewedAt)}</small></div>`).join('') || '-';
   },
 
   async loadJustifications() {
@@ -978,7 +979,7 @@ window.JustificationsView = {
                                 </span>
                               ` : (isNoCuadra ? `
                                 <span class="badge badge-danger" style="font-weight: 800; font-size: 0.76rem;">
-                                  <i class="fa-solid fa-rotate-right"></i> No Cuadra (${item.justificationRound === 2 ? 'Resultado final' : 'A reconteo'})
+                                  <i class="fa-solid fa-rotate-right"></i> No Cuadra (${item.justificationRound === 2 ? (task.canEnableRecount2 ? 'Reconteo 2 opcional' : 'Resultado final') : 'A reconteo'})
                                 </span>
                               ` : (isJustified ? `
                                 <span class="badge badge-success" style="font-weight: 800; font-size: 0.76rem;">
@@ -1972,6 +1973,26 @@ window.JustificationsView = {
       await this.loadJustifications();
     } catch (err) {
       window.Toast.danger(err.message || 'Error al habilitar reconteo');
+    }
+  },
+
+  async enableSecondRecount(inventoryId) {
+    const task = this.tasks.find(t => t.inventoryId === inventoryId);
+    if (!task) return;
+
+    if (!confirm(`¿Habilitar el 2do Reconteo para este inventario?\n\nSolo se recontarán los ítems con NO CUADRA en la 2ª justificación. Al firmarlo deberá justificar de nuevo esos ítems: la explicación actual se conserva en el historial de la app, pero se reemplaza en las columnas de Google Sheets.\n\nSi no necesita recontar, puede finalizar el inventario sin este paso.`)) {
+      return;
+    }
+
+    try {
+      window.Toast.info('Generando lista del 2do reconteo...');
+      const res = await window.API.enableSecondRecount(inventoryId);
+      window.Toast.success(res.message || '2do reconteo habilitado exitosamente');
+      alert(`✅ 2do Reconteo Habilitado\n\n${res.message}\nID de Reconteo: ${res.recountInventoryId}\n\nEl contador asignado ya puede ver esta lista en su ventana de inventarios.`);
+      if (this.expandedTaskIds) this.expandedTaskIds.add(inventoryId);
+      await this.loadJustifications();
+    } catch (err) {
+      window.Toast.danger(err.message || 'Error al habilitar el 2do reconteo');
     }
   },
 

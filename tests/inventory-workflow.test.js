@@ -374,3 +374,139 @@ test('a recount copied from the whole inventory only requires recounts for items
   assert.equal(missing.canClose, false);
   assert.ok(missing.closeBlockers.some(b => /1 ítem\(s\) sin cantidad de reconteo 1: A \(R001\)/.test(b)));
 });
+
+async function throughFirstRecountReview(context, secondDecisions) {
+  const {service,put,save}=context,items=Object.keys(secondDecisions).map(sku=>counted(sku));
+  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items});
+  service.submitInventoryForReview({inventoryId:'INV',user});
+  for(const item of items)await save('INV',item,'NO CUADRA');
+  const rec=service.enableRecount({inventoryId:'INV',user}).recountInventory;
+  for(const entry of rec.items)await service.updateCount({inventoryId:rec.id,itemId:entry.id,stockFisico:9,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:rec.id,user});
+  for(const item of items)await save('INV',item,secondDecisions[item.SKU],2,'Explicación del primer reconteo.');
+  return {items,rec};
+}
+
+test('second recount is optional: NO CUADRA after the first recount can close or be recounted',async()=>{
+  const context=fixture(),{service,closures}=context;
+  await throughFirstRecountReview(context,{A:'NO CUADRA'});
+  const task=service.getPendingJustifications(user)[0];
+  assert.equal(task.canEnableRecount2,true);assert.equal(task.canClose,true);
+  await service.finishReviewAndClose({inventoryId:'INV',user});
+  assert.equal(closures.length,1);assert.equal(closures[0].inventory.items[0].Reconteo_2,null);
+  assert.throws(()=>service.enableSecondRecount({inventoryId:'INV',user}),/segundo reconteo requiere/);
+});
+
+test('second recount needs a NO CUADRA from a complete review of the first recount',async()=>{
+  const context=fixture(),{service}=context;
+  await throughFirstRecountReview(context,{A:'CUADRA'});
+  assert.equal(service.getPendingJustifications(user)[0].canEnableRecount2,false);
+  assert.throws(()=>service.enableSecondRecount({inventoryId:'INV',user}),/segundo reconteo requiere/);
+  assert.throws(()=>service.enableSecondRecount({inventoryId:'INV',user:{...user,role:'AUXILIAR'}}),/Solo un Administrador/);
+});
+
+test('second recount covers only NO CUADRA items and requires a new review that keeps the previous one as history',async()=>{
+  const context=fixture(),{service,save,sheets,closures}=context;
+  const {items:[a,b],rec}=await throughFirstRecountReview(context,{A:'CUADRA',B:'NO CUADRA'});
+  const enabled=service.enableSecondRecount({inventoryId:'INV',user});
+  assert.equal(enabled.recountInventoryId,rec.id);assert.equal(enabled.itemsCount,1);
+  assert.throws(()=>service.enableSecondRecount({inventoryId:'INV',user}),/segundo reconteo requiere/);
+
+  const open=service.getPendingJustifications(user)[0];
+  assert.equal(open.status,'EN_RECONTEO');assert.ok(open.items.every(item=>!item.canJustify));
+  await assert.rejects(save('INV',b,'CUADRA',2),/no está habilitada/);
+  await assert.rejects(service.finishReviewAndClose({inventoryId:'INV',user}),/No se puede cerrar/);
+
+  const view=await service.getInventoryById(rec.id,{...user,role:'AUXILIAR',center:'1120'});
+  assert.equal(view.items.map(item=>item.SKU).join(),'B');
+  assert.equal(view.items[0].Stock_Fisico,null);assert.equal(view.isBlindCount,true);
+
+  const stored=service.getInventoryRaw(rec.id),[recA,recB]=['A','B'].map(sku=>stored.items.find(item=>item.SKU===sku));
+  await assert.rejects(service.updateCount({inventoryId:rec.id,itemId:recA.id,stockFisico:7,malEstado:0,user}),/no pertenece/);
+  assert.throws(()=>service.submitInventoryForReview({inventoryId:rec.id,user}),/pendientes/);
+  await service.updateCount({inventoryId:rec.id,itemId:recB.id,stockFisico:7,malEstado:1,user});
+  service.submitInventoryForReview({inventoryId:rec.id,user});
+
+  const sheet=sheets.get(contract.member(b));
+  assert.equal(sheet.Stock_Total_Reconteo,9);assert.equal(sheet.Stock_Total_Reconteo_2,8);assert.equal(sheet.Stock_Total,8);
+  const signed=service.getPendingJustifications(user)[0];
+  assert.equal(signed.status,'RECONTEO_COMPLETADO');assert.equal(signed.canClose,false);assert.equal(signed.canEnableRecount2,false);
+  assert.equal(signed.pendingJustificationsCount,1);
+  const [reviewedA,pendingB]=['A','B'].map(sku=>signed.items.find(item=>item.SKU===sku));
+  assert.equal(reviewedA.reviewComplete,true);assert.equal(pendingB.reviewComplete,false);assert.equal(pendingB.canJustify,true);
+  assert.equal(pendingB.justificationHistory.length,2);
+  assert.ok(signed.closeBlockers.some(blocker=>/justificación\(es\) pendiente\(s\): B/.test(blocker)));
+
+  await save('INV',b,'NO CUADRA',2,'Explicación del segundo reconteo.');
+  const reviewed=service.getPendingJustifications(user)[0];
+  assert.equal(reviewed.canClose,true);assert.equal(reviewed.canEnableRecount2,false);
+  const history=reviewed.items.find(item=>item.SKU==='B').justificationHistory;
+  assert.deepEqual(history.map(entry=>[entry.round,!!entry.superseded]),[[1,false],[2,true],[2,false]]);
+  assert.equal(history[1].justification,'Explicación del primer reconteo.');
+  assert.equal(history[2].justification,'Explicación del segundo reconteo.');
+
+  await service.finishReviewAndClose({inventoryId:'INV',user});
+  const closed=closures[0].inventory.items.find(item=>item.SKU==='B');
+  assert.equal(closed.Stock_Total_Reconteo,9);assert.equal(closed.Stock_Total_Reconteo_2,8);assert.equal(closed.Diferencia_Final_2,-2);
+  assert.equal(closed.Comentario_Justificacion_2,'Explicación del segundo reconteo.');
+  assert.equal(closures[0].inventory.items.find(item=>item.SKU==='A').Reconteo_2,null);
+  assert.equal(closures[0].justifications.filter(entry=>entry.superseded).length,1);
+  assert.equal(service.getInventoryRaw(rec.id).status,'REVISADO');
+});
+
+test('reopening the second recount keeps the reviews of items outside its list',async()=>{
+  const context=fixture(),{service,save}=context;
+  const {items:[,b],rec}=await throughFirstRecountReview(context,{A:'CUADRA',B:'NO CUADRA'});
+  service.enableSecondRecount({inventoryId:'INV',user});
+  const recB=service.getInventoryRaw(rec.id).items.find(item=>item.SKU==='B');
+  await service.updateCount({inventoryId:rec.id,itemId:recB.id,stockFisico:7,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:rec.id,user});
+  await save('INV',b,'CUADRA',2,'Se encontró la diferencia.');
+  await service.reopenInventory({inventoryId:'INV',user,targetPhase:'RECONTEO_2',syncFromGAS:false});
+  await service.updateCount({inventoryId:rec.id,itemId:recB.id,stockFisico:8,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:rec.id,user});
+  const task=service.getPendingJustifications(user)[0];
+  assert.equal(task.items.find(item=>item.SKU==='A').reviewComplete,true);
+  assert.equal(task.items.find(item=>item.SKU==='B').reviewComplete,false);
+  await service.reopenInventory({inventoryId:'INV',user,targetPhase:'RECONTEO_1',syncFromGAS:false});
+  assert.equal(service.getInventoryRaw('INV').recount2ItemKeys,undefined);
+  assert.equal(service.getInventoryRaw(rec.id).recount2ItemKeys,undefined);
+});
+
+test('second recount works on the primary record when no recount list exists',async()=>{
+  const context=fixture(),{service,put,save}=context,item={...counted(),Reconteo:9,Malestado_Reconteo:0,Stock_Total_Reconteo:9,Fecha_Reconteo:old,
+    Estado:'NO CUADRA',Comentario_Justificacion:'Revisar',Fecha_Primera_Justificacion:old};
+  put({id:'INV',type:'CICLICO',name:'Example',status:'RECONTEO_COMPLETADO',center:'1120',hasRecount:true,
+    recountItemKeys:[contract.member(item)],items:[item]});
+  await save('INV',item,'NO CUADRA',2);
+  const enabled=service.enableSecondRecount({inventoryId:'INV',user});
+  assert.equal(enabled.recountInventoryId,'INV');
+  await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:7,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:'INV',user});
+  const stored=service.getInventoryRaw('INV').items[0];
+  assert.equal(stored.Stock_Total_Reconteo,9);assert.equal(stored.Stock_Total_Reconteo_2,7);
+  assert.equal(service.getPendingJustifications(user)[0].items[0].canJustify,true);
+});
+
+test('weekly second recount compensates against its own physical count',async()=>{
+  const {service,put,save,closures}=fixture(),item={...counted(),Schema_Version:contract.weeklyVersion};
+  put({id:'WEEK',type:'SEMANAL',center:'1120',name:'Semanal',status:'EN_PROGRESO',items:[item]});
+  await service.updateCount({inventoryId:'WEEK',itemId:item.id,stockFisico:8,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:'WEEK',user});
+  await save('WEEK',item,'NO CUADRA');
+  const child=service.enableRecount({inventoryId:'WEEK',user}).recountInventory;
+  await service.updateCount({inventoryId:child.id,itemId:child.items[0].id,stockFisico:9,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:child.id,user});
+  await save('WEEK',item,'NO CUADRA',2);
+  service.enableSecondRecount({inventoryId:'WEEK',user});
+  await service.updateCount({inventoryId:child.id,itemId:child.items[0].id,stockFisico:7,malEstado:0,user:{...user,username:'third-counter'}});
+  service.submitInventoryForReview({inventoryId:child.id,user});
+  await save('WEEK',item,'CUADRA',2,'Se documenta el faltante final.');
+  const task=service.getPendingJustifications(user)[0];
+  assert.equal(task.canClose,true);
+  assert.equal(task.items[0].Stock_Total_Reconteo_2,7);assert.equal(task.items[0].Cantidad_Justificada_2,3);
+  assert.equal(task.items[0].Cantidad_Fisica_Final,10);
+  assert.equal(service.getInventoryRaw('WEEK').items[0].counterEvidence.signed.length,3);
+  await service.finishReviewAndClose({inventoryId:'WEEK',user});
+  assert.equal(closures.length,1);
+});

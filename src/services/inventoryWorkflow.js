@@ -53,7 +53,7 @@ function review(item, round, records = [], since = null) {
     photoUrls: item[second ? 'fotos_justificacion_2' : 'fotos_justificacion'] || [],
     justifiedQuantity: item[second ? 'Cantidad_Justificada_2' : 'Cantidad_Justificada_1']
   };
-  const matches = records.filter(j => Number(j.round || 1) === round && contract.member(j) === contract.member(item));
+  const matches = records.filter(j => !j.superseded && Number(j.round || 1) === round && contract.member(j) === contract.member(item));
   const latest = [row, ...matches].sort((a, b) => time(b.reviewedAt) - time(a.reviewedAt))[0];
   const decision = state(latest.corroboracion || latest.corroboration);
   const countDate = item[contract.stages[second ? (hasCount(item, 2) ? 2 : 1) : 0][5]];
@@ -93,11 +93,25 @@ function recountKeys(inv, child) {
     .map(contract.member));
 }
 
+// The second recount covers only the items left NO CUADRA by the review of the first one.
+function activeCountKeys(inv) {
+  return countStage(inv) === 2 && inv.recount2ItemKeys?.length ? new Set(inv.recount2ItemKeys) : recountKeys(inv);
+}
+
+// Without a recorded second list (reopened inventories) the whole membership shares one stage.
+function recountStageOf(inv, item) {
+  if (inv.recount2ItemKeys?.length) return inv.recount2ItemKeys.includes(contract.member(item)) ? 2 : 1;
+  return inv.hasRecount2 || inv.recountRound === 2 ? 2 : 1;
+}
+
 function plan(inv, child, records = []) {
   const keys = recountKeys(inv, child);
   const finalized = isFinalized(inv);
   const countComplete = (inv.items || []).length > 0 && inv.items.every(item => hasCount(item));
-  const recountStage = inv.hasRecount2 || inv.recountRound === 2 ? 2 : 1;
+  const stageOf = item => recountStageOf(inv, item);
+  const hasSecondList = !!inv.recount2ItemKeys?.length;
+  // Only items recounted again need a new second review; the others keep the one they have.
+  const secondSince = item => hasSecondList && stageOf(item) === 2 ? inv.recount2ReviewNotBefore : inv.secondReviewNotBefore;
   const members = (inv.items || []).filter(item => keys.has(contract.member(item)));
   const childFinished = !child || ['RECONTEO_COMPLETADO', 'REVISADO'].includes(child.status);
   const isReconteoStage = inv.status === 'RECONTEO_COMPLETADO';
@@ -107,24 +121,26 @@ function plan(inv, child, records = []) {
   const recountSince = childFinished ? null : (inv.countNotBefore || inv.recountEnabledAt);
   const recountComplete = !keys.size || (isReconteoStage && members.length === keys.size
     && childFinished
-    && recountRequired.every(item => hasCount(item, recountStage, recountSince)));
+    && recountRequired.every(item => hasCount(item, stageOf(item), recountSince)));
   const reopeningJustification = inv.reopenedPhase === 'JUSTIFICACION';
   const rows = (inv.items || []).map(item => {
     const first = review(item, 1, records, inv.firstReviewNotBefore);
-    const second = review(item, 2, records, inv.secondReviewNotBefore);
+    const second = review(item, 2, records, secondSince(item));
     const recounted = keys.has(contract.member(item));
     // Reopening the justification phase always targets the second justification fields.
     const round = reopeningJustification ? 2 : (recounted ? 2 : 1);
     const current = round === 2 ? second : first;
-    const stage = reopeningJustification
-      ? (recounted ? recountStage : 0)
-      : (round === 2 ? recountStage : 0);
+    const stage = recounted ? stageOf(item) : 0;
+    const countSince = !stage ? inv.countNotBefore
+      : hasSecondList && stage === 1 ? null : (inv.countNotBefore || inv.recountEnabledAt);
+    // Explanations of the first recount replaced in Sheets by those of the second one.
+    const superseded = records.filter(j => j.superseded && contract.member(j) === contract.member(item));
     const canJustify = !finalized && (reopeningJustification
       ? ['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO'].includes(inv.status)
       : countComplete && (round === 1
         ? inv.status === 'PENDIENTE_JUSTIFICACION' && !keys.size
         : inv.status === 'RECONTEO_COMPLETADO' && recountComplete)
-        && hasCount(item, stage, stage ? (inv.countNotBefore || inv.recountEnabledAt) : inv.countNotBefore));
+        && hasCount(item, stage, countSince));
     // A stale or oversized recount membership list must not pull an item into
     // second justification when its original count already matched the system.
     const requiresSecondJustification = recounted && initialDiscrepancy(item);
@@ -134,7 +150,9 @@ function plan(inv, child, records = []) {
       // incomplete; closure still depends on reviewComplete below.
       reviewStatus: current.corroboracion,
       justificationDetails: current.corroboracion ? current : null,
-      justificationHistory: [first, second].filter(r => time(r.reviewedAt)),
+      justificationHistory: [first, ...superseded,
+        ...(superseded.some(r => time(r.reviewedAt) === time(second.reviewedAt)) ? [] : [second])]
+        .filter(r => time(r.reviewedAt)),
       // Justification history must not resurrect a balanced initial-count item.
       // A NO CUADRA decision only remains actionable while the current initial
       // count still has a discrepancy; recount members are handled separately
@@ -144,15 +162,18 @@ function plan(inv, child, records = []) {
   const initialPending = rows.filter(item => item.needsInitialReview && !review(item, 1, records, inv.firstReviewNotBefore).complete);
   const noCuadra = rows.filter(item => review(item, 1, records, inv.firstReviewNotBefore).corroboracion === 'NO CUADRA');
   const pending = rows.filter(item => !item.reviewComplete);
-  const canClose = !finalized && ['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO'].includes(inv.status)
+  const secondNoCuadra = rows.filter(item => keys.has(contract.member(item)) && item.reviewComplete && item.reviewStatus === 'NO CUADRA');
+  const canClose =!finalized && ['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO'].includes(inv.status)
     && countComplete && recountComplete && !pending.length
     && (reopeningJustification || isReconteoStage || (!initialPending.length
       && noCuadra.every(item => keys.has(contract.member(item)))));
   const closeBlockers = finalized || canClose ? [] : closeBlockersFor({inv, child, keys, members, recountRequired,
-    recountStage, recountSince, childFinished, isReconteoStage, pending, initialPending, noCuadra, reopeningJustification});
-  return {items: rows, keys, initialPending, noCuadra, pending, finalized, canClose, closeBlockers,
+    stageOf, recountSince, childFinished, isReconteoStage, pending, initialPending, noCuadra, reopeningJustification});
+  return {items: rows, keys, initialPending, noCuadra, secondNoCuadra, pending, finalized, canClose, closeBlockers,
     canEnableRecount: !finalized && inv.status === 'PENDIENTE_JUSTIFICACION' && !keys.size
-      && countComplete && !initialPending.length && noCuadra.length > 0};
+      && countComplete && !initialPending.length && noCuadra.length > 0,
+    canEnableRecount2: !finalized && isReconteoStage && !inv.hasRecount2 && countStage(inv) !== 2
+      && countComplete && recountComplete && !pending.length && secondNoCuadra.length > 0};
 }
 
 function memberLabel(key) {
@@ -160,7 +181,7 @@ function memberLabel(key) {
 }
 
 // Explains, in the user's terms, which closing condition of plan() is not met.
-function closeBlockersFor({inv, child, keys, members, recountRequired, recountStage, recountSince, childFinished,
+function closeBlockersFor({inv, child, keys, members, recountRequired, stageOf, recountSince, childFinished,
   isReconteoStage, pending, initialPending, noCuadra, reopeningJustification}) {
   const label = item => `${item.SKU || item.id}${item.Almacen ? ` (${item.Almacen})` : ''}`;
   const list = items => items.slice(0, 5).map(label).join(', ') + (items.length > 5 ? ` y ${items.length - 5} más` : '');
@@ -177,8 +198,8 @@ function closeBlockersFor({inv, child, keys, members, recountRequired, recountSt
     const missing = [...keys].filter(key => !memberKeys.has(key));
     if (missing.length) blockers.push(`${missing.length} ítem(s) del reconteo ya no coinciden con el inventario (SKU, almacén o ubicación cambiaron): ${missing.slice(0, 5).map(memberLabel).join(', ')}.`);
     if (isReconteoStage) {
-      const unrecounted = recountRequired.filter(item => !hasCount(item, recountStage, recountSince));
-      if (unrecounted.length) blockers.push(`${unrecounted.length} ítem(s) sin cantidad de reconteo ${recountStage}: ${list(unrecounted)}.`);
+      const unrecounted = recountRequired.filter(item => !hasCount(item, stageOf(item), recountSince));
+      if (unrecounted.length) blockers.push(`${unrecounted.length} ítem(s) sin cantidad de reconteo ${stageOf(unrecounted[0])}: ${list(unrecounted)}.`);
     }
   }
   if (pending.length) blockers.push(`${pending.length} justificación(es) pendiente(s): ${list(pending)}.`);
@@ -208,4 +229,4 @@ function assertJustification(inv, item, round, context, explanation) {
   if (!String(explanation || '').trim()) throw new Error('Es obligatorio explicar el resultado, tanto CUADRA como NO CUADRA.');
 }
 
-module.exports = {hasCount, countStage, isFinalized, review, recountKeys, plan, assertJustification};
+module.exports = {hasCount, countStage, isFinalized, review, recountKeys, activeCountKeys, recountStageOf, plan, assertJustification};

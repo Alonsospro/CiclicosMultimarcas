@@ -545,11 +545,12 @@ window.InventoryView = {
 
       const item = this.currentInventory.items.find(it => it.id === itemId);
       const isReconteoInv = !!(this.currentInventory.isReconteo || this.currentInventory.phase === 'RECONTEO' || this.currentInventory.phase === 'RECONTEO_2' || String(this.currentInventory.id || '').startsWith('REC-'));
+      const isSecondRecount = this.isSecondRecount();
       const qtyInput = document.getElementById(`input-qty-${itemId}`);
       const damagedInput = document.getElementById(`input-damaged-${itemId}`);
 
-      const qty = qtyInput && qtyInput.value !== '' ? parseInt(qtyInput.value, 10) : (isReconteoInv ? (item?.Reconteo_Fisico || item?.Stock_Fisico || 0) : (item?.Stock_Fisico || 0));
-      const damaged = damagedInput ? (parseInt(damagedInput.value, 10) || 0) : (isReconteoInv ? (item?.Reconteo_Mal_Estado || item?.Mal_estado || 0) : (item?.Mal_estado || 0));
+      const qty = qtyInput && qtyInput.value !== '' ? parseInt(qtyInput.value, 10) : (isSecondRecount ? (item?.Reconteo_2 || 0) : isReconteoInv ? (item?.Reconteo_Fisico || item?.Stock_Fisico || 0) : (item?.Stock_Fisico || 0));
+      const damaged = damagedInput ? (parseInt(damagedInput.value, 10) || 0) : (isSecondRecount ? (item?.Malestado_Reconteo_2 || 0) : isReconteoInv ? (item?.Reconteo_Mal_Estado || item?.Mal_estado || 0) : (item?.Mal_estado || 0));
 
       try {
         await window.API.registerCount(this.currentInventory.id, {
@@ -557,17 +558,20 @@ window.InventoryView = {
           sku: item?.SKU,
           location: item?.Ubicacion,
           almacen: item?.Almacen || item?.almacen || item?.warehouse || undefined,
-          stockFisico: isReconteoInv ? (item?.Stock_Fisico_1erConteo !== undefined ? item?.Stock_Fisico_1erConteo : item?.Stock_Fisico) : qty,
-          reconteoFisico: isReconteoInv ? qty : undefined,
-          malEstado: isReconteoInv ? (item?.Mal_estado_1erConteo !== undefined ? item?.Mal_estado_1erConteo : item?.Mal_estado) : damaged,
-          reconteoMalEstado: isReconteoInv ? damaged : undefined,
-          isReconteo: isReconteoInv,
+          // The server applies these to the active stage; first-count values must not overwrite a recount.
+          stockFisico: qty,
+          malEstado: damaged,
           photoUrl
         });
 
         if (item) {
           item.foto_mal_estado = photoUrl;
-          if (isReconteoInv) {
+          if (isSecondRecount) {
+            item.foto_mal_estado_reconteo = photoUrl;
+            item.Reconteo_2 = qty;
+            item.Malestado_Reconteo_2 = damaged;
+            item.Stock_Total_Reconteo_2 = qty + damaged;
+          } else if (isReconteoInv) {
             item.foto_mal_estado_reconteo = photoUrl;
             item.Reconteo_Fisico = qty;
             item.Reconteo = qty;
@@ -1070,9 +1074,14 @@ window.InventoryView = {
     this.updateSubmitButtonState();
   },
 
+  isSecondRecount() {
+    const inv = this.currentInventory || {};
+    return inv.phase === 'RECONTEO_2' || inv.recountRound === 2;
+  },
+
   isCurrentStageCounted(item) {
     const inv = this.currentInventory || {};
-    const second = inv.phase === 'RECONTEO_2' || inv.recountRound === 2;
+    const second = this.isSecondRecount();
     const recount = second || inv.isReconteo || inv.phase === 'RECONTEO' || String(inv.id || '').startsWith('REC-');
     const values = second ? [item.Reconteo_2, item.Stock_Total_Reconteo_2]
       : recount ? [item.Reconteo, item.Reconteo_Fisico, item.Stock_Total_Reconteo]
@@ -1151,10 +1160,15 @@ window.InventoryView = {
       const isCounted = this.isCurrentStageCounted(item);
       const isLocked = !['EN_PROGRESO', 'EN_RECONTEO'].includes(this.currentInventory.status) || (isCounted && item.locked !== false);
       const rowClass = isCounted ? 'counted-row' : '';
-      const countedQty = isReconteoInv && item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined
+      const isSecondRecount = this.isSecondRecount();
+      const countedQty = isSecondRecount
+        ? (item.Reconteo_2 ?? 0)
+        : isReconteoInv && item.Reconteo_Fisico !== null && item.Reconteo_Fisico !== undefined
         ? item.Reconteo_Fisico
         : (item.Stock_Buen_Estado !== null && item.Stock_Buen_Estado !== undefined ? item.Stock_Buen_Estado : (item.Stock_Fisico !== null && item.Stock_Fisico !== undefined ? item.Stock_Fisico : 0));
-      const damagedQty = isReconteoInv && item.Reconteo_Mal_Estado !== null && item.Reconteo_Mal_Estado !== undefined
+      const damagedQty = isSecondRecount
+        ? (item.Malestado_Reconteo_2 || 0)
+        : isReconteoInv && item.Reconteo_Mal_Estado !== null && item.Reconteo_Mal_Estado !== undefined
         ? item.Reconteo_Mal_Estado
         : (item.Mal_estado || 0);
       const totalCount = (parseInt(isCounted ? countedQty : 0, 10) || 0) + (parseInt(damagedQty || 0, 10) || 0);
@@ -1783,7 +1797,9 @@ window.InventoryView = {
       qty = parseInt(qtyInput.value, 10);
       if (isNaN(qty) || qty < 0) qty = 0;
       item.Stock_Fisico = qty;
-      if (isReconteoInv) {
+      if (this.isSecondRecount()) {
+        item.Reconteo_2 = qty;
+      } else if (isReconteoInv) {
         item.Reconteo_Fisico = qty;
       }
     }
@@ -1792,7 +1808,9 @@ window.InventoryView = {
     if (damInput) {
       damaged = parseInt(damInput.value, 10) || 0;
       item.Mal_estado = damaged;
-      if (isReconteoInv) {
+      if (this.isSecondRecount()) {
+        item.Malestado_Reconteo_2 = damaged;
+      } else if (isReconteoInv) {
         item.Reconteo_Mal_Estado = damaged;
       }
       this.handleDamagedInput(itemId, damInput.value);
@@ -1877,7 +1895,12 @@ window.InventoryView = {
         }
         item.Stock_Fisico = qty;
         item.Mal_estado = damaged;
-        if (isReconteoInv) {
+        if (this.isSecondRecount()) {
+          item.Reconteo_2 = qty;
+          item.Malestado_Reconteo_2 = damaged;
+          item.Stock_Total_Reconteo_2 = qty + damaged;
+          item.Fecha_Reconteo_2 = new Date().toISOString();
+        } else if (isReconteoInv) {
           item.Reconteo_Fisico = qty;
           item.Reconteo_Mal_Estado = damaged;
         }

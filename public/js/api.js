@@ -324,6 +324,13 @@ window.API = {
     });
   },
 
+  enableSecondRecount(inventoryId) {
+    return this.request(`/justifications/${inventoryId}/enable-recount-2`, {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+  },
+
   finishReview(inventoryId, payload = {}) {
     return this.request(`/justifications/${inventoryId}/finish-review`, {
       method: 'POST',

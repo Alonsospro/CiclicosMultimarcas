@@ -43,7 +43,7 @@ function progressFor(inventory, stage) {
   }
 
   const countStage = stage.round;
-  const members = countStage > 0 ? workflow.recountKeys(inventory) : new Set();
+  const members = countStage > 0 ? workflow.activeCountKeys(inventory) : new Set();
   const scopedItems = countStage > 0 && members.size ? items.filter(item => members.has(contract.member(item))) : items;
   const since = countStage > 0 ? (inventory.countNotBefore || inventory.recountEnabledAt) : inventory.countNotBefore;
   const completed = scopedItems.filter(item => workflow.hasCount(item, countStage, since)).length;

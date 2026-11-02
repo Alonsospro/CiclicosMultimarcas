@@ -140,7 +140,7 @@ class InventoryService {
         const isAssigned = isDirectlyAssigned || hasAssignedItems;
         const countStage = workflow.countStage(inv);
         const activeRecount = countStage > 0 && ['EN_PROGRESO', 'EN_RECONTEO'].includes(inv.status);
-        const activeRecountKeys = activeRecount ? workflow.recountKeys(inv) : new Set();
+        const activeRecountKeys = activeRecount ? workflow.activeCountKeys(inv) : new Set();
 
         // Role-based visibility
         if (user.role === 'AUXILIAR') {
@@ -167,7 +167,7 @@ class InventoryService {
           if (inv.type !== filterType) return;
         }
 
-        const recountKeys = countStage > 0 ? workflow.recountKeys(inv) : new Set();
+        const recountKeys = countStage > 0 ? workflow.activeCountKeys(inv) : new Set();
         const progressItems = countStage > 0 && recountKeys.size
           ? inv.items.filter(it => recountKeys.has(contract.member(it)))
           : inv.items;
@@ -246,7 +246,7 @@ class InventoryService {
     // but the counter view must contain only the explicit recount membership.
     const countStage = workflow.countStage(inv);
     const activeRecount = countStage > 0 && ['EN_PROGRESO', 'EN_RECONTEO'].includes(inv.status);
-    const recountKeys = activeRecount ? workflow.recountKeys(inv) : new Set();
+    const recountKeys = activeRecount ? workflow.activeCountKeys(inv) : new Set();
     if (activeRecount && !recountKeys.size) {
       throw new Error('El inventario principal se conserva, pero esta etapa no tiene ítems autorizados para reconteo.');
     }
@@ -255,7 +255,8 @@ class InventoryService {
       : inv.items;
 
     const isReconteoInv = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
-    if (isReconteoInv && Array.isArray(inv.items)) {
+    // First-recount quantities must not look like counts of the second one.
+    if (isReconteoInv && countStage !== 2 && Array.isArray(inv.items)) {
       inv.items.forEach(it => {
         if (!it) return;
         if (it.Reconteo_Fisico !== null && it.Reconteo_Fisico !== undefined) {
@@ -663,7 +664,7 @@ class InventoryService {
     const startsWeeklyCycle = targetItem && contract.isWeekly(targetItem) && !contract.has(targetItem.Stock_Total) && workflow.countStage(inv) === 0;
     let previousQty = targetItem ? targetItem.Stock_Fisico : null;
     if(contract.isWeeklyType(inv.type)&&targetItem&&!contract.isWeekly(targetItem))throw new Error('Sincronice este inventario con el Apps Script semanal de 44 columnas antes de contar.');
-    const stageMembers = workflow.recountKeys(inv);
+    const stageMembers = workflow.activeCountKeys(inv);
     if (targetItem && workflow.countStage(inv) && stageMembers.size && !stageMembers.has(contract.member(targetItem))) {
       throw new Error('Este ítem no pertenece a la lista de reconteo habilitada.');
     }
@@ -1161,7 +1162,7 @@ class InventoryService {
     }
     const stage = workflow.countStage(inv);
     const isReconteoMode = stage > 0;
-    const members = workflow.recountKeys(inv);
+    const members = workflow.activeCountKeys(inv);
     const stageItems = stage && members.size ? inv.items.filter(it => members.has(contract.member(it))) : inv.items;
     const uncounted = stageItems.filter(it => !workflow.hasCount(it, stage, inv.countNotBefore));
     if (uncounted.length > 0) {
@@ -1187,7 +1188,7 @@ class InventoryService {
             parentInv.recountItemKeys = inv.items.map(contract.member);
             parentInv.items.forEach(pItem => {
               const recItem=inv.items.find(r=>contract.member(r)===contract.member(pItem));
-              if(recItem)Object.assign(mergeRecountIntoParent(pItem,recItem),{id:pItem.id,Estado_Reconteo:'Recontado'});
+              if(recItem&&(!members.size||members.has(contract.member(recItem))))Object.assign(mergeRecountIntoParent(pItem,recItem),{id:pItem.id,Estado_Reconteo:'Recontado'});
             });
             this.saveInventory(parentInv);
           }
@@ -1274,7 +1275,7 @@ class InventoryService {
       photoJustificacion:p.driveUrl||p.photoUrl||'',
       fotosJustificacion:Array.isArray(p.photoUrls)?p.photoUrls.map(photo=>photo.driveUrl||photo.photoUrl).filter(Boolean):[],
       spreadsheetUrl:inv.spreadsheetUrl||inv.driveUrl||null,
-      workflow:{version:1,status:inv.status,round,countStage:round===1?0:(workflow.countStage(inv)||(inv.hasRecount2||inv.recountRound===2?2:inv.hasRecount?1:0)),
+      workflow:{version:1,status:inv.status,round,countStage:round===1||!(workflow.countStage(inv)||inv.hasRecount||inv.hasRecount2)?0:workflow.recountStageOf(inv,item),
         reopenedPhase:inv.reopenedPhase||null}};
     if(contract.isWeekly(item)){
       payload.justifiedQuantity=p.justifiedQuantity;
@@ -1325,7 +1326,7 @@ class InventoryService {
       user:p.user.username,reviewerName:reviewer,center:inv.center,diffQty:item.Diferencia,diffCost:item.Costo_Diferencia});
     const updatedPlan=this.getReviewPlan(inv);
     return {...record,item,reviewItem:updatedPlan.items.find(it=>contract.member(it)===contract.member(item)),
-      reviewState:{canClose:updatedPlan.canClose,canEnableRecount:updatedPlan.canEnableRecount}};
+      reviewState:{canClose:updatedPlan.canClose,canEnableRecount:updatedPlan.canEnableRecount,canEnableRecount2:updatedPlan.canEnableRecount2}};
   }
 
   async corroborateItem(p) {
@@ -1457,6 +1458,98 @@ class InventoryService {
     };
   }
 
+  // Optional step after the review of the first recount: only its NO CUADRA items are counted again.
+  enableSecondRecount({ inventoryId, user }) {
+    if (user.role !== 'ADMIN' && user.role !== 'ENCARGADO' && !user.isSuperadmin) {
+      throw new Error('Solo un Administrador o Encargado puede habilitar el reconteo');
+    }
+
+    const inv = this.getInventoryRaw(inventoryId);
+    if (!inv) throw new Error('Inventario no encontrado');
+
+    if (!this.canModifyInventory(inv, user)) throw new Error('Inventario fuera de su centro');
+    const reviewPlan = this.getReviewPlan(inv);
+    if (!reviewPlan.canEnableRecount2) {
+      throw new Error('El segundo reconteo requiere el primer reconteo firmado y sus justificaciones completas, con al menos un NO CUADRA.');
+    }
+
+    const reviewerName = user.displayName || user.username;
+    const enabledAt = new Date().toISOString();
+    const keys = reviewPlan.secondNoCuadra.map(contract.member);
+    const itemsToRecount = inv.items.filter(it => keys.includes(contract.member(it)));
+    const child = this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`);
+    const records = [...this.getJustificationsForInventory(inv.id), ...(child ? this.getJustificationsForInventory(child.id) : [])];
+
+    // Sheets has one set of second-review columns: keep what the new review will replace.
+    itemsToRecount.forEach(it => {
+      const previous = workflow.review(it, 2, records);
+      const id = 'JUST-' + createHash('sha256').update(JSON.stringify([inv.id, contract.member(it), 2, 'reconteo-1'])).digest('hex');
+      storagePath.writeJson(path.join(this.justDir, id + '.json'), {id, inventoryId:inv.id, itemId:it.id, sku:it.SKU,
+        almacen:it.Almacen, ubicacion:it.Ubicacion, round:2, countStage:1, superseded:true, supersededAt:enabledAt,
+        corroboracion:previous.corroboracion, isCuadra:false, reasonType:previous.reasonType, justification:previous.justification,
+        reviewedBy:previous.reviewedBy, reviewedAt:previous.reviewedAt, photoUrl:previous.photoUrl || null,
+        photoUrls:previous.photoUrls || [], center:inv.center, type:inv.type, status:'REVISADO'});
+      it.Revisado_Por = reviewerName;
+      it.requiereReconteo = true;
+    });
+
+    inv.reviewedBy = reviewerName;
+    inv.hasRecount2 = true;
+    inv.status = 'EN_RECONTEO';
+    inv.recount2ItemKeys = keys;
+    inv.recount2EnabledBy = reviewerName;
+    inv.recount2EnabledAt = enabledAt;
+    inv.recount2ReviewNotBefore = enabledAt;
+    delete inv.reopenedPhase;
+    delete inv.closeOperationId;
+    counterReliability.invalidate(inv, itemsToRecount);
+    if (child) {
+      // The assigned counter keeps working on the recount list, not on the primary record.
+      inv.phase = 'CONTEO';
+      inv.recountRound = 1;
+      child.name = `[RECONTEO 2] ${inv.name.replace(/^\[RECONTEO( 2)?\]\s*/, '')}`;
+      child.status = 'EN_PROGRESO';
+      child.phase = 'RECONTEO_2';
+      child.recountRound = 2;
+      child.recount2ItemKeys = keys;
+      child.recountEnabledBy = reviewerName;
+      child.countNotBefore = enabledAt;
+      child.reviewedBy = reviewerName;
+      child.isFinalized = false;
+      child.items.filter(item => keys.includes(contract.member(item))).forEach(item => {
+        const original = itemsToRecount.find(it => contract.member(it) === contract.member(item));
+        Object.assign(item, {Stock_Fisico:null, Stock_Buen_Estado:null, Stock_Total:null, Mal_estado:0, Reconteo_2:null,
+          Malestado_Reconteo_2:null, Stock_Total_Reconteo_2:null, Fecha_Reconteo_2:null, Revisado_Por:reviewerName,
+          locked:false, Estado:'Pendiente'});
+        if (original?.counterEvidence) item.counterEvidence = counterReliability.clone(original.counterEvidence);
+      });
+      this.saveInventory(child);
+    } else {
+      inv.phase = 'RECONTEO_2';
+      inv.recountRound = 2;
+      inv.countNotBefore = enabledAt;
+      itemsToRecount.forEach(it => { it.locked = false; });
+    }
+    this.saveInventory(inv);
+
+    const recountId = child ? child.id : inv.id;
+    auditService.logAction({
+      action: 'RECOUNT_2_ENABLED',
+      details: `Segundo reconteo habilitado con ${keys.length} ítems NO CUADRA para el auxiliar asignado`,
+      user: user.username,
+      center: inv.center,
+      targetId: recountId
+    });
+
+    return {
+      success: true,
+      message: `Segundo reconteo habilitado con ${keys.length} ítems para el contador asignado`,
+      recountInventoryId: recountId,
+      recountInventory: child || inv,
+      itemsCount: keys.length
+    };
+  }
+
   getJustificationsForInventory(inventoryId) {
     try {
       const files = storagePath.listFiles(this.justDir).filter(f => f.endsWith('.json'));
@@ -1523,7 +1616,7 @@ class InventoryService {
         reopenedPhase: inv.reopenedPhase || null, assignedTo: inv.assignedTo || [], totalItems: inv.items.length,
         totalDiscrepancies: plan.items.length, pendingJustificationsCount: plan.pending.length,
         justifiedItemsCount: plan.items.length - plan.pending.length,
-        canClose: plan.canClose, canEnableRecount: plan.canEnableRecount, closeBlockers: plan.closeBlockers,
+        canClose: plan.canClose, canEnableRecount: plan.canEnableRecount, canEnableRecount2: plan.canEnableRecount2, closeBlockers: plan.closeBlockers,
         items: plan.items
       });
     }
@@ -1699,6 +1792,8 @@ class InventoryService {
       inv.hasRecount = true;
       inv.hasRecount2 = false;
       inv.recountRound = 1;
+      delete inv.recount2ItemKeys;
+      delete inv.recount2ReviewNotBefore;
       inv.reopenedPhase = 'RECONTEO_1';
     } else if (cleanPhase === 'JUSTIFICACION' || cleanPhase === 'JUSTIFICACIONES') {
       inv.status = 'PENDIENTE_JUSTIFICACION';
@@ -1723,7 +1818,9 @@ class InventoryService {
         inv.recountItemKeys = inv.items.filter(item => workflow.review(item,1).complete && workflow.review(item,1).corroboracion === 'NO CUADRA').map(contract.member);
       }
       if (!inv.recountItemKeys.length) throw new Error('Registre primero las justificaciones NO CUADRA para habilitar el reconteo.');
-      inv.secondReviewNotBefore = reopenedAt;
+      // Reopening the second recount must not invalidate reviews of items outside its list.
+      if (inv.recount2ItemKeys?.length) inv.recount2ReviewNotBefore = reopenedAt;
+      else inv.secondReviewNotBefore = reopenedAt;
       inv.countNotBefore = reopenedAt;
     } else {
       inv.firstReviewNotBefore = reopenedAt;
@@ -1734,7 +1831,7 @@ class InventoryService {
       inv.recountRound = 0;
     }
     if (!['JUSTIFICACION', 'JUSTIFICACIONES'].includes(cleanPhase)) {
-      const keys = new Set(inv.recountItemKeys || []);
+      const keys = workflow.activeCountKeys(inv);
       counterReliability.invalidate(inv, workflow.countStage(inv) ? inv.items.filter(item => keys.has(contract.member(item))) : inv.items);
     }
     inv.isFinalized = false;
@@ -1822,6 +1919,7 @@ class InventoryService {
           childRec.countNotBefore = inv.countNotBefore;
           childRec.phase = inv.phase;
           childRec.recountRound = inv.recountRound;
+          childRec.recount2ItemKeys = inv.recount2ItemKeys;
           childRec.secondReviewNotBefore = inv.secondReviewNotBefore;
           childRec.items.forEach(item => {
             const parentItem = inv.items.find(it => contract.member(it) === contract.member(item));
@@ -2050,7 +2148,7 @@ class InventoryService {
       throw new Error(`Ítem con SKU ${sku} no encontrado en el inventario`);
     }
 
-    const stageMembers = workflow.recountKeys(inv);
+    const stageMembers = workflow.activeCountKeys(inv);
     if (requestedStage && stageMembers.size && !stageMembers.has(contract.member(targetItem))) {
       throw new Error('Este ítem no pertenece a la lista de reconteo habilitada.');
     }
