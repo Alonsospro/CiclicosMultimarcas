@@ -30,6 +30,19 @@ const getInventoryIdentifier = value => {
   return '';
 };
 
+// A cyclic CUADRA rewrites column K of the final file with the counted quantity. The app's
+// inventory record keeps the original system stock per item; restore it so the first count
+// is measured against the real starting point. Rows without a saved original keep K.
+function restoreOriginalSystemStock(items, records) {
+  const present = value => value !== undefined && value !== null && String(value).trim() !== '';
+  const originals = new Map(records.filter(record => !record.isHistory).flatMap(record => record.items || [])
+    .filter(item => item && present(item.Stock_Sistema_Original))
+    .map(item => [model.member(item), item.Stock_Sistema_Original]));
+  if (!originals.size) return items;
+  return items.map(item => present(item.Stock_Sistema_Original) || !originals.has(model.member(item)) ? item
+    : {...item, Stock_Sistema_Original: originals.get(model.member(item))});
+}
+
 class MetricsSourceService {
   invalidate() { reads.clear(); verified.clear(); this.historyCache = null; this.historyPending = new Map(); this.discoveryErrorCache?.clear(); this.generation = (this.generation || 0) + 1; }
 
@@ -249,6 +262,7 @@ class MetricsSourceService {
         catch (error) { error.code = 'INVALID_SHEET'; throw error; }
         const authorship = primary.find(record => record.items?.some(item => item.counterEvidence));
         if (authorship) items = reliability.preserve(items, authorship.items);
+        items = restoreOriginalSystemStock(items, primary);
         const remoteManifest = source.manifest;
         validation.issues.push(...model.validateManifest(localManifest, record, items));
         validation.issues.push(...model.validateManifest(remoteManifest, record, items));
@@ -285,3 +299,4 @@ class MetricsSourceService {
 module.exports = new MetricsSourceService();
 module.exports.matchesId = matchesId;
 module.exports.getInventoryIdentifier = getInventoryIdentifier;
+module.exports.restoreOriginalSystemStock = restoreOriginalSystemStock;

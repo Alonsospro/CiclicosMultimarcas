@@ -220,7 +220,12 @@ class MetricsService {
 
           const rawCost = it.Costo_Unitario !== undefined ? it.Costo_Unitario : (it.costo_unitario || 0);
           const unitCost = parseCurrencyOrNumber(rawCost, 0);
-          const sysStock = parseCurrencyOrNumber(it.Stock_Sistema !== undefined ? it.Stock_Sistema : (it.stock_sistema || 0), 0);
+          // Final results are reconciled against the file's K (rewritten by a cyclic CUADRA);
+          // the first count and the system totals use the original system stock when known.
+          const fileSysStock = parseCurrencyOrNumber(it.Stock_Sistema !== undefined ? it.Stock_Sistema : (it.stock_sistema || 0), 0);
+          const originalSys = contract.isWeekly(it) || !contract.has(it.Stock_Sistema_Original) ? null
+            : parseCurrencyOrNumber(it.Stock_Sistema_Original, null);
+          const sysStock = Number.isFinite(originalSys) ? originalSys : fileSysStock;
           const rawPhys = it.Stock_Fisico !== undefined ? it.Stock_Fisico : it.stock_fisico;
           const isAudited = rawPhys !== null && rawPhys !== undefined && rawPhys !== '';
           const physStock = isAudited ? parseCurrencyOrNumber(rawPhys, 0) : 0;
@@ -242,7 +247,7 @@ class MetricsService {
             finQty = contract.finalQuantity(it);
           } catch (_) {}
           const finalPhysical = finQty !== null && finQty !== undefined ? finQty : total1er;
-          const finalDiff = finalPhysical - sysStock;
+          const finalDiff = finalPhysical - fileSysStock;
           const finalCost = Math.abs(finalDiff * unitCost);
 
           const initDiff = total1er - sysStock;
@@ -537,6 +542,14 @@ class MetricsService {
 
         const rawSys = item.Stock_Sistema !== undefined ? item.Stock_Sistema : (item.stock_sistema || item.stockSistema || 0);
         let stockSistema = parseCurrencyOrNumber(rawSys, 0);
+        // Cyclic CUADRA overwrites column K with the counted quantity and zeroes the
+        // differences. The original system stock, kept by the app when justifying, is
+        // the real starting point for the first count.
+        const rawOriginalSystem = weekly ? null : item.Stock_Sistema_Original;
+        const originalSystem = rawOriginalSystem !== undefined && rawOriginalSystem !== null && String(rawOriginalSystem).trim() !== ''
+          ? parseCurrencyOrNumber(rawOriginalSystem, null) : null;
+        const hasOriginalSystem = Number.isFinite(originalSystem);
+        if (hasOriginalSystem) stockSistema = originalSystem;
 
         const rawDamaged = item.Mal_estado !== undefined ? item.Mal_estado : (item.mal_estado || item.malEstado || 0);
         const damaged = parseCurrencyOrNumber(rawDamaged, 0);
@@ -547,7 +560,7 @@ class MetricsService {
         let stockFisico = isAudited ? parseCurrencyOrNumber(rawPhys, 0) : null;
 
         const isCuadra = !weekly && (String(item.corroboracion || '').toUpperCase().trim() === 'CUADRA' || String(item.corroborationStatus || '').toUpperCase().trim() === 'CUADRA');
-        if (isCuadra && isAudited) {
+        if (isCuadra && isAudited && !hasOriginalSystem) {
           stockSistema = stockFisico;
         }
 
@@ -666,7 +679,10 @@ class MetricsService {
         // Si en Col O el valor == 0 -> se considera que no hay diferencia (exacto / cuadra).
         // Si en Col O es > 0 -> sobrante. Si < 0 -> faltante.
         let diff1 = 0;
-        if (item.Diferencia !== undefined && item.Diferencia !== null && String(item.Diferencia).trim() !== '') {
+        const firstCountAgainstOriginal = hasOriginalSystem && stockTotal1 !== null;
+        if (firstCountAgainstOriginal) {
+          diff1 = stockTotal1 - originalSystem;
+        } else if (item.Diferencia !== undefined && item.Diferencia !== null && String(item.Diferencia).trim() !== '') {
           diff1 = Number(item.Diferencia);
         } else if (stockTotal1 !== null) {
           diff1 = stockTotal1 - stockSistema;
@@ -677,7 +693,7 @@ class MetricsService {
         const rawDiffCost1 = item.Costo_Diferencia !== undefined ? item.Costo_Diferencia :
           (item.costo_diferencia !== undefined ? item.costo_diferencia :
           (item.Diferencia_Costo !== undefined ? item.Diferencia_Costo : null));
-        let diffCost1 = (rawDiffCost1 !== null && rawDiffCost1 !== '' && rawDiffCost1 !== undefined)
+        let diffCost1 = firstCountAgainstOriginal ? diff1 * unitCost : (rawDiffCost1 !== null && rawDiffCost1 !== '' && rawDiffCost1 !== undefined)
           ? parseCurrencyOrNumber(rawDiffCost1, diff1 * unitCost)
           : (diff1 * unitCost);
         if (diffCost1 === 0 && diff1 !== 0 && unitCost > 0) {
@@ -724,7 +740,9 @@ class MetricsService {
           finalStage = 0;
         }
 
-        if (!weekly && (isCuadra || item.corroboracion === 'CUADRA' || String(item.Estado || '').toLowerCase() === 'justificado')) {
+        const latestDecision = String(contract.has(item.Estado_Justificacion_2) ? item.Estado_Justificacion_2 : (item.Estado || ''))
+          .toUpperCase().replace(/_/g, ' ').trim();
+        if (!weekly && (isCuadra || item.corroboracion === 'CUADRA' || latestDecision === 'CUADRA' || latestDecision === 'JUSTIFICADO')) {
           diffFinal = 0;
           diffCostFinal = 0;
         }

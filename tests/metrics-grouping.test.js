@@ -146,3 +146,37 @@ test('legacy discrepancy fields and the chart breakdown report the same final co
     metricsService.getAllInventoriesData = origGetAll;
   }
 });
+
+test('cyclic CUADRA rows measure the first count against the original system stock, not the rewritten K', async () => {
+  // Real case from INV-CICLICO-5100-1: original 362, file K=353, counted 353, O=0, CUADRA.
+  const row = (sku, original, k, counted, estado, diff = 0) => ({ SKU: sku, Almacen: 'RVO6', Ubicacion: '1A01001A00',
+    Costo_Unitario: 10, Stock_Sistema: k, Stock_Fisico: counted, Stock_Total: counted, Mal_estado: 0,
+    Diferencia: diff, Costo_Diferencia: diff * 10, Estado: estado, Stock_Sistema_Original: original });
+  const fileRows = [row('CUADRA-HIDDEN', 362, 353, 353, 'CUADRA'), row('NO-CUADRA', 155, 155, 148, 'NO CUADRA', -7),
+    row('EXACT', 20, 20, 20, '')];
+  const origGetAll = metricsService.getAllInventoriesData;
+  metricsService.getAllInventoriesData = async () => [{ id: 'INV-CICLICO-5100-1', isHistory: true, status: 'REVISADO',
+    center: '5100', type: 'CICLICO', createdAt: '2026-10-31T10:00:00.000Z', items: fileRows }];
+  try {
+    metricsService.invalidateCache?.();
+    const {summary} = await metricsService.getDashboardMetrics({ center: '5100', type: 'CICLICO', period: 'TODO' });
+    assert.equal(summary.discrepancias1erConteo, 2, 'The hidden -9 shortage counts as a first-count difference');
+    assert.deepEqual(summary.faltantes1er, {itemsCount: 2, units: 16, cost: 160});
+    assert.equal(summary.discrepanciasFinal, 1, 'CUADRA closes at zero; NO CUADRA keeps its difference');
+    assert.equal(summary.impactoFinancieroFinalNeto, -70);
+    assert.equal(summary.totalAuditedSystemUnits, 362 + 155 + 20, 'System totals use the original stock');
+  } finally {
+    metricsService.getAllInventoriesData = origGetAll;
+  }
+});
+
+test('the original system stock is restored onto final-file rows from the app inventory record only', () => {
+  const restore = metricsSourceService.restoreOriginalSystemStock;
+  const fileRows = [{SKU:'A', Almacen:'R1', Ubicacion:'L1', Stock_Sistema:353}, {SKU:'B', Almacen:'R1', Ubicacion:'L1', Stock_Sistema:5}];
+  const records = [{isHistory:true, items:[{SKU:'B', Almacen:'R1', Ubicacion:'L1', Stock_Sistema_Original:99}]},
+    {isHistory:false, items:[{SKU:'a', Almacen:'r1', Ubicacion:'l1', Stock_Sistema_Original:362}]}];
+  const restored = restore(fileRows, records);
+  assert.equal(restored[0].Stock_Sistema_Original, 362);
+  assert.equal(restored[1].Stock_Sistema_Original, undefined, 'History copies are not a source of the original stock');
+  assert.equal(restored[0].Stock_Sistema, 353, 'The file value itself is not modified');
+});
