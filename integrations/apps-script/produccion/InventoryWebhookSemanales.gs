@@ -827,6 +827,7 @@ function distribuirBaseACentros(){
       if(required&&!matches.length)throw new Error('Falta columna en BD_BASE: '+aliases[0]);
       return [COL[key]-1,matches.length?matches[0]:-1];
     });
+    const keepsOverstock=indexes.some(([target,idx])=>COL.Sobrestock&&target===COL.Sobrestock-1&&idx>=0);
     const groups={};
     all.filter(r=>r.some(InventoryContract.has)).forEach(r=>{
       const center=String(r[centerIndex]).trim();
@@ -850,6 +851,8 @@ function distribuirBaseACentros(){
       incoming.forEach(row=>{
         const key=InventoryContract.member(rowToObject_(row));
         if(map.has(key)){const i=map.get(key);if(InventoryContract.has(rows[i][COL.Stock_Total-1])){skipped++;return;}
+          // Without a sobrestock column in BD_BASE, keep the overstock location typed in the center sheet.
+          if(COL.Sobrestock&&!keepsOverstock)row[COL.Sobrestock-1]=rows[i][COL.Sobrestock-1];
           rows[i]=row;
         }else{map.set(key,rows.length);rows.push(row);}
       });

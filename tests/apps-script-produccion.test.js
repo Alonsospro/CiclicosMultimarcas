@@ -21,6 +21,7 @@ function fixture({failOn, script = 'InventoryWebhook.gs'} = {}) {
       getMaxRows:() => Math.max(100, sh.grid.length), getMaxColumns:() => width, getLastRow() {
         let n = sh.grid.length; while (n && !sh.grid[n - 1].some(v => v !== '' && v !== null && v !== undefined)) n--; return n;},
       insertRowsAfter() {}, deleteColumns() {}, hideSheet() {sh.hidden = true;},
+      getDataRange:() => ({getValues:() => sh.grid.map(r => r.slice())}),
       getRange(row, col, height = 1, width = 1) {
         const values = () => Array.from({length:height}, (_, i) => Array.from({length:width}, (_, j) => sh.grid[row - 1 + i]?.[col - 1 + j] ?? ''));
         return {getValues:values, getDisplayValues:() => values().map(r => r.map(String)), getValue:() => values()[0][0],
@@ -57,7 +58,8 @@ function fixture({failOn, script = 'InventoryWebhook.gs'} = {}) {
     Session:{getScriptTimeZone:() => 'America/La_Paz'},
     Utilities:{DigestAlgorithm:{SHA_256:'sha256'}, formatDate:() => `20261031_${String(++serial).padStart(6, '0')}`,
       computeDigest:(_a, v) => [...createHash('sha256').update(v).digest()]},
-    SpreadsheetApp:{openById:id => books.get(id), flush() {}},
+    SpreadsheetApp:{openById:id => books.get(id), flush() {}, getUi:() => ({alert() {}})},
+    LockService:{getScriptLock:() => ({waitLock() {}, releaseLock() {}})},
     DriveApp:{getFileById:id => {const f = files.get(id); if (!f) throw new Error('No existe'); return f;}}});
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../integrations/apps-script/produccion', script), 'utf8'), context);
   const headers = Array.from(vm.runInContext('DEFAULT_HEADERS', context));
@@ -69,7 +71,7 @@ function fixture({failOn, script = 'InventoryWebhook.gs'} = {}) {
   context.allowedRoots_ = () => ['FINALS'];
   context.belongsToRoot_ = () => true;
   context.savePhotoIfAny_ = () => null;
-  return {context, files, books, calls};
+  return {context, files, books, calls, master};
 }
 
 const contract = require('../src/services/inventoryContract');
@@ -126,3 +128,25 @@ for (const script of ['InventoryWebhook.gs', 'InventoryWebhookSemanales.gs']) {
     assert.equal(f.context.readFinalInventory_({spreadsheetId:first.fileId, center:'5100'}).manifest.itemCount, 2);
   });
 }
+
+test('production weekly: BD_BASE fills the 44 columns by name and keeps a typed Sobrestock when BD_BASE has none', () => {
+  const f = fixture({script:'InventoryWebhookSemanales.gs'});
+  const at = key => contract.weeklyColumns.indexOf(key);
+  const base = f.master.getSheetByName('BD_BASE');
+  base.grid = [['codigo','descripcion','centro','almacen','Stock','Ubic','Valor','ClasificacionCentro'],
+    ['JD_ADX14037','FILTRO DE AIRE','5100','CD01',8,'2B03012E00',120,'A']];
+  const center = f.master.getSheetByName('5100');
+  f.context.distribuirBaseACentros();
+  assert.equal(center.grid[1][at('SKU')], 'JD_ADX14037');
+  assert.equal(center.grid[1][at('Almacen')], 'CD01');
+  assert.equal(center.grid[1][at('Stock_Sistema')], 8);
+  assert.equal(center.grid[1][at('Costo_Unitario')], 120);
+  center.grid[1][at('Sobrestock')] = '9Z99999Z99';
+  base.grid[1][4] = 9;
+  f.context.distribuirBaseACentros();
+  assert.equal(center.grid[1][at('Stock_Sistema')], 9, 'Uncounted rows take the new master stock');
+  assert.equal(center.grid[1][at('Sobrestock')], '9Z99999Z99', 'Typed overstock location is kept');
+  base.grid[0].push('Sobrestock'); base.grid[1].push('1A00000A01');
+  f.context.distribuirBaseACentros();
+  assert.equal(center.grid[1][at('Sobrestock')], '1A00000A01', 'A BD_BASE sobrestock column is distributed');
+});
