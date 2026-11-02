@@ -32,7 +32,7 @@
   <link rel="stylesheet" href="/css/liquid-glass.css?v=2.3">
   <link rel="stylesheet" href="/css/counterReliability.css?v=1.0">
   <link rel="stylesheet" href="/css/inventory-layout.css?v=2.4">
-  <link rel="stylesheet" href="/css/executive-report.css?v=2.4">
+  <link rel="stylesheet" href="/css/management-report.css?v=1.0">
   <link rel="stylesheet" href="/css/dashboard-sources.css?v=1.0">
   <link rel="stylesheet" href="/css/weekly-groups.css?v=1.0">
 </head>
@@ -1261,10 +1261,10 @@
                   <!-- Escala de Metas Corporativas NIBOL -->
                   <div class="dash-target-scale" style="display: inline-flex; align-items: center; gap: 0.3rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-glass); padding: 0.2rem 0.45rem; border-radius: 9999px; font-size: 0.72rem;">
                     <span style="color: var(--text-dim); font-weight: 700; margin-right: 0.15rem;"><i class="fa-solid fa-bullseye" style="color: #f59e0b;"></i> Metas:</span>
-                    <span class="badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.35);" title="Menos del 90% es considerado Mal">&lt;90% Mal</span>
-                    <span class="badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.35);" title="95% representa el Mínimo Aceptable">95% Mín. Aceptable</span>
-                    <span class="badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35);" title="98% representa nivel Excelente">98% Excelente</span>
-                    <span class="badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: rgba(6, 182, 212, 0.18); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.4);" title="100% representa nivel Perfecto">100% Perfecto</span>
+                    <span class="badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.35);" title="Menos del 95% no cumple">&lt;95% No cumple</span>
+                    <span class="badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.35);" title="Entre 95% y menos de 98% es el mínimo de cumplimiento">95% Mínimo</span>
+                    <span class="badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35);" title="Igual o mayor a 98% es cumplimiento">98% Cumplimiento</span>
+                    <span class="badge" style="font-size: 0.68rem; padding: 0.15rem 0.45rem; background: rgba(6, 182, 212, 0.18); color: #22d3ee; border: 1px solid rgba(6, 182, 212, 0.4);" title="100% es perfecto cumplimiento">100% Perfecto</span>
                   </div>
                 </div>
               </div>
@@ -2771,22 +2771,15 @@
               Informe Administrativo • Control de Inventario Cíclico
             </h3>
             <p style="font-size: 0.75rem; color: var(--text-muted); margin: 0;" id="report-modal-subtitle">
-              Resumen ejecutivo de resultados, conciliación y diferencias pendientes
+              Resultado, cantidades, ubicación y detalle
             </p>
           </div>
         </div>
 
         <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <button type="button" class="btn btn-primary btn-sm" id="btn-report-download-pdf" title="Exportar y descargar informe administrativo como archivo PDF oficial">
-            <i class="fa-solid fa-file-pdf"></i> PDF resumido
+          <button type="button" class="btn btn-primary btn-sm" id="btn-report-download-pdf" title="Descargar este informe como archivo PDF">
+            <i class="fa-solid fa-file-pdf"></i> Descargar PDF
           </button>
-          <button type="button" class="btn btn-secondary btn-sm" id="btn-report-download-detailed-pdf" title="Exportar el detalle de discrepancias y resultados por producto">
-            <i class="fa-solid fa-table-list"></i> PDF detallado
-          </button>
-          <select id="report-preview-mode" class="form-select" style="width:auto;max-width:180px" aria-label="Vista previa del informe">
-            <option value="resumen">Resumen ejecutivo</option>
-            <option value="detallado">Informe detallado</option>
-          </select>
           <button type="button" class="btn btn-secondary btn-sm" id="btn-report-native-print" title="Imprimir documento en impresora física o PDF de sistema">
             <i class="fa-solid fa-print"></i> Imprimir Documento
           </button>
@@ -2795,8 +2788,8 @@
       </div>
 
       <!-- Report Scrollable Viewport (Stylized Paper) -->
-      <div id="report-preview-viewport" style="flex: 1; overflow-y: auto; padding: 1.25rem 0.75rem; background: #cbd5e1; display: flex; justify-content: center;">
-        <div id="report-printable-area" class="report-paper-sheet rep-exec-sheet" style="background: #ffffff; color: #0f172a; width: 100%; max-width: 1120px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1); border-radius: 4px; padding: 1.25rem 1.5rem; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+      <div id="report-preview-viewport" style="flex: 1; overflow-y: auto; padding: 1.25rem 0.75rem; background: #cbd5e1; display: flex; justify-content: flex-start;">
+        <div id="report-printable-area" class="report-paper-sheet mr-paper">
           <!-- Content dynamically rendered by window.MetricsReportModal -->
         </div>
       </div>
@@ -2804,7 +2797,7 @@
       <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1.25rem; border-top: 1px solid var(--border-glass); background: var(--bg-surface);">
         <div style="font-size: 0.78rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem;">
           <i class="fa-solid fa-circle-check" style="color: var(--primary);"></i>
-          <span>Elija resumen ejecutivo o informe detallado para revisar y guardar los resultados.</span>
+          <span>Con varios centros en el filtro se genera el consolidado; con uno solo, el informe de ese centro.</span>
         </div>
         <button type="button" class="btn btn-secondary btn-sm" data-close-modal="modal-metrics-report">Cerrar</button>
       </div>
@@ -2930,9 +2923,9 @@
   <script src="/js/inventoryContract.js?v=final-sheet-3"></script>
   <script src="/js/views/justificationsView.js?v=3.0"></script>
   <script src="/js/views/historyView.js?v=2.3"></script>
-  <link rel="stylesheet" href="/css/detailed-report.css?v=1.5">
-  <script src="/js/components/detailedMetricsReport.js?v=1.6"></script>
-  <script src="/js/components/metricsReportModal.js?v=2.6"></script>
+
+  <script src="/js/components/managementReport.js?v=1.0"></script>
+  <script src="/js/components/metricsReportModal.js?v=3.0"></script>
   <script src="/js/components/snapshotManagerModal.js?v=2.2"></script>
   <script src="/js/components/counterReliabilityPanel.js?v=1.0"></script>
   <script src="/js/views/dashboardView.js?v=exact-week-month-1"></script>

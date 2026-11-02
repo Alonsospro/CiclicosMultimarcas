@@ -21,7 +21,7 @@ function fixture() {
     }
   });
   vm.runInContext(dashboardCode, context);
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/js/components/detailedMetricsReport.js'), 'utf8'), context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/js/components/managementReport.js'), 'utf8'), context);
   return { context, view: context.window.DashboardView, warnings, reports, elements };
 }
 
@@ -143,19 +143,24 @@ test('a failed refresh blocks the old snapshot until a successful reload', async
   assert.equal(f.reports.length, 0);
 });
 
-test('printable report includes escaped filter context and aggregate results without item listings', () => {
-  const f = fixture(), area = { innerHTML: '' };
+test('the report opens the modal first, renders the frozen snapshot and paginates once visible', () => {
+  const f = fixture(), calls = [];
+  const area = { innerHTML: '', querySelector: () => null };
   f.elements.set('report-printable-area', area);
+  f.context.window.ModalHelper = { open: () => calls.push(['open', area.innerHTML]) };
   vm.runInContext(reportCode, f.context);
   const data = metrics();
-  data.filters.center = '<script>alert(1)</script>';
-  f.context.window.MetricsReportModal.buildReportDOM({ name: 'Consolidado' }, data);
-  assert.match(area.innerHTML, /2026-10-01/);
-  assert.match(area.innerHTML, /2026-10-08/);
-  assert.match(area.innerHTML, /BARRIDO/);
-  assert.match(area.innerHTML, /90\.00%/);
-  assert.doesNotMatch(area.innerHTML, /SKU-1/);
-  assert.match(area.innerHTML, /RESUMEN OPERATIVO DE CONCILIACIÓN/);
-  assert.match(area.innerHTML, /&lt;script&gt;/);
-  assert.doesNotMatch(area.innerHTML, /<script>/);
+  data.reportData = { centers: [], pendingCenters: [] };
+  f.context.window.MetricsReportModal.openReportWithData({ name: 'Consolidado' }, data);
+  assert.deepEqual(calls, [['open', '']]);
+  assert.match(area.innerHTML, /No hay datos auditados/);
+});
+
+test('incomplete sources do not open the report', () => {
+  const f = fixture(), calls = [];
+  f.context.window.ModalHelper = { open: () => calls.push('open') };
+  vm.runInContext(reportCode, f.context);
+  f.context.window.MetricsReportModal.openReportWithData({ name: 'X' }, { ...metrics(), metricsComplete: false });
+  assert.equal(calls.length, 0);
+  assert.equal(f.warnings.length, 1);
 });

@@ -23,7 +23,7 @@ function sourceFixture({active=[],history=[],remote=[],read,clock=Date}={}) {
   history.forEach((r,i)=>files.set(`/history/${i}.json`,r));
   const service=moduleAt('metricsSourceService.js',{
     __Date:clock,
-    '../config':config,'./inventorySheetModel':model,'./counterReliability':reliability,
+    '../config':config,'./inventorySheetModel':model,'./counterReliability':reliability,'./reportBreakdown':require('../src/services/reportBreakdown'),
     './storagePath':{getHistoryDirectory:()=>'/history',getInventoriesDirectory:()=>'/inventories',
       listFiles:dir=>[...files.keys()].filter(f=>f.startsWith(dir+'/')).map(f=>path.posix.basename(f)),readJson:p=>files.get(p.replaceAll('\\','/'))},
     './snapshotService':{isSnapshotDeleted:r=>r?.deleted===true},
@@ -34,7 +34,7 @@ function sourceFixture({active=[],history=[],remote=[],read,clock=Date}={}) {
   });return {service,calls};
 }
 function dashboard(source){return moduleAt('metricsService.js',{
-  './metricsSourceService':source,'./inventoryContract':contract,'./counterReliability':reliability,'../config':config,
+  './metricsSourceService':source,'./inventoryContract':contract,'./counterReliability':reliability,'./reportBreakdown':require('../src/services/reportBreakdown'),'../config':config,
   './storagePath':{getInventoriesDirectory:()=>'/inventories',getHistoryDirectory:()=>'/history',getUsersFilePath:()=>'/users',readJson:()=>[]},
   './auditService':{getAuditLogs:()=>[],logAction(){}}
 });}

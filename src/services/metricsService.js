@@ -4,6 +4,7 @@ const auditService = require('./auditService');
 const counterReliability = require('./counterReliability');
 const contract = require('./inventoryContract');
 const metricsSources = require('./metricsSourceService');
+const reportBreakdown = require('./reportBreakdown');
 const getInventoryIdentifier = metricsSources.getInventoryIdentifier || (value => {
   const str = typeof value === 'string'
     ? value
@@ -494,6 +495,7 @@ class MetricsService {
     const workerStatsMap = {};
     const discrepanciesList = [];
     const multiLocationSkusList = [];
+    const reportCollector = reportBreakdown.createCollector();
 
     filtered.forEach(inv => {
       const invCenter = inv.center || 'GENERAL';
@@ -523,6 +525,8 @@ class MetricsService {
           locationsExact: 0
         };
       }
+
+      reportCollector.addInventory({ center: invCenter, centerName: centerDisplayName, id: inv.id, closedAt: inv.closedAt || inv.createdAt });
 
       // Track multi-locations per inventory & SKU
       const invSkuMap = {};
@@ -833,6 +837,7 @@ class MetricsService {
           centerBreakdown[invCenter].itemsExactFirstUnits = (centerBreakdown[invCenter].itemsExactFirstUnits || 0) + matchedUnits1;
         }
         totalInitialDiffCost += absDiffCost1;
+        centerBreakdown[invCenter].initialDiffCost = (centerBreakdown[invCenter].initialDiffCost || 0) + absDiffCost1;
         totalInitialNetDiffCost += Number(diffCost1) || 0;
 
         let matchedUnitsFinal = 0;
@@ -889,6 +894,23 @@ class MetricsService {
         finalDamagedItems += finalDamaged;
         finalDamagedCost += (finalDamaged * unitCost);
         if (finalDamaged > 0) finalDamagedRows++;
+
+        reportCollector.addLine({
+          center: invCenter,
+          centerName: centerDisplayName,
+          warehouse: item.Almacen || item.almacen || '',
+          abc: (item.Clasificacion_ABC || 'C').toUpperCase(),
+          systemUnits: stockSistema,
+          value: stockSistema * unitCost,
+          unitsExact1: matchedUnits1,
+          unitsExact: matchedUnitsFinal,
+          diff1,
+          diffFinal,
+          cost1: absDiffCost1,
+          costFinal: absDiffCostFinal,
+          damageUnits: finalDamaged,
+          damageCost: finalDamaged * unitCost
+        });
 
         if ((hasRec || weekly) && isExactFinal && !isExact1) {
           reconciledCount++;
@@ -1100,6 +1122,22 @@ class MetricsService {
             centerBreakdown[invCenter].skusExactFinal = (centerBreakdown[invCenter].skusExactFinal || 0) + 1;
           }
 
+          const skuSystemUnits = quantityRows.reduce((acc, l) => acc + (l.stockSistema || 0), 0);
+          reportCollector.addSku({
+            center: invCenter,
+            centerName: centerDisplayName,
+            warehouse: skuObj.locations[0]?.almacen || '',
+            abc: skuObj.abc,
+            exact1: isSkuExact1,
+            exactFinal: isSkuExactFinal,
+            cause: locationScore === 1 ? null : (reportBreakdown.eruCause([...distinctLocations.values()], contract.isValidLocation) || 'format'),
+            sku: skuObj.sku,
+            descripcion: skuObj.descripcion,
+            locations: [...distinctLocations.values()],
+            units: skuSystemUnits,
+            value: skuSystemUnits * (skuObj.unitCost || 0)
+          });
+
           // Multi-location tracking
           if (locationsCount > 1) {
             const isFullyAudited = auditedLocations.length === quantityRows.length;
@@ -1191,7 +1229,7 @@ class MetricsService {
       const cSku1 = cb.skusAudited > 0 ? (((cb.skusExactFirstCount || cb.skusExact || 0) / cb.skusAudited) * 100).toFixed(1) : '0.0';
       const cSkuF = cb.skusAudited > 0 ? (((cb.skusExactFinal || cb.skusExact || 0) / cb.skusAudited) * 100).toFixed(1) : '0.0';
       const cSysVal = cb.auditedSystemValue || 0;
-      const cMoney1 = cSysVal > 0 ? Math.max(0, Math.min(100, ((cSysVal - (cb.surplusCost || 0) - (cb.deficitCost || 0)) / cSysVal) * 100)).toFixed(1) : '100.0';
+      const cMoney1 = cSysVal > 0 ? Math.max(0, Math.min(100, ((cSysVal - (cb.initialDiffCost || 0)) / cSysVal) * 100)).toFixed(1) : '100.0';
       const cMoneyF = cSysVal > 0 ? Math.max(0, Math.min(100, ((cSysVal - (cb.diffCost || 0)) / cSysVal) * 100)).toFixed(1) : '100.0';
       const eru = cb.locationsEvaluated > 0 ? ((cb.locationsExact / cb.locationsEvaluated) * 100).toFixed(1) : '0.0';
 
@@ -1320,28 +1358,35 @@ class MetricsService {
       let linesCount = 0;
       let exactLines = 0;
 
-      if (Array.isArray(inv.items) && inv.items.length > 0) {
-        inv.items.forEach(it => {
-          linesCount++;
-          const stockLog = Number(it.Stock_Logico !== undefined ? it.Stock_Logico : (it.Stock_Teorico !== undefined ? it.Stock_Teorico : 0));
-          const stockFis = Number(it.Stock_Fisico !== undefined ? it.Stock_Fisico : (it.Primer_Conteo !== undefined ? it.Primer_Conteo : 0));
-          const diff = Number(it.Diferencia !== undefined ? it.Diferencia : (stockFis - stockLog));
-          const units = Math.max(stockLog, stockFis, 1);
-          totalUnits += units;
-          if (diff === 0) {
-            exactUnits += units;
-            exactLines++;
-          } else {
-            const matching = Math.max(0, units - Math.abs(diff));
-            exactUnits += matching;
-          }
-        });
-      }
+      (inv.items || []).forEach(raw => {
+        const weekly = contract.isWeekly(raw);
+        const it = weekly ? contract.normalize(raw) : raw;
+        const rawPhysical = it.Stock_Fisico !== undefined ? it.Stock_Fisico : it.stock_fisico;
+        if (rawPhysical === null || rawPhysical === undefined || rawPhysical === '') return;
+        linesCount++;
+        const fileSystem = parseCurrencyOrNumber(it.Stock_Sistema !== undefined ? it.Stock_Sistema : (it.stock_sistema || 0), 0);
+        const original = weekly || !contract.has(it.Stock_Sistema_Original) ? null : parseCurrencyOrNumber(it.Stock_Sistema_Original, null);
+        const system = Number.isFinite(original) ? original : fileSystem;
+        let finalQuantity = null;
+        try { finalQuantity = contract.finalQuantity(it); } catch (_) { /* Falls back to the first count below. */ }
+        const counted = finalQuantity !== null && finalQuantity !== undefined
+          ? finalQuantity
+          : parseCurrencyOrNumber(rawPhysical, 0) + parseCurrencyOrNumber(it.Mal_estado, 0);
+        const decision = String(contract.has(it.Estado_Justificacion_2) ? it.Estado_Justificacion_2 : (it.Estado || '')).toUpperCase().replace(/_/g, ' ').trim();
+        const justified = !weekly && (String(it.corroboracion || '').toUpperCase() === 'CUADRA' || decision === 'CUADRA' || decision === 'JUSTIFICADO');
+        const difference = justified ? 0 : counted - fileSystem;
+        totalUnits += system;
+        exactUnits += Math.max(0, system - Math.abs(difference));
+        if (difference === 0) exactLines++;
+      });
 
       let eriVal = totalUnits > 0 ? parseFloat(((exactUnits / totalUnits) * 100).toFixed(2)) : (linesCount > 0 ? parseFloat(((exactLines / linesCount) * 100).toFixed(2)) : null);
 
-      if (selectedInventory && (normKey === String(selectedInventory.id).toLowerCase().trim() || normKey === String(selectedInventory.fileId || '').toLowerCase().trim())) {
+      const isSelectedInventory = selectedInventory && (normKey === String(selectedInventory.id).toLowerCase().trim() || normKey === String(selectedInventory.fileId || '').toLowerCase().trim());
+      if (isSelectedInventory) {
         eriVal = eriItemFinal;
+        totalUnits = totalAuditedSystemUnits;
+        exactUnits = itemsCuadradosFinalUnits;
       }
 
       if (eriVal !== null) {
@@ -1352,8 +1397,8 @@ class MetricsService {
           center: inv.center || '',
           date: closedDate,
           eri: eriVal,
-          totalUnits: totalUnits || (inv.items || []).length,
-          exactUnits: exactUnits || (inv.items || []).length
+          totalUnits,
+          exactUnits
         });
       }
     });
@@ -1363,7 +1408,9 @@ class MetricsService {
 
     // Solo cierres reales: con menos de 5 inventarios cerrados la serie tiene menos puntos.
     const trendSeries = closedInventories.slice(-5);
-
+    const closureHistory = {};
+    closedInventories.forEach(closure => { (closureHistory[closure.center] = closureHistory[closure.center] || []).push(closure); });
+    Object.keys(closureHistory).forEach(code => { closureHistory[code] = closureHistory[code].slice(-5); });
     const trendLabels = trendSeries.map(item => {
       const d = new Date(item.date);
       const day = String(d.getUTCDate()).padStart(2, '0');
@@ -1379,71 +1426,20 @@ class MetricsService {
       return `${cleanName} • ${day}/${month}`;
     });
 
-    // Función de evaluación según la meta corporativa definida por NIBOL:
-    // • menos del 90%: MAL
-    // • 95%: MÍNIMO ACEPTABLE
-    // • 98%: EXCELENTE
-    // • 100%: PERFECTO
+    // Escala de cumplimiento definida por NIBOL Multimarcas:
+    // 100% perfecto · 98% o más cumplimiento · 95% a menos de 98% mínimo · menos de 95% no cumple.
     function evaluateCorporateTier(eriVal) {
       const val = Number(eriVal);
       if (val >= 100) {
-        return {
-          tier: 'PERFECTO',
-          label: 'Perfecto (100%)',
-          shortLabel: 'Perfecto',
-          color: '#06b6d4',
-          badgeClass: 'badge-cyan',
-          icon: 'fa-gem',
-          meetsTarget: true,
-          description: 'Exactitud del 100% sin discrepancias'
-        };
+        return { tier: 'PERFECTO', label: 'Perfecto cumplimiento (100%)', shortLabel: 'Perfecto cumplimiento', color: '#06b6d4', badgeClass: 'badge-cyan', icon: 'fa-gem', meetsTarget: true, description: 'Exactitud del 100% sin discrepancias' };
       }
       if (val >= 98) {
-        return {
-          tier: 'EXCELENTE',
-          label: 'Excelente (≥98%)',
-          shortLabel: 'Excelente',
-          color: '#10b981',
-          badgeClass: 'badge-success',
-          icon: 'fa-star',
-          meetsTarget: true,
-          description: 'Exactitud sobresaliente de clase mundial'
-        };
+        return { tier: 'CUMPLIMIENTO', label: 'Cumplimiento (≥98%)', shortLabel: 'Cumplimiento', color: '#10b981', badgeClass: 'badge-success', icon: 'fa-star', meetsTarget: true, description: 'Igual o mayor al 98%' };
       }
       if (val >= 95) {
-        return {
-          tier: 'MINIMO_ACEPTABLE',
-          label: 'Mínimo Aceptable (≥95%)',
-          shortLabel: 'Mínimo Aceptable',
-          color: '#3b82f6',
-          badgeClass: 'badge-info',
-          icon: 'fa-check',
-          meetsTarget: true,
-          description: 'Cumple el estándar corporativo mínimo de NIBOL'
-        };
+        return { tier: 'MINIMO', label: 'Mínimo de cumplimiento (95% a <98%)', shortLabel: 'Mínimo de cumplimiento', color: '#f59e0b', badgeClass: 'badge-warning', icon: 'fa-check', meetsTarget: true, description: 'Entre el 95% y el 98%' };
       }
-      if (val >= 90) {
-        return {
-          tier: 'OBSERVACION',
-          label: 'En Observación (90% - 94.9%)',
-          shortLabel: 'En Observación',
-          color: '#f59e0b',
-          badgeClass: 'badge-warning',
-          icon: 'fa-circle-exclamation',
-          meetsTarget: false,
-          description: 'Bajo el umbral mínimo aceptable (95%)'
-        };
-      }
-      return {
-        tier: 'MAL',
-        label: 'Mal (<90%)',
-        shortLabel: 'Mal',
-        color: '#ef4444',
-        badgeClass: 'badge-danger',
-        icon: 'fa-triangle-exclamation',
-        meetsTarget: false,
-        description: 'Exactitud crítica deficiente que requiere plan de acción inmediato'
-      };
+      return { tier: 'NO_CUMPLE', label: 'No cumple (<95%)', shortLabel: 'No cumple', color: '#ef4444', badgeClass: 'badge-danger', icon: 'fa-triangle-exclamation', meetsTarget: false, description: 'Menos del 95%' };
     }
 
     const trendSeriesWithEval = trendSeries.map(item => ({
@@ -1463,15 +1459,14 @@ class MetricsService {
       series: trendSeriesWithEval,
       target: 95.0,
       corporateTargets: {
-        mal: 90.0,
-        minimoAceptable: 95.0,
-        excelente: 98.0,
+        minimo: 95.0,
+        cumplimiento: 98.0,
         perfecto: 100.0,
         scale: [
-          { tier: 'MAL', threshold: '< 90%', label: 'Mal', color: '#ef4444' },
-          { tier: 'MINIMO_ACEPTABLE', threshold: '95%', label: 'Mínimo Aceptable', color: '#3b82f6' },
-          { tier: 'EXCELENTE', threshold: '98%', label: 'Excelente', color: '#10b981' },
-          { tier: 'PERFECTO', threshold: '100%', label: 'Perfecto', color: '#06b6d4' }
+          { tier: 'NO_CUMPLE', threshold: '< 95%', label: 'No cumple', color: '#ef4444' },
+          { tier: 'MINIMO', threshold: '95% a < 98%', label: 'Mínimo de cumplimiento', color: '#f59e0b' },
+          { tier: 'CUMPLIMIENTO', threshold: '≥ 98%', label: 'Cumplimiento', color: '#10b981' },
+          { tier: 'PERFECTO', threshold: '100%', label: 'Perfecto cumplimiento', color: '#06b6d4' }
         ]
       },
       latestEri,
@@ -1768,6 +1763,10 @@ class MetricsService {
         }
       },
       centerStats,
+      reportData: reportCollector.build({
+        history: closureHistory,
+        allCenters: ['TODOS', 'GLOBAL'].includes(cleanCenter) ? (config.centersList || []) : []
+      }),
       workerStats,
       counterReliability: counterReliability.summarize(filtered),
       multiLocationSkus: multiLocationSkusList,

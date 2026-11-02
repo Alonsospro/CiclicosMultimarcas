@@ -170,7 +170,7 @@ function metricsService(items) {
   const module = {exports:{}};
   const mocks = {
     './metricsSourceService':{invalidate(){}},
-    './inventoryContract':contract, './counterReliability':require('../src/services/counterReliability'),
+    './inventoryContract':contract, './counterReliability':require('../src/services/counterReliability'),'./reportBreakdown':require('../src/services/reportBreakdown'),
     './storagePath':{getInventoriesDirectory:()=>'/inventories',getHistoryDirectory:()=>'/history',getUsersFilePath:()=>'/users',readJson:()=>[]},
     '../config':{getCenterCode:c=>c,findCenter:c=>({code:c,name:'Centro'}),isSameCenter:(a,b)=>a===b},
     './auditService':{getAuditLogs:()=>[]},'./gasService':{},'./snapshotService':{}

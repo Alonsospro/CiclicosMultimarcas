@@ -1240,26 +1240,19 @@ window.DashboardView = {
         ? trend.data.map(Number).filter(Number.isFinite)
         : [];
 
-      // Definición estricta de metas corporativas NIBOL solicitadas:
-      // • menos del 90%: Mal (Rojo)
-      // • 95%: Mínimo Aceptable (Azul / Ámbar base)
-      // • 98%: Excelente (Verde esmeralda)
-      // • 100%: Perfecto (Cyan diamante)
+      // Escala de cumplimiento NIBOL Multimarcas.
       const evaluateCorporateTier = (val) => {
         const num = Number(val);
         if (num >= 100) {
-          return { tier: 'PERFECTO', label: '100% Perfecto', icon: '💎', color: '#06b6d4', text: 'Perfecto (100%)', badgeBg: 'rgba(6, 182, 212, 0.2)', badgeColor: '#22d3ee', badgeBorder: 'rgba(6, 182, 212, 0.4)' };
+          return { tier: 'PERFECTO', label: 'Perfecto cumplimiento (100%)', icon: '★', color: '#06b6d4', text: 'Perfecto cumplimiento (100%)', badgeBg: 'rgba(6, 182, 212, 0.2)', badgeColor: '#22d3ee', badgeBorder: 'rgba(6, 182, 212, 0.4)' };
         }
         if (num >= 98) {
-          return { tier: 'EXCELENTE', label: 'Excelente (≥98%)', icon: '★', color: '#10b981', text: 'Excelente (≥98%)', badgeBg: 'rgba(16, 185, 129, 0.2)', badgeColor: '#10b981', badgeBorder: 'rgba(16, 185, 129, 0.4)' };
+          return { tier: 'CUMPLIMIENTO', label: 'Cumplimiento (≥98%)', icon: '✓', color: '#10b981', text: 'Cumplimiento (≥98%)', badgeBg: 'rgba(16, 185, 129, 0.2)', badgeColor: '#10b981', badgeBorder: 'rgba(16, 185, 129, 0.4)' };
         }
         if (num >= 95) {
-          return { tier: 'MINIMO_ACEPTABLE', label: 'Mínimo Aceptable (≥95%)', icon: '✓', color: '#3b82f6', text: 'Mínimo Aceptable (≥95%)', badgeBg: 'rgba(59, 130, 246, 0.2)', badgeColor: '#60a5fa', badgeBorder: 'rgba(59, 130, 246, 0.4)' };
+          return { tier: 'MINIMO', label: 'Mínimo de cumplimiento (95% a <98%)', icon: '▲', color: '#f59e0b', text: 'Mínimo de cumplimiento (95% a <98%)', badgeBg: 'rgba(245, 158, 11, 0.2)', badgeColor: '#fbbf24', badgeBorder: 'rgba(245, 158, 11, 0.4)' };
         }
-        if (num >= 90) {
-          return { tier: 'OBSERVACION', label: 'En Observación (90% - 95%)', icon: '⚠️', color: '#f59e0b', text: 'En Observación (90-95%)', badgeBg: 'rgba(245, 158, 11, 0.2)', badgeColor: '#fbbf24', badgeBorder: 'rgba(245, 158, 11, 0.4)' };
-        }
-        return { tier: 'MAL', label: 'Mal (<90%)', icon: '✖', color: '#ef4444', text: 'Mal (<90%)', badgeBg: 'rgba(239, 68, 68, 0.2)', badgeColor: '#f87171', badgeBorder: 'rgba(239, 68, 68, 0.4)' };
+        return { tier: 'NO_CUMPLE', label: 'No cumple (<95%)', icon: '✖', color: '#ef4444', text: 'No cumple (<95%)', badgeBg: 'rgba(239, 68, 68, 0.2)', badgeColor: '#f87171', badgeBorder: 'rgba(239, 68, 68, 0.4)' };
       };
 
       const pointColors = values.map(v => evaluateCorporateTier(v).color);
@@ -1305,7 +1298,7 @@ window.DashboardView = {
               zIndex: 10
             },
             {
-              label: '100% Perfecto',
+              label: 'Perfecto cumplimiento (100%)',
               data: labels.map(() => 100),
               borderColor: '#06b6d4',
               borderWidth: 1.5,
@@ -1316,7 +1309,7 @@ window.DashboardView = {
               zIndex: 1
             },
             {
-              label: 'Meta Excelente (98%)',
+              label: 'Cumplimiento (98%)',
               data: labels.map(() => 98),
               borderColor: '#10b981',
               borderWidth: 2,
@@ -1327,7 +1320,7 @@ window.DashboardView = {
               zIndex: 2
             },
             {
-              label: 'Mínimo Aceptable (95%)',
+              label: 'Mínimo de cumplimiento (95%)',
               data: labels.map(() => 95),
               borderColor: '#3b82f6',
               borderWidth: 2,
@@ -1336,17 +1329,6 @@ window.DashboardView = {
               fill: false,
               tension: 0,
               zIndex: 3
-            },
-            {
-              label: 'Límite Mal (<90%)',
-              data: labels.map(() => 90),
-              borderColor: '#ef4444',
-              borderWidth: 1.5,
-              borderDash: [3, 3],
-              pointRadius: 0,
-              fill: false,
-              tension: 0,
-              zIndex: 4
             }
           ]
         },
@@ -1775,18 +1757,12 @@ window.DashboardView = {
       const finalNetImpact = Number(summary.impactoFinancieroFinalNeto ?? summary.impactoFinancieroFinal ?? summary.impactoFinanciero?.finalNetDiffCost ?? 0);
       const finalDeficitCost = Number(summary.faltantesFinal?.cost || 0);
 
-      // Función de evaluación según la meta corporativa definida por NIBOL:
-      // • menos del 90%: MAL
-      // • 95%: MÍNIMO ACEPTABLE
-      // • 98%: EXCELENTE
-      // • 100%: PERFECTO
+      // Escala de cumplimiento NIBOL Multimarcas.
       const getCorporateEvalText = (val) => {
         const num = Number(val);
-        if (num >= 100) return '100% PERFECTO';
-        if (num >= 98) return 'EXCELENTE (≥98%)';
-        if (num >= 95) return 'MÍNIMO ACEPTABLE (≥95%)';
-        if (num >= 90) return 'EN OBSERVACIÓN (90-95%)';
-        return 'MAL (<90%)';
+        if (num >= 100) return 'PERFECTO CUMPLIMIENTO (100%)';
+        if (num >= 98) return 'CUMPLIMIENTO (≥98%)';
+        if (num >= 95) return 'MÍNIMO DE CUMPLIMIENTO (95% a <98%)';        return 'NO CUMPLE (<95%)';
       };
 
       const wsResumenData = [
@@ -1958,13 +1934,12 @@ window.DashboardView = {
 
       // Añadir la matriz de metas corporativas NIBOL al final de la hoja de tendencias
       wsTrendData.push([]);
-      wsTrendData.push(['ESCALA CORPORATIVA DE METAS DE EXACTITUD (ERI) • NIBOL S.A.']);
+      wsTrendData.push(['ESCALA DE CUMPLIMIENTO • NIBOL MULTIMARCAS']);
       wsTrendData.push(['Nivel', 'Rango ERI', 'Criterio Institucional']);
-      wsTrendData.push(['MAL', 'Menos del 90%', 'Crítico / Deficiente. Fuera de tolerancia corporativa; requiere plan de acción inmediato.']);
-      wsTrendData.push(['EN OBSERVACIÓN', '90.00% a 94.99%', 'Bajo el umbral mínimo aceptable. Regularizaciones pendientes.']);
-      wsTrendData.push(['MÍNIMO ACEPTABLE', '95.00% a 97.99%', 'Meta base requerida para aprobación formal del inventario.']);
-      wsTrendData.push(['EXCELENTE', '98.00% a 99.99%', 'Exactitud sobresaliente de alto desempeño operativo.']);
-      wsTrendData.push(['PERFECTO', '100.00%', 'Exactitud absoluta sin discrepancias (cero faltantes / cero sobrantes).']);
+      wsTrendData.push(['NO CUMPLE', 'Menos del 95%', 'No alcanza el cumplimiento mínimo.']);
+      wsTrendData.push(['MÍNIMO DE CUMPLIMIENTO', '95.00% a menos de 98%', 'Mínimo de cumplimiento.']);
+      wsTrendData.push(['CUMPLIMIENTO', '98.00% o más', 'Cumplimiento.']);
+      wsTrendData.push(['PERFECTO CUMPLIMIENTO', '100.00%', 'Perfecto cumplimiento.']);
 
       const wsTrend = XLSX.utils.aoa_to_sheet(wsTrendData);
       wsTrend['!cols'] = [
