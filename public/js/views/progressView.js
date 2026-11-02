@@ -21,6 +21,9 @@ window.ProgressView = {
   },
 
   async load(refresh = false) {
+    if (!window.Auth || !window.Auth.isSuperadminAlonso()) {
+      return;
+    }
     if (this.loading) return;
     this.loading = true;
     const groupsNode = document.getElementById('progress-groups');

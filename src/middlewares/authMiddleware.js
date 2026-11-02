@@ -156,10 +156,32 @@ function requireBulkInventoryCreator(req, res, next) {
   });
 }
 
+function isAlonsoSuperadmin(user) {
+  if (!user) return false;
+  return isAlonso(user) || user.isSuperadmin === true;
+}
+
+function requireSuperadminAlonso(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'No autenticado.' });
+  }
+
+  if (isAlonsoSuperadmin(req.user)) {
+    return next();
+  }
+
+  return res.status(403).json({
+    success: false,
+    message: 'Acceso denegado: Esta ventana y sus datos son exclusivos para el superadministrador Alonso.'
+  });
+}
+
 module.exports = {
   authenticate,
   requireRole,
   requireAlonso,
+  requireSuperadminAlonso,
+  isAlonsoSuperadmin,
   requireInventoryCreator,
   requireBulkInventoryCreator,
   isBulkInventoryCreator,

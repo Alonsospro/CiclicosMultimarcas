@@ -3,7 +3,7 @@ const router = express.Router();
 const metricsService = require('../services/metricsService');
 const inventoryTrackingService = require('../services/inventoryTrackingService');
 const auditService = require('../services/auditService');
-const { authenticate, requireRole } = require('../middlewares/authMiddleware');
+const { authenticate, requireRole, requireSuperadminAlonso } = require('../middlewares/authMiddleware');
 
 // Aggregate scores may be visible to auxiliaries; signed quantities remain private during blind counts.
 router.use((req, res, next) => {
@@ -18,8 +18,8 @@ router.use((req, res, next) => {
   next();
 });
 
-// GET /api/dashboard/tracking — status and active workflow stage per inventory launch.
-router.get('/tracking', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
+// GET /api/dashboard/tracking — status and active workflow stage per inventory launch (Exclusivo Superadmin Alonso)
+router.get('/tracking', authenticate, requireSuperadminAlonso, async (req, res) => {
   try {
     const type = req.query.type || 'TODOS';
     const center = (req.user.role === 'ADMIN' || req.user.isSuperadmin) ? (req.query.center || 'TODOS') : req.user.center;
@@ -34,7 +34,7 @@ router.get('/tracking', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async
 // GET /api/dashboard/metrics
 router.get('/metrics', authenticate, async (req, res) => {
   try {
-    let { type, center, inventoryId, period, startDate, endDate, refresh, recalculate } = req.query;
+    let { type, center, inventoryId, period, startDate, endDate, week, refresh, recalculate } = req.query;
 
     if (type === 'undefined' || type === 'null') type = 'TODOS';
     if (center === 'undefined' || center === 'null') center = 'TODOS';
@@ -42,6 +42,7 @@ router.get('/metrics', authenticate, async (req, res) => {
     if (period === 'undefined' || period === 'null') period = 'TODO';
     if (startDate === 'undefined' || startDate === 'null' || startDate === '') startDate = null;
     if (endDate === 'undefined' || endDate === 'null' || endDate === '') endDate = null;
+    if (week === 'undefined' || week === 'null' || week === '') week = null;
 
     const targetCenter = (req.user.role === 'ADMIN' || req.user.isSuperadmin) ? center : req.user.center;
 
@@ -53,6 +54,7 @@ router.get('/metrics', authenticate, async (req, res) => {
         period: period || 'TODO',
         startDate,
         endDate,
+        week,
         user: req.user
       });
       return res.json({ success: true, ...data });
@@ -69,6 +71,7 @@ router.get('/metrics', authenticate, async (req, res) => {
       period: period || 'TODO',
       startDate,
       endDate,
+      week,
       forceRefresh: (refresh === 'true' || refresh === '1')
     });
 
@@ -82,7 +85,7 @@ router.get('/metrics', authenticate, async (req, res) => {
 // POST /api/dashboard/recalculate (Recalculate metrics directly from Database & Google Sheets)
 router.post('/recalculate', authenticate, async (req, res) => {
   try {
-    let { type, center, inventoryId, period, startDate, endDate } = req.body || {};
+    let { type, center, inventoryId, period, startDate, endDate, week } = req.body || {};
 
     if (type === 'undefined' || type === 'null') type = 'TODOS';
     if (center === 'undefined' || center === 'null') center = 'TODOS';
@@ -90,6 +93,7 @@ router.post('/recalculate', authenticate, async (req, res) => {
     if (period === 'undefined' || period === 'null') period = 'TODO';
     if (startDate === 'undefined' || startDate === 'null' || startDate === '') startDate = null;
     if (endDate === 'undefined' || endDate === 'null' || endDate === '') endDate = null;
+    if (week === 'undefined' || week === 'null' || week === '') week = null;
 
     const targetCenter = (req.user.role === 'ADMIN' || req.user.isSuperadmin) ? center : req.user.center;
 
@@ -100,6 +104,7 @@ router.post('/recalculate', authenticate, async (req, res) => {
       period: period || 'TODO',
       startDate,
       endDate,
+      week,
       user: req.user
     });
 

@@ -143,7 +143,7 @@ const OFFICIAL_USERS_RAW = [
       viewAllCenters: true
     },
     allowedCenters: ['GLOBAL'],
-    allowedViews: ['dashboard', 'history', 'justifications', 'assignments', 'inventories', 'barrido', 'users']
+    allowedViews: ['dashboard', 'history', 'justifications', 'assignments', 'inventories', 'barrido', 'users', 'progress']
   }
 ];
 

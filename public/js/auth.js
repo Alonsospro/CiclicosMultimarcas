@@ -141,6 +141,11 @@ window.Auth = {
       el.style.display = (isAlonso || this.canManageUsers()) ? '' : 'none';
     });
 
+    const isAlonsoSuperadmin = this.isSuperadminAlonso();
+    document.querySelectorAll('.role-alonso-only').forEach(el => {
+      el.style.display = isAlonsoSuperadmin ? '' : 'none';
+    });
+
     document.querySelectorAll('.role-inventory-creator-only').forEach(el => {
       el.style.display = canCreateInv ? '' : 'none';
     });
@@ -190,6 +195,11 @@ window.Auth = {
     const d = String(this.currentUser.displayName || '').toLowerCase().trim();
     const email = String(this.currentUser.email || '').toLowerCase().trim();
     return u === 'alonso' || d.includes('alonso') || email === 'alonsospro@gmail.com' || (this.currentUser.isSuperadmin && (u === 'alonso' || d.includes('alonso'))) || this.currentUser.clave === 'ADM';
+  },
+
+  isSuperadminAlonso() {
+    if (!this.currentUser) return false;
+    return this.isAlonso() || this.currentUser.isSuperadmin === true;
   },
 
   canCreateInventory() {

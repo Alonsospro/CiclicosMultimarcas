@@ -31,8 +31,9 @@ window.Router = {
       return;
     }
 
-    if (viewName === 'progress' && !window.Auth.hasRole(['ADMIN', 'ENCARGADO'])) {
-      window.Toast.warning('Acceso exclusivo para encargados y administradores');
+    if (viewName === 'progress' && (!window.Auth || !window.Auth.isSuperadminAlonso())) {
+      window.Toast.warning('Acceso exclusivo para el superadministrador Alonso');
+      window.Router.navigate('inventories');
       return;
     }
 
