@@ -384,6 +384,8 @@ async function throughFirstRecountReview(context, secondDecisions) {
   for(const entry of rec.items)await service.updateCount({inventoryId:rec.id,itemId:entry.id,stockFisico:9,malEstado:0,user});
   service.submitInventoryForReview({inventoryId:rec.id,user});
   for(const item of items)await save('INV',item,secondDecisions[item.SKU],2,'Explicación del primer reconteo.');
+  // A review stamped in the same millisecond as the next step would still count as valid for that step.
+  await new Promise(resolve=>setTimeout(resolve,3));
   return {items,rec};
 }
 
@@ -463,6 +465,8 @@ test('reopening the second recount keeps the reviews of items outside its list',
   service.submitInventoryForReview({inventoryId:rec.id,user});
   await save('INV',b,'CUADRA',2,'Se encontró la diferencia.');
   await service.reopenInventory({inventoryId:'INV',user,targetPhase:'RECONTEO_2',syncFromGAS:false});
+  // reopenedAt is stamped 1 ms ahead; a count in that same instant would read as older than the reopening.
+  await new Promise(resolve=>setTimeout(resolve,3));
   await service.updateCount({inventoryId:rec.id,itemId:recB.id,stockFisico:8,malEstado:0,user});
   service.submitInventoryForReview({inventoryId:rec.id,user});
   const task=service.getPendingJustifications(user)[0];
