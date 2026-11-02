@@ -1,7 +1,25 @@
 // API Client for NIBOL Inventarios
 window.API = {
+  minRevision: 0,
+  usageLevel: 'normal',
+
   getToken() {
     return localStorage.getItem(window.AppConfig.storageTokenKey);
+  },
+
+  // Remember the newest confirmed revision so reads from any server instance include this client's writes.
+  trackServerState(response) {
+    const written = Number(response.headers.get('x-sync-revision'));
+    const read = Number(String(response.headers.get('x-read-snapshot') || '').split(':')[1]);
+    this.minRevision = Math.max(this.minRevision, Number.isSafeInteger(written) ? written : 0, Number.isSafeInteger(read) ? read : 0);
+
+    const level = response.headers.get('x-firestore-usage') || 'normal';
+    if (level === this.usageLevel) return;
+    this.usageLevel = level;
+    const user = window.Auth?.currentUser;
+    if (!user || !(user.role === 'ADMIN' || user.isSuperadmin)) return;
+    if (level === 'warning') window.Toast?.warning('Se usó más del 70% de la cuota diaria estimada de Firestore.', 12000);
+    if (level === 'protect') window.Toast?.warning('Se usó más del 90% de la cuota diaria estimada de Firestore: el recálculo queda en pausa y algunas vistas pueden tardar hasta 15 minutos en actualizarse. Los conteos siguen funcionando.', 15000);
   },
 
   async request(endpoint, options = {}) {
@@ -20,12 +38,17 @@ window.API = {
       headers['Content-Type'] = 'application/json';
     }
 
+    if (this.minRevision && String(fetchOptions.method || 'GET').toUpperCase() === 'GET') {
+      headers['X-Min-Revision'] = String(this.minRevision);
+    }
+
     try {
       const response = await fetch(url, {
         ...fetchOptions,
         headers,
         ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {})
       });
+      this.trackServerState(response);
 
       let data;
       const contentType = response.headers.get('content-type') || '';

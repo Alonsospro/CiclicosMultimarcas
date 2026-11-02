@@ -15,20 +15,30 @@ function createPersistenceMiddleware(storage, cloud) {
     cloud.pending.clear();
     await storage.refreshFromCloud(true);
   }
+  // A rejected request with nothing queued changed no data, so it needs no full reload.
+  async function rollbackRejected() {
+    if (cloud.pending.size) await rollback();
+  }
+  function exposeUsageLevel(res) {
+    const level = cloud.usage?.level();
+    if (level && level !== 'normal') res.setHeader('X-Firestore-Usage', level);
+  }
   const middleware = (req, res, next) => {
     const queuedAt = Date.now();
     const disconnected = () => req.aborted || res.destroyed;
     const isFastRead = (req.method === 'GET' && (
       req.path === '/inventories' || req.path.startsWith('/inventories/') ||
       req.path === '/justifications' || req.path.startsWith('/justifications/') ||
-      req.path === '/dashboard/metrics' || req.path === '/dashboard/audit' || req.path === '/dashboard/tracking' ||
+      req.path === '/dashboard/metrics' || req.path === '/dashboard/audit' || req.path === '/dashboard/tracking' || req.path === '/dashboard/usage' ||
       req.path === '/history' || req.path.startsWith('/history/') ||
       req.path === '/auth/me' || req.path === '/centers'
     )) || (req.method === 'POST' && req.path === '/dashboard/recalculate');
     if (isFastRead) {
       (async () => {
         try {
-          const snapshot = await cloud.readConfirmedSnapshot();
+          const minRevision = Number(req.headers?.['x-min-revision']);
+          const snapshot = await cloud.readConfirmedSnapshot({ minRevision: Number.isSafeInteger(minRevision) && minRevision > 0 ? minRevision : 0 });
+          exposeUsageLevel(res);
           res.setHeader('X-Queue-Wait-Ms', '0');
           res.setHeader('X-Read-Snapshot', `${snapshot.state.generation}:${snapshot.state.revision}`);
           storage.withReadSnapshot(snapshot, () => next());
@@ -58,8 +68,11 @@ function createPersistenceMiddleware(storage, cloud) {
           responding = true;
           (async () => {
             try {
-              if (res.statusCode >= 400) await rollback();
+              if (res.statusCode >= 400) await rollbackRejected();
               else await cloud.flush();
+              // Lets this client read its own write even from another instance.
+              if (cloud.state && !res.headersSent) res.setHeader('X-Sync-Revision', String(cloud.state.revision));
+              if (!res.headersSent) exposeUsageLevel(res);
               res.send = originalSend;
               if (!res.destroyed) originalSend(body);
             } catch (error) {
