@@ -4,6 +4,63 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+function loadMetricsService() {
+  const module = { exports: {} };
+  const mocks = {
+    './metricsSourceService': { invalidate() {} },
+    './inventoryContract': require('../src/services/inventoryContract'),
+    './counterReliability': require('../src/services/counterReliability'),
+    './storagePath': { getInventoriesDirectory: () => '/inventories', getHistoryDirectory: () => '/history', getUsersFilePath: () => '/users', readJson: () => [] },
+    '../config': { getCenterCode: code => code, findCenter: code => ({ code, name: 'Centro' }), isSameCenter: (a, b) => a === b },
+    './auditService': { getAuditLogs: () => [] }, './gasService': {}, './snapshotService': {}
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/services/metricsService.js'), 'utf8'), {
+    module, exports: module.exports, console, Date,
+    require: name => Object.hasOwn(mocks, name) ? mocks[name] : require(name)
+  });
+  return module.exports;
+}
+
+const closedInventory = (id, createdAt) => ({
+  id, isHistory: true, status: 'REVISADO', center: '1160', type: 'CICLICO', createdAt,
+  items: [{ SKU: `SKU-${id}`, Stock_Sistema: 10, Stock_Fisico: 10, Stock_Total: 10, Mal_estado: 0, Diferencia: 0, Costo_Unitario: 5, Ubicacion: 'A1', Almacen: 'RFO7' }]
+});
+
+test('ERI trend contains only real closed inventories, never fixed filler values', async () => {
+  const service = loadMetricsService();
+  service.getAllInventoriesData = async () => [closedInventory('INV-1160-1', '2026-10-01'), closedInventory('INV-1160-2', '2026-10-15')];
+  const { historicalEriTrend: trend } = await service.getDashboardMetrics({});
+  assert.deepEqual(Array.from(trend.series, point => point.id), ['INV-1160-1', 'INV-1160-2']);
+  assert.equal(trend.data.length, 2);
+  assert.equal(trend.labels.length, 2);
+  assert.equal(trend.delta, trend.latestEri - trend.previousEri);
+  assert.equal(trend.trendStatus, 'ESTABLE');
+});
+
+test('ERI trend reports no comparison with one closure and no values without closures', async () => {
+  const service = loadMetricsService();
+  service.getAllInventoriesData = async () => [closedInventory('INV-1160-1', '2026-10-01')];
+  const single = (await service.getDashboardMetrics({})).historicalEriTrend;
+  assert.equal(single.data.length, 1);
+  assert.equal(single.previousEri, null);
+  assert.equal(single.delta, null);
+  assert.equal(single.trendStatus, 'SIN_COMPARACION');
+
+  const empty = loadMetricsService();
+  empty.getAllInventoriesData = async () => [{ ...closedInventory('INV-1160-2', '2026-10-15'), isHistory: false, status: 'EN_PROCESO' }];
+  const none = (await empty.getDashboardMetrics({})).historicalEriTrend;
+  assert.equal(none.data.length, 0);
+  assert.equal(none.latestEri, null);
+  assert.equal(none.latestEvaluation, null);
+  assert.equal(none.average, null);
+});
+
+test('dashboard code keeps no invented trend history', () => {
+  for (const file of ['../src/services/metricsService.js', '../public/js/views/dashboardView.js']) {
+    assert.doesNotMatch(fs.readFileSync(path.join(__dirname, file), 'utf8'), /defaultBaselines|INV-CIC-1300|Cíclico Jul-26/);
+  }
+});
+
 test('report exposes damage identified only in a recount and preserves the initial/final quantities', async () => {
   const module = { exports: {} };
   const mocks = {

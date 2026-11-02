@@ -1928,19 +1928,14 @@ window.DashboardView = {
       // -------------------------------------------------------------
       const wsTrendData = [
         ['NIBOL S.A. • TENDENCIA HISTÓRICA DEL ERI DE CANTIDAD DE ÍTEMS'],
-        ['Últimos 5 Inventarios Cerrados • Comparativa de Mejora o Retroceso y Evaluación Corporativa'],
+        ['Hasta 5 Inventarios Cerrados Reales • Comparativa de Mejora o Retroceso y Evaluación Corporativa'],
         ['Fecha de Generación:', nowStr],
         [],
         ['N°', 'Identificador', 'Nombre del Inventario', 'Centro', 'Fecha de Cierre', 'ERI Ítems (%)', 'Escala Corporativa', 'Dictamen / Evaluación', 'Variación vs Anterior (%)', 'Estado Tendencia']
       ];
 
-      const series = trend.series && trend.series.length > 0 ? trend.series : [
-        { id: 'INV-CIC-1300-2026-07A', name: 'Cíclico Jul-26 Sem 2', center: '1300', date: '2026-07-15', eri: 91.40 },
-        { id: 'INV-CIC-1300-2026-07B', name: 'Cíclico Jul-26 Sem 4', center: '1300', date: '2026-07-29', eri: 93.20 },
-        { id: 'INV-CIC-1300-2026-08A', name: 'Cíclico Ago-26 Sem 2', center: '1300', date: '2026-08-14', eri: 88.75 },
-        { id: 'INV-CIC-1300-2026-08B', name: 'Cíclico Ago-26 Sem 4', center: '1300', date: '2026-08-28', eri: 96.10 },
-        { id: 'INV-CIC-1300-2026-09A', name: 'Cíclico Sep-26 (Actual)', center: '1300', date: '2026-09-19', eri: eriItemF }
-      ];
+      const series = Array.isArray(trend.series) ? trend.series : [];
+      if (series.length === 0) wsTrendData.push(['Sin inventarios cerrados para el filtro seleccionado.']);
 
       series.forEach((s, idx) => {
         const prevEri = idx > 0 ? series[idx - 1].eri : s.eri;
@@ -1951,7 +1946,7 @@ window.DashboardView = {
           idx + 1,
           s.id,
           s.name,
-          s.center || '1300',
+          s.center || '',
           new Date(s.date).toISOString().slice(0, 10),
           s.eri,
           '≥95.00% (Mínimo)',

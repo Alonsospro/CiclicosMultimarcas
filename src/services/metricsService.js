@@ -1349,7 +1349,7 @@ class MetricsService {
         closedInventories.push({
           id: inv.id || inv.fileId,
           name: inv.name || inv.fileName || inv.id,
-          center: inv.center || '1300',
+          center: inv.center || '',
           date: closedDate,
           eri: eriVal,
           totalUnits: totalUnits || (inv.items || []).length,
@@ -1361,26 +1361,8 @@ class MetricsService {
     // Ordenar cronológicamente ascendente (antiguo -> reciente)
     closedInventories.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // Historial base de cortes cíclicos de NIBOL para garantizar la serie de los últimos 5 inventarios
-    const defaultBaselines = [
-      { id: 'INV-CIC-1300-2026-07A', name: 'Cíclico Jul-26 Sem 2', center: cleanCenter !== 'TODOS' ? cleanCenter : '1300', date: '2026-07-15T18:00:00.000Z', eri: 91.40 },
-      { id: 'INV-CIC-1300-2026-07B', name: 'Cíclico Jul-26 Sem 4', center: cleanCenter !== 'TODOS' ? cleanCenter : '1300', date: '2026-07-29T18:00:00.000Z', eri: 93.20 },
-      { id: 'INV-CIC-1300-2026-08A', name: 'Cíclico Ago-26 Sem 2', center: cleanCenter !== 'TODOS' ? cleanCenter : '1300', date: '2026-08-14T18:00:00.000Z', eri: 88.75 },
-      { id: 'INV-CIC-1300-2026-08B', name: 'Cíclico Ago-26 Sem 4', center: cleanCenter !== 'TODOS' ? cleanCenter : '1300', date: '2026-08-28T18:00:00.000Z', eri: 96.10 },
-      { id: 'INV-CIC-1300-2026-09A', name: 'Cíclico Sep-26 (Actual)', center: cleanCenter !== 'TODOS' ? cleanCenter : '1300', date: '2026-09-19T17:00:00.000Z', eri: eriItemFinal }
-    ];
-
-    let trendSeries = [];
-    if (closedInventories.length >= 5) {
-      trendSeries = closedInventories.slice(-5);
-    } else if (closedInventories.length > 0) {
-      const needed = 5 - closedInventories.length;
-      trendSeries = [...defaultBaselines.slice(0, needed), ...closedInventories];
-      trendSeries[trendSeries.length - 1].eri = eriItemFinal;
-    } else {
-      trendSeries = defaultBaselines;
-      trendSeries[trendSeries.length - 1].eri = eriItemFinal;
-    }
+    // Solo cierres reales: con menos de 5 inventarios cerrados la serie tiene menos puntos.
+    const trendSeries = closedInventories.slice(-5);
 
     const trendLabels = trendSeries.map(item => {
       const d = new Date(item.date);
@@ -1470,10 +1452,10 @@ class MetricsService {
     }));
 
     const trendValues = trendSeriesWithEval.map(item => Number(item.eri.toFixed(2)));
-    const latestEri = trendValues[trendValues.length - 1];
-    const previousEri = trendValues[trendValues.length - 2];
-    const delta = parseFloat((latestEri - previousEri).toFixed(2));
-    const trendStatus = delta > 0 ? 'MEJORA' : (delta < 0 ? 'RETROCESO' : 'ESTABLE');
+    const latestEri = trendValues.length > 0 ? trendValues[trendValues.length - 1] : null;
+    const previousEri = trendValues.length > 1 ? trendValues[trendValues.length - 2] : null;
+    const delta = previousEri === null ? null : parseFloat((latestEri - previousEri).toFixed(2));
+    const trendStatus = delta === null ? 'SIN_COMPARACION' : (delta > 0 ? 'MEJORA' : (delta < 0 ? 'RETROCESO' : 'ESTABLE'));
 
     const historicalEriTrend = {
       labels: trendLabels,
@@ -1494,10 +1476,10 @@ class MetricsService {
       },
       latestEri,
       previousEri,
-      latestEvaluation: evaluateCorporateTier(latestEri),
+      latestEvaluation: latestEri === null ? null : evaluateCorporateTier(latestEri),
       delta,
       trendStatus,
-      average: parseFloat((trendValues.reduce((a, b) => a + b, 0) / trendValues.length).toFixed(2))
+      average: trendValues.length > 0 ? parseFloat((trendValues.reduce((a, b) => a + b, 0) / trendValues.length).toFixed(2)) : null
     };
 
     // Report names only: never send user credentials to the browser.
