@@ -4,6 +4,8 @@ const path = require('path');
 const config = {
   port: process.env.PORT || 3000,
   nodeEnv: process.env.NODE_ENV || 'development',
+  // 'inmediato' makes each count wait for Google Sheets again; otherwise counts reach it in batches.
+  countSheetSync: process.env.COUNT_SHEET_SYNC || 'lotes',
   jwtSecret: process.env.JWT_SECRET || 'nibol_secret_jwt_key_2026_ciclicos_default',
   adminDeleteKey: process.env.ADMIN_DELETE_KEY || 'ADM26',
 

@@ -12,9 +12,10 @@ const old = '2020-01-01T00:00:00.000Z';
 const counted = (sku = 'A', warehouse = 'R001') => contract.normalize({id:sku+warehouse, SKU:sku, Almacen:warehouse,
   Ubicacion:'LOC', Stock_Sistema:10, Costo_Unitario:5, Stock_Buen_Estado:8, Mal_estado:0, Fecha_Ultimo_Conteo:old});
 
-function fixture() {
+function fixture({countSheetSync='inmediato'}={}) {
   const files = new Map(), sheets = new Map(), gasCalls = [], closures = [], batches = [];
   const failures = {drive:false, batch:null};
+  let held = null;
   const clone = value => value === undefined ? undefined : structuredClone(value);
   const store = {
     getInventoriesDirectory:()=>'/inventories', getJustificationsDirectory:()=>'/justifications',
@@ -34,13 +35,14 @@ function fixture() {
     },
     batchUpsertCountsToGAS:async(type,p)=>{
       batches.push(p);
+      if(held)await held;
       if(failures.batch==='network')throw new Error('Google no respondió');
       const failedItems=[];
       p.updates.forEach((update,index)=>{
         try{
           if(failures.batch===update.sku)throw new Error('Ítem no encontrado');
           const item=sheets.get(contract.member(update));
-          gasContext.validateJustificationStage_(item,update);
+          if(update.action==='saveJustification')gasContext.validateJustificationStage_(item,update);
           sheets.set(contract.member(update),contract.update(item,update));
         }catch(error){failedItems.push({index,sku:update.sku,error:error.message});}
       });
@@ -54,10 +56,10 @@ function fixture() {
   };
   const mocks = {
     './counterReliability':require('../src/services/counterReliability'),
-    './inventoryContract':contract,'./inventoryWorkflow':workflow,'../config':{isSameCenter:(a,b)=>a===b},
+    './inventoryContract':contract,'./inventoryWorkflow':workflow,'../config':{countSheetSync,isSameCenter:(a,b)=>a===b},
     './storagePath':store,'./auditService':new Proxy({}, {get:()=>()=>{}}),
     './gasService':gas,'./metricsService':{},'./snapshotService':{},
-    './driveService':{getPhotoAsDataUri:()=>'',createFinalDriveFile:async p=>{
+    './driveService':{getPhotoAsDataUri:()=>failures.photo||'',createFinalDriveFile:async p=>{
       if(failures.drive)throw new Error('Drive no disponible');
       closures.push(clone(p)); return {fileId:'drive-id',fileName:'final',spreadsheetUrl:'https://example.test/final'};
     }}
@@ -75,7 +77,7 @@ function fixture() {
     inventoryId:invId,sku:item.SKU,itemId:item.id,almacen:item.Almacen,location:item.Ubicacion,
     round,corroboracion:decision,reasonType:'balanceo',justification:text,justifiedQuantity,user
   });
-  return {service,files,sheets,gasCalls,closures,batches,failures,put,save,gasContext};
+  return {service,files,sheets,gasCalls,closures,batches,failures,put,save,gasContext,holdBatches:gate=>{held=gate;}};
 }
 
 test('weekly physical verification uses signed author, checks role/center and never changes Sheets', async () => {
@@ -660,4 +662,223 @@ test('weekly forced close writes its main sheet with the context its script vali
   assert.equal(result.masterFailed.length,0);assert.equal(closures.length,1);
   const main=sheets.get(contract.member(item));
   assert.equal(main.Razon,'CIERRE FORZADO');assert.equal(main.Cantidad_Justificada_1,0);assert.equal(main.Stock_Sistema,10);
+});
+
+const countUser={...user,role:'ADMIN'};
+const sent=(context,id)=>context.service.getInventoryRaw(id).sheetPending;
+
+test('a batched count is confirmed without waiting for Sheets and only its latest value is sent',async()=>{
+  const context=fixture({countSheetSync:'lotes'}),{service,put,sheets,gasCalls,batches}=context,item=counted();
+  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[{...item,Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null}]});
+  const first=await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:7,malEstado:0,user:countUser});
+  assert.equal(first.sheetPending,true);assert.equal(first.item.Stock_Total,7);assert.equal(first.item.Diferencia,-3);
+  assert.equal(gasCalls.length,0);assert.equal(batches.length,0);assert.equal(sheets.get(contract.member(item)).Stock_Total,null);
+  await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:9,malEstado:1,user:countUser,locked:true});
+  assert.equal(Object.keys(sent(context,'INV')).length,1);
+  const blind=await service.getInventoryById('INV',{...user,role:'AUXILIAR',center:'1120'});
+  assert.equal(blind.sheetPending,undefined,'pending entries carry system quantities');assert.equal(blind.sheetPendingCount,1);
+  const result=await service.drainSheetCounts({inventoryId:'INV',user:countUser});
+  assert.equal(result.remaining,0);assert.equal(batches.length,1);assert.equal(batches[0].updates.length,1);
+  assert.equal(sheets.get(contract.member(item)).Stock_Total,10);assert.equal(sheets.get(contract.member(item)).Mal_estado,1);
+  assert.equal(sent(context,'INV'),undefined);
+  assert.equal(JSON.stringify(await service.drainSheetCounts({inventoryId:'INV',user:countUser})),'{"remaining":0}');
+  assert.equal(batches.length,1,'nothing pending calls nothing');
+});
+
+// The same work must leave the same data in the app and in the sheet, whichever way it travels.
+for (const weekly of [false,true]) {
+  test(`batched counts leave the same ${weekly?'weekly':'cyclic'} data as immediate ones through both recounts`,async()=>{
+    const run=async mode=>{
+      const context=fixture({countSheetSync:mode}),{service,put,save,sheets}=context;
+      const blank=sku=>({...counted(sku),Estado:'',Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null,...(weekly?{Schema_Version:contract.weeklyVersion}:{})});
+      const items=[blank('A'),blank('B')];
+      put({id:'INV',type:weekly?'SEMANAL':'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items});
+      const submit=async id=>{await service.assertSheetCountsSent(id);service.submitInventoryForReview({inventoryId:id,user});};
+      await service.updateCount({inventoryId:'INV',itemId:items[0].id,stockFisico:8,malEstado:1,user:countUser});
+      await service.updateCount({inventoryId:'INV',itemId:items[1].id,stockFisico:10,malEstado:0,user:countUser});
+      await submit('INV');
+      await save('INV',items[0],'NO CUADRA',1,'Primera.');
+      const rec=service.enableRecount({inventoryId:'INV',user}).recountInventory;
+      await service.updateCount({inventoryId:rec.id,itemId:rec.items[0].id,stockFisico:7,malEstado:2,user:{...countUser,username:'otro',displayName:'Otro contador'}});
+      await submit(rec.id);
+      await save('INV',items[0],'NO CUADRA',2,'Segunda.');
+      service.enableSecondRecount({inventoryId:'INV',user});
+      await service.updateCount({inventoryId:rec.id,itemId:rec.items[0].id,stockFisico:6,malEstado:1,user:countUser});
+      await submit(rec.id);
+      const pick=item=>Object.fromEntries((weekly?contract.weeklyColumns:contract.columns)
+        .filter(key=>!/Fecha|Comentario_Justificacion/.test(key)).map(key=>[key,item[key]??'']));
+      return {app:service.getInventoryRaw('INV').items.map(pick),child:service.getInventoryRaw(rec.id).items.map(pick),
+        sheet:items.map(item=>pick(sheets.get(contract.member(item))))};
+    };
+    const [immediate,batched]=[await run('inmediato'),await run('lotes')];
+    const plain=value=>JSON.parse(JSON.stringify(value));
+    assert.deepEqual(plain(batched.sheet),plain(immediate.sheet));
+    assert.deepEqual(plain(batched.app),plain(immediate.app));
+    assert.deepEqual(plain(batched.child),plain(immediate.child));
+  });
+}
+
+test('a count arriving while its batch travels stays pending, and saves are not blocked meanwhile',async()=>{
+  const context=fixture({countSheetSync:'lotes'}),{service,put,batches,sheets}=context,item=counted();
+  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
+  await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:5,malEstado:0,user:countUser});
+  let release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  context.holdBatches(gate);
+  const draining=service.drainSheetCounts({inventoryId:'INV',user:countUser});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(JSON.stringify(await service.drainSheetCounts({inventoryId:'INV',user:countUser})),'{"remaining":1,"inProgress":true}');
+  await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:6,malEstado:0,user:countUser});
+  release();
+  assert.equal((await draining).remaining,1,'the newer value is not marked as sent');
+  context.holdBatches(null);
+  assert.equal(sheets.get(contract.member(item)).Stock_Total,5);
+  assert.equal((await service.drainSheetCounts({inventoryId:'INV',user:countUser})).remaining,0);
+  assert.equal(sheets.get(contract.member(item)).Stock_Total,6);
+  assert.equal(batches.length,2);
+});
+
+test('counts keep working with Google down, and signing waits until it received them',async()=>{
+  const context=fixture({countSheetSync:'lotes'}),{service,put,failures,sheets}=context,item=counted();
+  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
+  failures.batch='network';
+  await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:5,malEstado:0,user:countUser});
+  const down=await service.drainSheetCounts({inventoryId:'INV',user:countUser});
+  assert.equal(down.remaining,1);assert.equal(down.failed,1);
+  assert.equal(service.getInventoryRaw('INV').items[0].Stock_Total,5,'the count stays saved');
+  await assert.rejects(service.assertSheetCountsSent('INV'),/Google Sheets no recibió 1 conteo.*SKU|Google Sheets no recibió 1 conteo/);
+  await assert.rejects(service.syncInventoryFromSheet({inventoryId:'INV',user:countUser}),/no recibió/,'reading back must not replace it');
+  await assert.rejects(service.reopenInventory({inventoryId:'INV',user:countUser,targetPhase:'1ER_CONTEO'}),/no recibió/);
+  failures.batch=null;
+  await service.assertSheetCountsSent('INV');
+  assert.equal(sheets.get(contract.member(item)).Stock_Total,5);
+  assert.equal(sent(context,'INV'),undefined);
+});
+
+test('only the code Google rejects stays pending',async()=>{
+  const context=fixture({countSheetSync:'lotes'}),{service,put,failures}=context,[a,b]=[counted('A'),counted('B')];
+  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
+  for(const item of [a,b])await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:5,malEstado:0,user:countUser});
+  failures.batch='B';
+  const result=await service.drainSheetCounts({inventoryId:'INV',user:countUser});
+  assert.equal(result.remaining,1);
+  const pending=Object.values(sent(context,'INV'));
+  assert.equal(pending[0].payload.sku,'B');assert.equal(pending[0].lastError,'Ítem no encontrado');
+});
+
+test('counts with photos, sweeps and an immediate setting still wait for Google',async()=>{
+  const photo=fixture({countSheetSync:'lotes'}),item=counted();
+  photo.put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
+  await photo.service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:5,malEstado:0,user:countUser});
+  photo.failures.photo='data:image/png;base64,AA';
+  const withPhoto=await photo.service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:4,malEstado:1,photoUrl:'/foto.jpg',user:countUser});
+  assert.equal(withPhoto.sheetPending,false,'it also replaces the older value waiting for this item');
+  assert.equal(photo.gasCalls.length,1);assert.equal(photo.sheets.get(contract.member(item)).Stock_Total,5);
+  const sweep=fixture({countSheetSync:'lotes'}),sweepItem=counted();
+  sweep.put({id:'SWEEP',type:'BARRIDO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[sweepItem]});
+  assert.equal((await sweep.service.updateCount({inventoryId:'SWEEP',itemId:sweepItem.id,stockFisico:5,malEstado:0,user:countUser})).sheetPending,false);
+  assert.equal(sweep.gasCalls.length,1);
+});
+
+test('a justification sends pending counts first, because the script reads that row',async()=>{
+  const context=fixture({countSheetSync:'lotes'}),{service,put,save,sheets}=context;
+  const item={...counted(),Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null};
+  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
+  await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:7,malEstado:0,user:countUser});
+  service.submitInventoryForReview({inventoryId:'INV',user});
+  await save('INV',item,'NO CUADRA');
+  assert.equal(sheets.get(contract.member(item)).Stock_Total,7);
+  assert.equal(sent(context,'INV'),undefined);
+});
+
+test('a weekly cycle reset survives being replaced by a newer count',async()=>{
+  const context=fixture({countSheetSync:'lotes'}),{service,put,batches}=context;
+  const item={...counted(),Schema_Version:contract.weeklyVersion,Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null};
+  put({id:'WEEK',type:'SEMANAL',name:'Semanal',status:'EN_PROGRESO',center:'1120',items:[item]});
+  await service.updateCount({inventoryId:'WEEK',itemId:item.id,stockFisico:7,malEstado:0,user:countUser});
+  await service.updateCount({inventoryId:'WEEK',itemId:item.id,stockFisico:8,malEstado:0,user:countUser});
+  await service.drainSheetCounts({inventoryId:'WEEK',user:countUser});
+  assert.equal(batches[0].updates[0].resetWeeklyCycle,true);
+  assert.equal(batches[0].updates[0].stockBuenEstado,8);
+});
+
+test('the sync request waits for Google outside the write queue and the counter can sign only after it',()=>{
+  const middleware=fs.readFileSync(path.join(root,'src/services/persistenceMiddleware.js'),'utf8');
+  assert.match(middleware,/sync-pending/);
+  const routes=fs.readFileSync(path.join(root,'src/routes/inventoryRoutes.js'),'utf8');
+  assert.match(routes,/await inventoryService\.assertSheetCountsSent\(req\.params\.id\);\s*const result = inventoryService\.submitInventoryForReview/);
+  assert.match(fs.readFileSync(path.join(root,'server.js'),'utf8'),/setWriteQueue\(persistence\.runExclusive\)/);
+});
+
+function inlineView(){
+  const elements=new Map(),calls=[],timers=[];
+  const element=id=>{
+    if(!elements.has(id))elements.set(id,{value:'',style:{},classList:{add(){},remove(){},toggle(){}},addEventListener(){},setAttribute(){},querySelector:()=>null});
+    return elements.get(id);
+  };
+  const context={
+    document:{getElementById:element,querySelectorAll:()=>[],querySelector:()=>null,addEventListener(){},createElement:()=>element('x')},
+    setTimeout:(work,delay)=>{const timer={work,delay};timers.push(timer);return timer;},clearTimeout:timer=>{if(timer)timer.cancelled=true;},
+    console,window:{addEventListener(){},Auth:{currentUser:{role:'AUXILIAR'}},Toast:{success(){},warning(){},danger(){},info(){}},
+      API:{registerCount:async(id,payload,options)=>{calls.push({id,payload,options});return {};},syncPendingCounts:async(id,options)=>{calls.push({sync:id,options});return {remaining:0};}}}
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(root,'public/js/views/inventoryView.js'),'utf8'),context);
+  const view=context.window.InventoryView;
+  view.currentInventory={id:'INV',items:[{id:'I',SKU:'A'}]};
+  view.updateItemTotalBadge=()=>{};view.handleDamagedInput=()=>{};
+  element('input-qty-I').value='5';element('input-damaged-I').value='0';
+  return {view,calls,timers,run:()=>Promise.all(timers.filter(timer=>!timer.cancelled&&!timer.done).map(timer=>{timer.done=true;return timer.work();}))};
+}
+
+test('typing then confirming saves once, and an unconfirmed value still gets saved',async()=>{
+  const confirmed=inlineView();
+  confirmed.view.handleInlineCountChange('I');
+  assert.equal(confirmed.timers.at(-1).delay,15000);
+  confirmed.view.cancelInlineSave('I');
+  await confirmed.run();
+  assert.equal(confirmed.calls.length,0,'confirming replaces the automatic save');
+
+  const typed=inlineView();
+  typed.view.handleInlineCountChange('I');
+  typed.view.handleInlineCountChange('I');
+  await typed.run();
+  assert.equal(typed.calls.length,1,'several changes make one save');
+  assert.equal(typed.calls[0].payload.locked,false);
+});
+
+test('leaving the count saves what was typed and sends what is pending',async()=>{
+  const {view,calls}=inlineView();
+  view.handleInlineCountChange('I');
+  view.scheduleSheetSync('INV');
+  await view.flushCountWork({keepalive:true});
+  assert.equal(calls[0].payload.stockFisico,5);assert.equal(calls[0].options.keepalive,true);
+  assert.equal(calls[1].sync,'INV');assert.equal(calls[1].options.keepalive,true);
+  await view.flushCountWork();
+  assert.equal(calls.length,2,'nothing is sent twice');
+});
+
+test('operations that continue after sending pending counts do not bring them back',async()=>{
+  const context=fixture({countSheetSync:'lotes'}),{service,put,batches}=context;
+  const blank=(sku)=>({...counted(sku),Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null});
+  const reviewed=blank('A');
+  put({id:'REVIEW',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[reviewed]});
+  await service.updateCount({inventoryId:'REVIEW',itemId:reviewed.id,stockFisico:7,malEstado:0,user:countUser});
+  service.submitInventoryForReview({inventoryId:'REVIEW',user});
+  await context.save('REVIEW',reviewed,'CUADRA');
+  assert.equal(sent(context,'REVIEW'),undefined,'after a justification');
+
+  const closed=blank('B');
+  put({id:'CLOSE',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[closed]});
+  await service.updateCount({inventoryId:'CLOSE',itemId:closed.id,stockFisico:10,malEstado:0,user:countUser});
+  service.submitInventoryForReview({inventoryId:'CLOSE',user});
+  await service.finishReviewAndClose({inventoryId:'CLOSE',user});
+  assert.equal(sent(context,'CLOSE'),undefined,'after a close');
+  assert.equal(service.getInventoryRaw('CLOSE').status,'REVISADO');
+
+  const reopened=blank('C');
+  put({id:'REOPEN',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[reopened]});
+  await service.updateCount({inventoryId:'REOPEN',itemId:reopened.id,stockFisico:10,malEstado:0,user:countUser});
+  await service.reopenInventory({inventoryId:'REOPEN',user,targetPhase:'1ER_CONTEO'});
+  assert.equal(sent(context,'REOPEN'),undefined,'after a reopening');
+  assert.equal(batches.length,3);
 });

@@ -4,6 +4,12 @@ window.InventoryView = {
   gasFetchedItems: [],
 
   init() {
+    // Closing or hiding the page must not lose what was typed; keepalive lets those requests finish.
+    window.addEventListener('pagehide', () => this.flushCountWork({ keepalive: true }));
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') this.flushCountWork({ keepalive: true });
+    });
+
     this.setupListeners();
     this.setupBulkInventoryModal();
   },
@@ -552,6 +558,7 @@ window.InventoryView = {
       const qty = qtyInput && qtyInput.value !== '' ? parseInt(qtyInput.value, 10) : (isSecondRecount ? (item?.Reconteo_2 || 0) : isReconteoInv ? (item?.Reconteo_Fisico || item?.Stock_Fisico || 0) : (item?.Stock_Fisico || 0));
       const damaged = damagedInput ? (parseInt(damagedInput.value, 10) || 0) : (isSecondRecount ? (item?.Malestado_Reconteo_2 || 0) : isReconteoInv ? (item?.Reconteo_Mal_Estado || item?.Mal_estado || 0) : (item?.Mal_estado || 0));
 
+      this.cancelInlineSave(itemId);
       try {
         await window.API.registerCount(this.currentInventory.id, {
           itemId,
@@ -779,6 +786,7 @@ window.InventoryView = {
       try {
         const signerName = window.Auth.currentUser?.displayName || window.Auth.currentUser?.username || 'Usuario';
         const rolePrefix = userRole === 'ENCARGADO' ? 'Encargado: ' : (userRole === 'ADMIN' ? 'Administrador: ' : 'Auxiliar: ');
+        await this.flushInlineSaves();
         await window.API.submitInventory(this.currentInventory.id, {
           signature: `Firmado digitalmente por ${rolePrefix}${signerName} (${new Date().toLocaleString()})`
         });
@@ -1094,6 +1102,7 @@ window.InventoryView = {
 
       this.renderCountTable();
       this.updateSubmitButtonState();
+      if (this.currentInventory.sheetPendingCount > 0) this.scheduleSheetSync(this.currentInventory.id);
     } catch (err) {
       if (!isCurrentRequest()) return;
       window.Router.navigate('inventories');
@@ -1896,13 +1905,14 @@ window.InventoryView = {
       this.handleDamagedInput(itemId, damInput.value);
     }
 
-    // Sincronizar en tiempo real al ingresar la cantidad (sin esperar confirmación manual)
+    // Lo escrito se guarda solo si no se confirma: confirmar lo reemplaza y evita un guardado doble.
     if (qty !== null) {
-      if (!this._inlineDebounceTimers) this._inlineDebounceTimers = {};
-      clearTimeout(this._inlineDebounceTimers[itemId]);
-      this._inlineDebounceTimers[itemId] = setTimeout(async () => {
+      const inventoryId = this.currentInventory.id;
+      this.cancelInlineSave(itemId);
+      const save = async (options = {}) => {
+        this.cancelInlineSave(itemId);
         try {
-          await window.API.registerCount(this.currentInventory.id, {
+          await window.API.registerCount(inventoryId, {
             itemId,
             sku: item?.SKU,
             location: item?.Ubicacion,
@@ -1911,7 +1921,7 @@ window.InventoryView = {
             malEstado: damaged,
             photoUrl: item?.foto_mal_estado || undefined,
             locked: false
-          });
+          }, options);
           const icon = document.getElementById(`saved-icon-${itemId}`);
           if (icon) {
             icon.style.opacity = '1';
@@ -1920,8 +1930,50 @@ window.InventoryView = {
         } catch (err) {
           console.warn('[inventoryView] Auto-sync inline count warning:', err.message);
         }
-      }, 500);
+      };
+      this._inlineSaves = this._inlineSaves || new Map();
+      this._inlineSaves.set(itemId, {save, timer: setTimeout(save, this.INLINE_SAVE_DELAY_MS)});
     }
+  },
+
+  INLINE_SAVE_DELAY_MS: 15000,
+  SHEET_SYNC_DELAY_MS: 20000,
+
+  cancelInlineSave(itemId) {
+    const pending = this._inlineSaves?.get(itemId);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this._inlineSaves.delete(itemId);
+  },
+
+  // Saves what was typed and not confirmed, before signing or leaving the count.
+  async flushInlineSaves(options = {}) {
+    const pending = [...(this._inlineSaves?.values() || [])];
+    await Promise.all(pending.map(entry => entry.save(options)));
+  },
+
+  scheduleSheetSync(inventoryId, delay = this.SHEET_SYNC_DELAY_MS) {
+    this._sheetSyncTimers = this._sheetSyncTimers || new Map();
+    if (this._sheetSyncTimers.has(inventoryId)) return;
+    this._sheetSyncTimers.set(inventoryId, setTimeout(() => this.syncSheetNow(inventoryId), delay));
+  },
+
+  async syncSheetNow(inventoryId, options = {}) {
+    clearTimeout(this._sheetSyncTimers?.get(inventoryId));
+    this._sheetSyncTimers?.delete(inventoryId);
+    try {
+      const result = await window.API.syncPendingCounts(inventoryId, options);
+      if (result.remaining > 0) this.scheduleSheetSync(inventoryId);
+    } catch (err) {
+      console.warn('[inventoryView] Sheet sync pending:', err.message);
+      this.scheduleSheetSync(inventoryId, 3 * this.SHEET_SYNC_DELAY_MS);
+    }
+  },
+
+  // Sends everything still waiting when the counter leaves the count or closes the page.
+  async flushCountWork(options = {}) {
+    await this.flushInlineSaves(options);
+    await Promise.all([...(this._sheetSyncTimers?.keys() || [])].map(id => this.syncSheetNow(id, options)));
   },
 
   async confirmAndLockItem(itemId) {
@@ -1950,6 +2002,7 @@ window.InventoryView = {
       return;
     }
 
+    this.cancelInlineSave(actualId);
     const previousCount = (item && item.Stock_Fisico !== null && item.Stock_Fisico !== undefined) ? item.Stock_Fisico : null;
     const isReCount = previousCount !== null;
     const recountReason = (item && item.pendingReEditReason) ? item.pendingReEditReason : (isReCount ? 'Reconteo físico confirmado' : null);

@@ -195,11 +195,14 @@ window.API = {
     return this.request('/inventories/gas-health');
   },
 
-  registerCount(inventoryId, payload) {
-    return this.request(`/inventories/${inventoryId}/count`, {
+  async registerCount(inventoryId, payload, options = {}) {
+    const result = await this.request(`/inventories/${inventoryId}/count`, {
+      ...options,
       method: 'POST',
       body: JSON.stringify(payload)
     });
+    if (result?.sheetPending) window.InventoryView?.scheduleSheetSync?.(inventoryId);
+    return result;
   },
 
   requestUnlockItem(inventoryId, itemId, payload = {}) {
@@ -349,6 +352,14 @@ window.API = {
 
   getFirestoreUsage() {
     return this.request('/dashboard/usage');
+  },
+
+  syncPendingCounts(inventoryId, options = {}) {
+    return this.request(`/inventories/${inventoryId}/sync-pending`, {
+      ...options,
+      method: 'POST',
+      body: JSON.stringify({})
+    });
   },
 
   enableSecondRecount(inventoryId) {

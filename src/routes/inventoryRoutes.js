@@ -171,6 +171,15 @@ router.post('/:id/count', authenticate, async (req, res) => {
   }
 });
 
+// POST /api/inventories/:id/sync-pending (Send the counts still waiting for Google Sheets)
+router.post('/:id/sync-pending', authenticate, async (req, res) => {
+  try {
+    res.json({ success: true, ...await inventoryService.drainSheetCounts({ inventoryId: req.params.id, user: req.user }) });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 // POST /api/inventories/:id/items/:itemId/request-unlock (Unlock item for modification)
 router.post('/:id/items/:itemId/request-unlock', authenticate, (req, res) => {
   try {
@@ -224,9 +233,10 @@ router.post('/:id/reassign', authenticate, requireRole(['ADMIN', 'ENCARGADO']), 
 });
 
 // POST /api/inventories/:id/submit (Submit for review)
-router.post('/:id/submit', authenticate, (req, res) => {
+router.post('/:id/submit', authenticate, async (req, res) => {
   try {
     const { signature } = req.body;
+    await inventoryService.assertSheetCountsSent(req.params.id);
     const result = inventoryService.submitInventoryForReview({
       inventoryId: req.params.id,
       user: req.user,

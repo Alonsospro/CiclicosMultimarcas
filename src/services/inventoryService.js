@@ -13,6 +13,7 @@ const metricsService = require('./metricsService');
 const snapshotService = require('./snapshotService');
 
 const FORCED_MASTER_BATCH = 50;
+const SHEET_BATCH = 50;
 
 function mergeRecountIntoParent(parentItem, recountItem) {
   const normalized = contract.normalize(recountItem);
@@ -49,6 +50,22 @@ function mergeRecountIntoParent(parentItem, recountItem) {
     parentItem.Estado_Reconteo = 'Recontado';
   }
   return parentItem;
+}
+
+// The row as the sheet has it. Its Estado column holds the first review, never a progress label like
+// 'Contado', and a recount does not change the first-count columns even if this copy dropped them.
+function sheetRowBeforeCount(item, isRecount, firstReview, firstCounter) {
+  const review = contract.identity(firstReview).replace(/_/g, ' ');
+  const Estado = ['CUADRA', 'NO CUADRA'].includes(review) ? review : '';
+  if (!isRecount) return {...item, Estado};
+  const restored = {
+    Stock_Buen_Estado: contract.first(item.Stock_Buen_Estado_1erConteo, item.Stock_Fisico_1erConteo),
+    Stock_Total: item.Stock_Total_1erConteo,
+    Mal_estado: item.Mal_estado_1erConteo,
+    Fecha_Ultimo_Conteo: item.Fecha_Ultimo_Conteo_1erConteo,
+    Responsable: firstCounter
+  };
+  return {...item, Estado, ...Object.fromEntries(Object.entries(restored).filter(([, value]) => contract.has(value)))};
 }
 
 class InventoryService {
@@ -258,6 +275,10 @@ class InventoryService {
       ? inv.items.filter(item => recountKeys.has(contract.member(item)))
       : inv.items;
 
+    // Pending entries hold system quantities that a blind count must not receive.
+    const { sheetPending, ...visibleInv } = inv;
+    const sheetPendingCount = Object.keys(sheetPending || {}).length;
+
     const isReconteoInv = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
     // First-recount quantities must not look like counts of the second one.
     if (isReconteoInv && countStage !== 2 && Array.isArray(inv.items)) {
@@ -353,7 +374,8 @@ class InventoryService {
       });
 
       return {
-        ...inv,
+        ...visibleInv,
+        sheetPendingCount,
         items: userItems.map(item => {
           if (isConteoPhase) {
             const {
@@ -380,7 +402,8 @@ class InventoryService {
     // Keep the primary record intact; in an active recount, expose only its
     // authorized recount members to every role using this count view.
     return {
-      ...inv,
+      ...visibleInv,
+      sheetPendingCount,
       items: visibleItems,
       isBlindCount: false
     };
@@ -577,6 +600,103 @@ class InventoryService {
     return false;
   }
 
+  setWriteQueue(queue) {
+    this.writeQueue = queue;
+  }
+
+  // Counts are confirmed once saved in Firestore and reach Sheets in batches: Apps Script handles one
+  // request at a time, so waiting for it on each count would hold every other counter in line. The pending
+  // entries travel in the inventory document, saved atomically with the count, and only the latest
+  // value of each item is sent. A weekly cycle reset must survive that replacement.
+  queueSheetCount(inv, item, payload) {
+    inv.sheetPending = inv.sheetPending || {};
+    const previous = inv.sheetPending[item.id];
+    inv.sheetPending[item.id] = {seq:randomUUID(), payload:previous?.payload?.resetWeeklyCycle ? {...payload, resetWeeklyCycle:true} : payload};
+  }
+
+  sheetEntries(inv) {
+    return Object.entries(inv?.sheetPending || {}).map(([key, entry]) => ({key, ...entry}));
+  }
+
+  // Returns the entries Google accepted and the ones it did not, with the reason.
+  async sendSheetCounts(inv, entries) {
+    const sent = [], failed = [];
+    for (let offset = 0; offset < entries.length; offset += SHEET_BATCH) {
+      const chunk = entries.slice(offset, offset + SHEET_BATCH);
+      try {
+        await gasService.batchUpsertCountsToGAS(inv.type, {center:inv.center, updates:chunk.map(entry => entry.payload)});
+        sent.push(...chunk);
+      } catch (error) {
+        const items = Array.isArray(error.result?.failedItems) ? error.result.failedItems : null;
+        const reasons = new Map((items || []).map(item => [item.index, item.error]));
+        chunk.forEach((entry, index) => {
+          if (items && !reasons.has(index)) sent.push(entry);
+          else failed.push({...entry, sku:entry.payload.sku, error:reasons.get(index) || error.message});
+        });
+      }
+    }
+    return {sent, failed};
+  }
+
+  // Only an entry not replaced by a newer count while it was being sent is removed.
+  recordSheetResult(inventoryId, {sent, failed}) {
+    const inv = this.getInventoryRaw(inventoryId);
+    if (!inv?.sheetPending) return inv;
+    sent.forEach(entry => { if (inv.sheetPending[entry.key]?.seq === entry.seq) delete inv.sheetPending[entry.key]; });
+    failed.forEach(entry => { if (inv.sheetPending[entry.key]?.seq === entry.seq) inv.sheetPending[entry.key].lastError = entry.error; });
+    if (!Object.keys(inv.sheetPending).length) delete inv.sheetPending;
+    this.saveInventory(inv);
+    return inv;
+  }
+
+  // Runs inside the write queue, for operations that need the sheet up to date before they continue.
+  // `current` is the caller's copy of that inventory: saving it later must not bring sent entries back.
+  async flushSheetCounts(inventoryId, current = null) {
+    const inv = this.getInventoryRaw(inventoryId);
+    const entries = this.sheetEntries(inv);
+    if (!entries.length) return [];
+    const result = await this.sendSheetCounts(inv, entries);
+    const updated = this.recordSheetResult(inventoryId, result);
+    if (current) {
+      if (updated?.sheetPending) current.sheetPending = updated.sheetPending;
+      else delete current.sheetPending;
+    }
+    return result.failed;
+  }
+
+  async assertSheetCountsSent(inventoryId, current = null) {
+    const failed = await this.flushSheetCounts(inventoryId, current);
+    if (!failed.length) return;
+    const list = failed.slice(0, 5).map(entry => `${entry.sku}: ${entry.error}`).join('; ');
+    throw new Error(`Google Sheets no recibió ${failed.length} conteo(s), que siguen guardados en la app. Reintente. ${list}`);
+  }
+
+  // Runs outside the write queue, so counters keep saving while Google answers.
+  async drainSheetCounts({ inventoryId, user }) {
+    const inv = this.getInventoryRaw(inventoryId);
+    if (!inv) throw new Error('Inventario no encontrado');
+    if (!this.canModifyInventory(inv, user)) throw new Error('Inventario fuera de su centro');
+    const entries = this.sheetEntries(inv);
+    this.sheetDrains = this.sheetDrains || new Map();
+    this.sheetLines = this.sheetLines || new Map();
+    if (!entries.length) return {remaining:0};
+    if (this.sheetDrains.has(inventoryId)) return {remaining:entries.length, inProgress:true};
+    // One script per type answers one request at a time: queueing here avoids its busy errors.
+    const previous = this.sheetLines.get(inv.type) || Promise.resolve();
+    const drain = previous.catch(() => {}).then(() => this.sendSheetCounts(inv, entries));
+    this.sheetLines.set(inv.type, drain.catch(() => {}));
+    this.sheetDrains.set(inventoryId, drain);
+    try {
+      const result = await drain;
+      const record = () => this.recordSheetResult(inventoryId, result);
+      const write = storagePath.outsideReadSnapshot ? work => storagePath.outsideReadSnapshot(work) : work => work();
+      const updated = await write(() => this.writeQueue ? this.writeQueue(record) : record());
+      return {remaining:this.sheetEntries(updated).length, failed:result.failed.length};
+    } finally {
+      this.sheetDrains.delete(inventoryId);
+    }
+  }
+
   async updateCount({
     inventoryId,
     itemId,
@@ -667,6 +787,8 @@ class InventoryService {
     }
     const startsWeeklyCycle = targetItem && contract.isWeekly(targetItem) && !contract.has(targetItem.Stock_Total) && workflow.countStage(inv) === 0;
     let previousQty = targetItem ? targetItem.Stock_Fisico : null;
+    const estadoBeforeCount = targetItem?.Estado;
+    const responsableBeforeCount = targetItem?.Responsable;
     if(contract.isWeeklyType(inv.type)&&targetItem&&!contract.isWeekly(targetItem))throw new Error('Sincronice este inventario con el Apps Script semanal de 44 columnas antes de contar.');
     const stageMembers = workflow.activeCountKeys(inv);
     if (targetItem && workflow.countStage(inv) && stageMembers.size && !stageMembers.has(contract.member(targetItem))) {
@@ -940,7 +1062,10 @@ class InventoryService {
         : (driveService.getPhotoAsDataUri(justificationPhotoUrl || targetItem.foto_justificacion) || (justificationPhoto && !justificationPhoto.startsWith('/') ? justificationPhoto : ''));
 
       const isReconteoMode = !!(inv.isReconteo || inv.phase === 'RECONTEO' || inv.phase === 'RECONTEO_2' || String(inv.id).startsWith('REC-'));
-      const synced = await gasService.upsertCountToGAS(inv.type, {
+      // Photos travel with the row, and sweeps can create rows: both still need Google's answer.
+      const deferToSheet = config.countSheetSync !== 'inmediato' && isCountProvided && inv.type !== 'BARRIDO'
+        && !resolvedPhotoBase64 && !resolvedJustPhotoBase64;
+      const countPayload = {
         inventoryId:inv.id,itemId:targetItem.id,
         ...(isCountProvided && startsWeeklyCycle ? {resetWeeklyCycle:true} : {}),
         center: inv.center,
@@ -968,7 +1093,25 @@ class InventoryService {
         stockSistema: targetItem.Stock_Sistema || 0,
         photoBase64: resolvedPhotoBase64,
         justificationPhoto: resolvedJustPhotoBase64
-      });
+      };
+      let synced;
+      if (deferToSheet) {
+        // The sheet must record when it was counted, not when the batch arrives.
+        const countedAt = new Date().toISOString();
+        const {photoBase64: _photo, justificationPhoto: _justificationPhoto, ...sheetPayload} = countPayload;
+        const payload = {...sheetPayload, fechaReconteo:countedAt, fechaReconteo2:countedAt,
+          ...(isReconteoMode ? {} : {fechaUltimoConteo:countedAt})};
+        // A recount list keeps its own copy of the item; the first review lives in the primary record.
+        const firstReview = inv.parentInventoryId
+          ? this.getInventoryRaw(inv.parentInventoryId)?.items.find(it => contract.member(it) === contract.member(targetItem))?.Estado
+          : estadoBeforeCount;
+        synced = {item:contract.update(sheetRowBeforeCount(targetItem, isReconteoMode, firstReview, responsableBeforeCount), payload)};
+        this.queueSheetCount(inv, targetItem, payload);
+      } else {
+        // This write is newer than anything still waiting for this item.
+        if (inv.sheetPending) delete inv.sheetPending[targetItem.id];
+        synced = await gasService.upsertCountToGAS(inv.type, countPayload);
+      }
       if(!synced.item)throw new Error('Google no devolvió la fila confirmada');
       const firstCountSnapshots=Object.fromEntries(Object.entries(targetItem).filter(([key])=>key.endsWith('_1erConteo')));
       Object.assign(targetItem,contract.normalize(synced.item),firstCountSnapshots);
@@ -988,7 +1131,8 @@ class InventoryService {
     return {
       success: true,
       item: targetItem,
-      inventoryStatus: inv.status
+      inventoryStatus: inv.status,
+      sheetPending: !!inv.sheetPending?.[targetItem.id]
     };
   }
 
@@ -1272,6 +1416,11 @@ class InventoryService {
     if(contract.isWeeklyType(inv.type)&&!contract.isWeekly(item))throw new Error('Sincronice primero el inventario semanal de 44 columnas.');
     const context=this.getReviewPlan(inv);
     workflow.assertJustification(inv,item,round,context,p.justification);
+    // The script reads the row it justifies; a failure here is logged like the justification write below.
+    for(const id of [inv.id,inv.recountInventoryId,inv.parentInventoryId].filter(Boolean)){
+      const unsent=await this.flushSheetCounts(id,id===inv.id?inv:null);
+      if(unsent.length)console.warn('[saveJustification] Conteos aún sin enviar a Sheets:',id,unsent.length);
+    }
     const payload={action:'saveJustification',center:inv.center,inventoryId:inv.id,itemId:item.id,sku:item.SKU,
       almacen:item.Almacen,location:item.Ubicacion,round,isJustification2:round===2,
       corroboracion:contract.status(p),razon:p.reasonType,comentarioJustificacion:p.justification,reviewedBy:reviewer,
@@ -1705,6 +1854,9 @@ class InventoryService {
       reviewNotes:`Cierre forzado por ${reviewer}: ${forcedItems.length} justificación(es) faltante(s).`});
 
     const masterFailed = await this.writeForcedToMaster(primaryInv, masterUpdates);
+    for (const id of [primaryInv.id, childRecountInv?.id].filter(Boolean)) {
+      (await this.flushSheetCounts(id)).forEach(entry => masterFailed.push({sku:entry.sku, error:entry.error}));
+    }
     if (masterFailed.length) {
       primaryInv.forcedClose.masterFailed = masterFailed;
       this.saveInventory(primaryInv);
@@ -1737,6 +1889,8 @@ class InventoryService {
     if (!closePlan.canClose) {
       throw new Error(`No se puede cerrar: ${closePlan.closeBlockers.join(' ')}`);
     }
+    await this.assertSheetCountsSent(primaryInv.id, primaryInv);
+    if (childRecountInv && childRecountInv.id !== primaryInv.id) await this.assertSheetCountsSent(childRecountInv.id, childRecountInv);
 
     return this.completeClose({primaryInv, childRecountInv, user, reviewNotes});
   }
@@ -1854,6 +2008,11 @@ class InventoryService {
 
     if (isEncargado && inv.center && !config.isSameCenter(inv.center, user.center)) {
       throw new Error(`No tiene permisos para reabrir inventarios del centro ${inv.center}. Su centro es ${user.center}`);
+    }
+
+    // Reading the sheet back must not replace counts that have not reached it yet.
+    if (syncFromGAS !== false) {
+      for (const id of [inv.id, inv.recountInventoryId, inv.parentInventoryId].filter(Boolean)) await this.assertSheetCountsSent(id, id === inv.id ? inv : null);
     }
 
     // Configurar fase solicitada
@@ -2107,6 +2266,8 @@ class InventoryService {
         if(recovered)this.saveInventory(inv);
       }
     }
+    await this.assertSheetCountsSent(inv.id,inv);
+    if(inv.recountInventoryId)await this.assertSheetCountsSent(inv.recountInventoryId);
     const rows=inv.spreadsheetUrl?await gasService.fetchSpreadsheetItems(inv.spreadsheetUrl,inv):await gasService.fetchProductsFromScript(inv.type,inv.center);
     const map=new Map();
     rows.forEach(raw=>{const item=contract.normalize(raw),key=contract.member(item);if(map.has(key))throw new Error('Identidad duplicada en Google Sheets');map.set(key,item);});
@@ -2351,6 +2512,8 @@ class InventoryService {
         });
       }
 
+      // This correction is newer than anything still waiting for this item.
+      if(inv.sheetPending)delete inv.sheetPending[targetItem.id];
       const synced=await gasService.upsertCountToGAS(inv.type,{...gasPayload,inventoryId:inv.id,itemId:targetItem.id});
       if(!synced.item)throw new Error('Google no devolvió la fila confirmada');
       const firstCountSnapshots=Object.fromEntries(Object.entries(targetItem).filter(([key])=>key.endsWith('_1erConteo')));

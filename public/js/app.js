@@ -3,6 +3,7 @@ window.Router = {
   currentView: 'login',
 
   navigate(viewName, params = {}) {
+    if (viewName !== 'count') window.InventoryView?.flushCountWork?.();
     // Check authentication requirement
     if (viewName !== 'login' && !window.Auth.currentUser) {
       this.navigate('login');

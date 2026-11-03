@@ -32,7 +32,9 @@ function createPersistenceMiddleware(storage, cloud) {
       req.path === '/dashboard/metrics' || req.path === '/dashboard/audit' || req.path === '/dashboard/tracking' || req.path === '/dashboard/usage' ||
       req.path === '/history' || req.path.startsWith('/history/') ||
       req.path === '/auth/me' || req.path === '/centers'
-    )) || (req.method === 'POST' && req.path === '/dashboard/recalculate');
+    )) || (req.method === 'POST' && (req.path === '/dashboard/recalculate' ||
+      // Waits for Google outside the write queue, and only enters it to record the result.
+      /^\/inventories\/[^/]+\/sync-pending$/.test(req.path)));
     if (isFastRead) {
       (async () => {
         try {

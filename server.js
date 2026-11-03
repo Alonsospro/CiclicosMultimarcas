@@ -18,6 +18,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const cloud = require('./src/services/firebaseSyncService');
 const persistence = require('./src/services/persistenceMiddleware')(storagePath, cloud);
+require('./src/services/inventoryService').setWriteQueue(persistence.runExclusive);
 app.get('/api/health', async (req, res) => {
   try {
     await cloud.adapter.readControl();

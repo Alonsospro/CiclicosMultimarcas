@@ -254,6 +254,11 @@ class StoragePath {
     return this.readContext.run(snapshot, work);
   }
 
+  // A request served from a read snapshot that has to write afterwards.
+  outsideReadSnapshot(work) {
+    return this.readContext.exit(work);
+  }
+
   deleteFile(filePath) {
     firebaseSyncService.deleteFromFirestore(this.getRelativePath(filePath));
     const key = this.normalizeKey(filePath);
