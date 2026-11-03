@@ -846,7 +846,7 @@ function distribuirBaseACentros(){
       ['Ubicacion',['ubic','ubicacion'],true], ['Ubicacion_1',['ubicacion1']], ['Ubicacion_2',['ubicacion2']],
       ['Sobrestock',['sobrestock','ubicsobrestock','ubicacionsobrestock']], ['Almacen',['almacen'],true],
       ['Clasificacion_ABC',['clasificacioncentro','clasificacioncen','clasificacionabc'],true], ['Unidad',['unidad']],
-      ['Costo_Unitario',['valor','costounitario'],true], ['Stock_Sistema',['stock','stocksistema'],true]
+      ['Costo_Unitario',['costounitario']], ['Stock_Sistema',['stock','stocksistema'],true]
     ].filter(([key])=>COL[key]);
     const indexes=sourceHeaders.map(([key,aliases,required])=>{
       const matches=headers.map((h,i)=>aliases.includes(h)?i:-1).filter(i=>i>=0);
@@ -854,12 +854,23 @@ function distribuirBaseACentros(){
       if(required&&!matches.length)throw new Error('Falta columna en BD_BASE: '+aliases[0]);
       return [COL[key]-1,matches.length?matches[0]:-1];
     });
-    const keepsOverstock=indexes.some(([target,idx])=>COL.Sobrestock&&target===COL.Sobrestock-1&&idx>=0);
+    // "Valor" is the value of the whole line; the sheet needs the cost of one unit.
+    const costTarget=COL.Costo_Unitario-1,stockIndex=indexes.find(([target])=>target===COL.Stock_Sistema-1)[1];
+    const unitCostIndex=indexes.find(([target])=>target===costTarget)[1];
+    const lineValues=headers.map((h,i)=>h==='valor'?i:-1).filter(i=>i>=0);
+    if(lineValues.length>1)throw new Error('Columnas ambiguas en BD_BASE: valor');
+    if(unitCostIndex<0&&!lineValues.length)throw new Error('Falta columna en BD_BASE: valor');
+    // Columns BD_BASE does not bring keep what the center sheet already has.
+    const keptTargets=indexes.filter(([target,idx])=>idx<0&&target!==costTarget).map(([target])=>target);
     const groups={};
     all.filter(r=>r.some(InventoryContract.has)).forEach(r=>{
       const center=String(r[centerIndex]).trim();
       if(!/^\d{4}$/.test(center))throw new Error('Centro inválido en BD_BASE: '+center+' (se requiere un código de cuatro dígitos)');
       const row=Array(SHEET_WIDTH).fill('');indexes.forEach(([target,idx])=>{if(idx>=0)row[target]=r[idx]??'';});
+      if(unitCostIndex<0){
+        const stock=InventoryContract.number(r[stockIndex],'Stock'),value=InventoryContract.number(r[lineValues[0]],'Valor');
+        row[costTarget]=stock>0?Math.round(value/stock*1e6)/1e6:0;
+      }
       const item=rowToObject_(row);if(!item.SKU)throw new Error('SKU vacío en BD_BASE');
       if (!groups[center]) groups[center] = [];
       groups[center].push(rowValues_(item));
@@ -867,8 +878,11 @@ function distribuirBaseACentros(){
     // Validate all existing sheets and all incoming identities before any write.
     Object.entries(groups).forEach(([center,rows])=>{
       const keys=rows.map(r=>InventoryContract.member(rowToObject_(r)));
-      if(new Set(keys).size!==keys.length)throw new Error('Duplicados en BD_BASE, centro '+center);
-      const sh=ss.getSheetByName(center);if(sh)validateHeaders_(sh);
+      const repeated=[...new Set(keys.filter((key,i)=>keys.indexOf(key)!==i))];
+      if(repeated.length)throw new Error('Duplicados en BD_BASE, centro '+center+' (código, almacén y ubicación): '+repeated.slice(0,10).join(' '));
+      const sh=ss.getSheetByName(center);if(!sh)return;
+      validateHeaders_(sh);
+      if(sh.getLastRow()>1)sh.getRange(2,1,sh.getLastRow()-1,SHEET_WIDTH).getValues().forEach(rowToObject_);
     });
     let skipped=0;
     Object.entries(groups).forEach(([center,incoming])=>{
@@ -878,8 +892,7 @@ function distribuirBaseACentros(){
       incoming.forEach(row=>{
         const key=InventoryContract.member(rowToObject_(row));
         if(map.has(key)){const i=map.get(key);if(InventoryContract.has(rows[i][COL.Stock_Total-1])){skipped++;return;}
-          // Without a sobrestock column in BD_BASE, keep the overstock location typed in the center sheet.
-          if(COL.Sobrestock&&!keepsOverstock)row[COL.Sobrestock-1]=rows[i][COL.Sobrestock-1];
+          keptTargets.forEach(target=>{row[target]=rows[i][target];});
           rows[i]=row;
         }else{map.set(key,rows.length);rows.push(row);}
       });

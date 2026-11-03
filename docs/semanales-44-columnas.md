@@ -47,6 +47,8 @@ La confiabilidad del contador usa las cantidades físicas firmadas, separadas de
 2. En el proyecto Apps Script del archivo **SEMANALES NIBOL MULTIMARCAS**, reemplazar el código por el contenido completo de `produccion/InventoryWebhookSemanales.gs`, guardar y crear una **nueva versión** de la implementación existente (se conserva la URL `/exec`).
 3. Con el menú **📦 Inventarios → Verificar columnas** comprobar las 44 columnas. Luego **Actualizar maestros desde BD_BASE**.
 
+En `BD_BASE`, `Valor` es el valor total de la línea: `Costo Unitario` se calcula como `Valor ÷ Stock`. Una columna `Costo Unitario` en la base tiene prioridad y se copia tal cual. Las columnas que la base no trae (código de barras, unidad, ubicaciones adicionales, sobrestock) conservan lo que ya tiene la hoja del centro. Las columnas adicionales de la base, como `tipoMat`, `sector`, `Marca` o `Total USD`, se ignoran.
+
 La appweb y el script deben actualizarse juntos: la app nueva envía `WEEKLY_44_V1` y el script anterior solo aceptaba 43 columnas (que además ya no coinciden con las hojas).
 
 ## Validación

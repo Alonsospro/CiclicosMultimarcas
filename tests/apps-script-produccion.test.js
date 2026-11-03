@@ -140,13 +140,48 @@ test('production weekly: BD_BASE fills the 44 columns by name and keeps a typed 
   assert.equal(center.grid[1][at('SKU')], 'JD_ADX14037');
   assert.equal(center.grid[1][at('Almacen')], 'CD01');
   assert.equal(center.grid[1][at('Stock_Sistema')], 8);
-  assert.equal(center.grid[1][at('Costo_Unitario')], 120);
+  assert.equal(center.grid[1][at('Costo_Unitario')], 15, 'Valor is the value of the line');
   center.grid[1][at('Sobrestock')] = '9Z99999Z99';
-  base.grid[1][4] = 9;
+  center.grid[1][at('Unidad')] = 'UND';
+  base.grid[1][4] = 10;
   f.context.distribuirBaseACentros();
-  assert.equal(center.grid[1][at('Stock_Sistema')], 9, 'Uncounted rows take the new master stock');
+  assert.equal(center.grid[1][at('Stock_Sistema')], 10, 'Uncounted rows take the new master stock');
+  assert.equal(center.grid[1][at('Costo_Unitario')], 12);
   assert.equal(center.grid[1][at('Sobrestock')], '9Z99999Z99', 'Typed overstock location is kept');
+  assert.equal(center.grid[1][at('Unidad')], 'UND', 'A column BD_BASE does not bring is kept');
   base.grid[0].push('Sobrestock'); base.grid[1].push('1A00000A01');
   f.context.distribuirBaseACentros();
   assert.equal(center.grid[1][at('Sobrestock')], '1A00000A01', 'A BD_BASE sobrestock column is distributed');
+});
+
+test('production weekly: the current BD_BASE layout distributes to its centers without touching counted rows', () => {
+  const f = fixture({script:'InventoryWebhookSemanales.gs'});
+  const at = key => contract.weeklyColumns.indexOf(key);
+  const base = f.master.getSheetByName('BD_BASE');
+  base.grid = [['codigo','descripcion','tipoMat','centro','almacen','sector','Stock','Ubic','Valor','ClasificacionCentro','Marca','Total USD'],
+    ['JD_N304196','TAPON','XARI',5100,'RJD0',11,14,'2A02037E10',761.88,'','JD',''],
+    ['JD_19M8081','TORNILLO','XARI',5100,'RJD0',11,4,'2A05124C10',80.59,'A','JD',''],
+    ['FO_CERO','SIN VALOR','XARI',1120,'RFO0',23,2,'2A01008C00',0,'','FO','']];
+  const center = f.master.getSheetByName('5100');
+  const counted = Array(contract.weeklyColumns.length).fill('');
+  Object.assign(counted, {[at('SKU')]:'JD_19M8081', [at('Ubicacion')]:'2A05124C10', [at('Almacen')]:'RJD0', [at('Costo_Unitario')]:20, [at('Stock_Sistema')]:3,
+    [at('Stock_Total')]:3, [at('Stock_Buen_Estado')]:3, [at('Mal_estado')]:0});
+  center.grid.push(counted);
+  f.context.distribuirBaseACentros();
+  const row = sku => center.grid.find(r => r[at('SKU')] === sku);
+  assert.equal(row('JD_N304196')[at('Costo_Unitario')], 54.42);
+  assert.equal(row('JD_N304196')[at('Stock_Sistema')], 14);
+  assert.equal(row('JD_19M8081')[at('Stock_Sistema')], 3, 'A counted row stays as counted');
+  assert.equal(row('JD_19M8081')[at('Costo_Unitario')], 20);
+  assert.equal(f.master.getSheetByName('1120').grid[1][at('Costo_Unitario')], 0);
+});
+
+test('production weekly: duplicates in BD_BASE name the repeated item and nothing is written', () => {
+  const f = fixture({script:'InventoryWebhookSemanales.gs'});
+  const base = f.master.getSheetByName('BD_BASE');
+  base.grid = [['codigo','descripcion','centro','almacen','Stock','Ubic','Valor','ClasificacionCentro'],
+    ['JD_UNO','A','5100','RJD0',1,'2A01',10,''], ['JD_DOS','B','5100','RJD0',1,'2A02',10,''], ['JD_DOS','B','5100','RJD0',2,'2A02',20,'']];
+  const before = JSON.stringify(f.master.getSheetByName('5100').grid);
+  assert.throws(() => f.context.distribuirBaseACentros(), /Duplicados en BD_BASE, centro 5100.*JD_DOS/);
+  assert.equal(JSON.stringify(f.master.getSheetByName('5100').grid), before);
 });
