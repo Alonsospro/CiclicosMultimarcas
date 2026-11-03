@@ -148,7 +148,7 @@
   const topTable = (list, helpers, color, total, sign) => {
     const max = Math.max(...list.map(helpers.cost), 1);
     let running = 0;
-    return `<table><thead><tr><th>Código</th><th>Alm.</th><th class="num">Sist.</th><th class="num">Físico</th><th class="num">Dif.</th><th>Bs</th><th class="num">Acum.</th><th>Motivo</th></tr></thead><tbody>${list.map(item => {
+    return `<table data-split class="mr-diff"><thead><tr><th>Código</th><th>Alm.</th><th class="num">Sist.</th><th class="num">Físico</th><th class="num">Dif.</th><th>Bs</th><th class="num">Acum.</th><th>Motivo</th></tr></thead><tbody>${list.map(item => {
       running += helpers.cost(item);
       return `<tr><td>${esc(item.sku)}</td><td>${esc(item.almacen)}</td><td class="num">${qty(item.stockSistema)}</td><td class="num">${qty(physical(item, helpers.final))}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), max, 58, color, qty(helpers.cost(item)))}</td><td class="num">${total ? Math.round(running / total * 100) : 0}%</td><td>${esc(justification(item))}</td></tr>`;
     }).join('') || '<tr><td colspan="8">Sin registros.</td></tr>'}</tbody></table>`;
@@ -157,6 +157,53 @@
     const max = Math.max(...list.map(helpers.cost), 1);
     return `<table data-split><thead><tr><th>Código</th><th>Descripción</th><th>Clase</th><th>Almacén · ubicación</th><th class="num">Sistema</th><th class="num">Físico</th><th class="num">Dif.</th><th>Bs</th><th>Justificación</th></tr></thead><tbody>${list.map(item => `<tr><td>${esc(item.sku)}</td><td>${esc(item.descripcion)}</td><td>${esc(item.abc)}</td><td>${esc(item.almacen)} · ${esc(item.ubicacion)}</td><td class="num">${qty(item.stockSistema)}</td><td class="num">${qty(physical(item, helpers.final))}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), max, 70, color, decimal(helpers.cost(item)))}</td><td>${esc(justification(item))}</td></tr>`).join('') || `<tr><td colspan="9">${esc(emptyText)}</td></tr>`}</tbody></table>`;
   };
+
+  // Each role signs on its own line. A role without known names keeps one blank line and its title.
+  function signatures(roles) {
+    return `<div class="mr-signs">${roles.map(([role, names]) => `<div class="mr-sign-role"><h4>${esc(role)}</h4><div class="mr-sign-lines">${(names.length ? names : ['']).map(name => `<div class="mr-sign-line"><i></i><span>${name ? esc(name) : '&nbsp;'}</span></div>`).join('')}</div></div>`).join('')}</div>`;
+  }
+
+  const unitsOf = amount => `${qty(amount.units)} ${amount.units === 1 ? 'unidad' : 'unidades'}`;
+  const linesOf = amount => `${qty(amount.lines)} ${amount.lines === 1 ? 'línea' : 'líneas'}`;
+  const differencesText = group => [
+    group.shortage.lines ? `faltantes por ${bs(group.shortage.cost)} (${linesOf(group.shortage)}, ${unitsOf(group.shortage)})` : '',
+    group.surplus.lines ? `sobrantes por ${bs(group.surplus.cost)} (${linesOf(group.surplus)}, ${unitsOf(group.surplus)})` : ''
+  ].filter(Boolean).join(' y ');
+
+  // Closing sheet of both documents. Shortages and surpluses stay apart: none offsets the other.
+  function closingSheet({ right, footer, group, overall, helpers, extraActions = [], conclusion, roles }) {
+    const i = indicators(group);
+    const rows = [
+      ['Unidades correctas', 'Unidades conformes frente a las del sistema', i.units, `${qty(group.unitsExact)} de ${qty(group.units)}`],
+      ['Códigos correctos', 'Códigos sin diferencia frente a los revisados', i.codes, `${qty(group.skusExact)} de ${qty(group.skus)}`],
+      ['Valor correcto', 'Valor sin faltantes ni sobrantes frente al del sistema', i.money, `${bs(i.valueExact)} de ${bs(group.value)}`]
+    ];
+    const lowest = rows.slice().sort((a, b) => num(a[2]) - num(b[2]))[0];
+    const eruLoss = group.eru.evaluated - group.eru.exact;
+    const concentration = (list, total) => {
+      const top = list.slice(0, 3);
+      const part = sum(top, helpers.cost);
+      return top.length && total > 0 ? ` Empezar por ${top.map(item => esc(item.sku)).join(', ')}, que suman ${Math.round(part / total * 100)}% del monto.` : '';
+    };
+    const actions = [
+      group.shortage.lines && ['Aclarar los faltantes', `Revisar documentos, recontar lo necesario y tramitar el ajuste que corresponda.${concentration(helpers.shortages, group.shortage.cost)}`, `${linesOf(group.shortage)} · ${unitsOf(group.shortage)}`, bs(group.shortage.cost)],
+      group.surplus.lines && ['Aclarar los sobrantes', `Revisar ingresos, traspasos y despachos relacionados.${concentration(helpers.surpluses, group.surplus.cost)}`, `${linesOf(group.surplus)} · ${unitsOf(group.surplus)}`, bs(group.surplus.cost)],
+      group.damage.lines && ['Separar las averías', 'Identificarlas físicamente y validar garantía o baja autorizada.', `${linesOf(group.damage)} · ${unitsOf(group.damage)}`, bs(group.damage.cost)],
+      eruLoss > 0 && ['Ordenar las ubicaciones', 'Unificar códigos en varias ubicaciones y corregir las que faltan o no son válidas.', `${qty(eruLoss)} ${eruLoss === 1 ? 'código' : 'códigos'} por almacén`, '—'],
+      ...extraActions
+    ].filter(Boolean);
+    return sheet('Diagnóstico y recomendación', right, `
+      <div class="mr-row mr-c13-wide">
+        ${panel('Dónde estamos', `<p class="mr-lead">${chip(overall)}</p><p class="mr-text">El resultado lo fija el indicador más bajo: <b>${esc(lowest[0].toLowerCase())}</b>, con ${pct(lowest[2])}.</p><p class="mr-more">Ubicación (ERU): ${pct(i.eru)}. Se informa y no cuenta para el resultado.</p>`)}
+        ${panel('Indicadores al cierre', `<table><thead><tr><th>Indicador</th><th>Qué mide</th><th class="num">Resultado</th><th class="num">Cantidad</th><th>Nivel</th></tr></thead><tbody>${rows.map(([name, meaning, value, amount]) => `<tr><td class="mr-strong">${name}</td><td>${meaning}</td><td class="num mr-strong">${pct(value)}</td><td class="num">${amount}</td><td>${chip(level(value))}</td></tr>`).join('')}</tbody></table>`)}
+      </div>
+      ${panel('Qué hacer, en orden', `<table data-split class="mr-actions"><thead><tr><th class="num">#</th><th>Acción</th><th>Cómo</th><th>Alcance</th><th class="num">Monto</th></tr></thead><tbody>${actions.map(([what, how, reach, amount], index) => `<tr><td class="num">${index + 1}</td><td class="mr-strong mr-nowrap">${what}</td><td>${how}</td><td class="mr-nowrap">${reach}</td><td class="num mr-strong">${amount}</td></tr>`).join('') || '<tr><td colspan="5">No quedan diferencias, averías ni bajas de ubicación por atender.</td></tr>'}</tbody></table><p class="mr-more">Asignar responsable y fecha a cada acción, y dejar constancia antes del cierre administrativo.</p>`, 'mr-plain')}
+      <div class="mr-row mr-c2">
+        ${panel('Regularización contable', `<p class="mr-text">${differencesText(group) ? `Pendiente de regularizar: ${differencesText(group)}. Se tramitan por separado porque ninguno compensa al otro.` : 'No quedan faltantes ni sobrantes por regularizar.'}</p><p class="mr-more">Finanzas y Control de Gestión deben validar y autorizar el ajuste. Este informe no sustituye ese trámite.</p>`)}
+        ${panel('Conclusión global', `<p class="mr-text">${conclusion}</p>`)}
+      </div>
+      ${signatures(roles)}`, footer);
+  }
 
   function renderCenter(inv, metrics, c) {
     const s = metrics.summary || {};
@@ -220,12 +267,10 @@
     const managers = metrics.reportSignatories?.centerManagers || [];
     const counters = metrics.reportSignatories?.counters || [];
     const page4 = sheet('Principales diferencias y plan de acción', small, `
-      <div class="mr-row mr-c2">
-        ${panel(`Principales faltantes · ${Math.min(6, helpers.shortages.length)} de ${helpers.shortages.length} líneas`, topTable(helpers.shortages.slice(0, 6), helpers, RED, c.shortage.cost, '−'), 'mr-plain')}
-        ${panel(`Principales sobrantes · ${Math.min(6, helpers.surpluses.length)} de ${helpers.surpluses.length} líneas`, topTable(helpers.surpluses.slice(0, 6), helpers, BLUE, c.surplus.cost, '+'), 'mr-plain')}
-      </div>
+      ${panel(`Principales faltantes · ${Math.min(6, helpers.shortages.length)} de ${helpers.shortages.length} líneas`, topTable(helpers.shortages.slice(0, 6), helpers, RED, c.shortage.cost, '−'), 'mr-plain')}
+      ${panel(`Principales sobrantes · ${Math.min(6, helpers.surpluses.length)} de ${helpers.surpluses.length} líneas`, topTable(helpers.surpluses.slice(0, 6), helpers, BLUE, c.surplus.cost, '+'), 'mr-plain')}
       ${panel('Plan de acción', `<table><thead><tr><th>Acción</th><th class="num">Líneas / códigos</th><th>Monto</th><th>Responsable</th><th>Fecha</th></tr></thead><tbody>${plan.map(([label, rows, cost, color]) => `<tr><td>${esc(label)}</td><td class="num">${qty(rows.length)}</td><td>${hbar(sum(rows, cost), planMax, 170, color || RED, bs(sum(rows, cost)))}</td><td class="mr-blank"></td><td class="mr-blank-s"></td></tr>`).join('')}${locationRows.map(([label, count]) => `<tr><td>${esc(label)}</td><td class="num">${qty(count)}</td><td>—</td><td class="mr-blank"></td><td class="mr-blank-s"></td></tr>`).join('')}${plan.length || locationRows.length ? '' : '<tr><td colspan="5">Sin acciones pendientes.</td></tr>'}</tbody></table>`, 'mr-plain')}
-      <div class="mr-signs"><span><b>${managers.map(esc).join('<br>') || '&nbsp;'}</b>Encargado del centro</span><span><b>&nbsp;</b>Control de gestión</span><span><b>&nbsp;</b>Gerencia</span></div>`, 'Este documento no reemplaza la autorización formal de un ajuste contable.');
+      `, 'Este documento no reemplaza la autorización formal de un ajuste contable.');
 
     const annexes = [
       sheet(`Anexo A · Faltantes`, `${qty(c.shortage.lines)} líneas · ${qty(c.shortage.units)} unidades · ${bs(c.shortage.cost)}`, annexTable(helpers.shortages, helpers, RED, '−', 'Sin faltantes.'), small),
@@ -245,7 +290,11 @@
         <tr><th>Alcance</th><td>${qty(s.totalItemsAudited)} líneas revisadas.</td></tr>
       </tbody></table>${scaleLegend}`, small)
     ];
-    return [page1, page2, page3, page4, ...annexes].join('');
+    const differing = c.shortage.lines + c.surplus.lines;
+    const conclusion = `El inventario de ${esc(name)} revisó ${qty(s.totalItemsAudited)} líneas y ${qty(c.units)} unidades del sistema, con resultado <b>${esc(overall.label.toLowerCase())}</b>. Al cierre, la exactitud es ${pct(i.units)} en unidades, ${pct(i.codes)} en códigos y ${pct(i.money)} en valor; la ubicación es ${pct(i.eru)}. ${differing ? `Quedan ${qty(differing)} ${differing === 1 ? 'línea' : 'líneas'} con diferencia: ${differencesText(c)}.` : 'No quedan líneas con diferencia.'}${c.damage.lines ? ` Las averías suman ${bs(c.damage.cost)} (${linesOf(c.damage)}).` : ''} Corresponde dar seguimiento a lo pendiente, conservar la evidencia y obtener las autorizaciones de ajuste antes del cierre administrativo.`;
+    const closing = closingSheet({ right: small, footer: 'Este documento no reemplaza la autorización formal de un ajuste contable.', group: c, overall, helpers, conclusion,
+      roles: [['Responsable de conteo', counters], ['Responsable de almacén', managers], ['Auditoría · Control de Gestión', []]] });
+    return [page1, page2, page3, page4, ...annexes, closing].join('');
   }
 
   function historyTable(c, inv) {
@@ -356,18 +405,28 @@
       ${panel('Por centro · peor ubicación primero', `<table data-split><thead><tr><th>Centro</th><th class="num">Correctos</th><th class="num">%</th><th class="num">Con baja</th><th>Causas</th>${CAUSE_KEYS.map(key => `<th class="num">${esc({ multiple: 'Varias ubic.', format: 'Formato', none: 'Sin ubic.', additional: 'Solo adic.' }[key])}</th>`).join('')}</tr></thead><tbody>${eruRows.map(c => `<tr><td class="mr-strong">${esc(c.name)}</td><td class="num">${qty(c.eru.exact)} / ${qty(c.eru.evaluated)}</td><td class="num">${pct(c.i.eru)}</td><td class="num">${qty(lossOf(c))}</td><td class="mr-wide">${stack(c.eru.causes, maxLoss, 230)}</td>${CAUSE_KEYS.map(key => `<td class="num">${qty(c.eru.causes[key])}</td>`).join('')}</tr>`).join('')}</tbody></table>${causeLegend}`, 'mr-plain')}`, 'Cada almacén se evalúa por separado y cada código por almacén entra en una sola causa. La lista está en el informe de cada centro.');
 
     const helpers = differences((metrics.discrepanciesList || []).filter(item => item && typeof item === 'object'));
-    const globalTable = (rows, color, sign, all) => `<table><thead><tr><th>Centro</th><th>Código</th><th>Clase</th><th class="num">Unid.</th><th>Bs</th><th class="num">% del total</th><th>Motivo</th></tr></thead><tbody>${rows.map(item => `<tr><td>${esc(item.center)}</td><td>${esc(item.sku)}</td><td>${esc(item.abc)}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), Math.max(helpers.cost(rows[0]), 1), 90, color, qty(helpers.cost(item)))}</td><td class="num">${all ? pct(helpers.cost(item) / all * 100) : '—'}</td><td>${esc(justification(item))}</td></tr>`).join('') || '<tr><td colspan="7">Sin registros.</td></tr>'}</tbody></table>`;
+    const globalTable = (rows, color, sign, all) => `<table data-split class="mr-diff"><thead><tr><th>Centro</th><th>Código</th><th>Clase</th><th class="num">Unid.</th><th>Bs</th><th class="num">% del total</th><th>Motivo</th></tr></thead><tbody>${rows.map(item => `<tr><td>${esc(item.center)}</td><td>${esc(item.sku)}</td><td>${esc(item.abc)}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), Math.max(helpers.cost(rows[0]), 1), 90, color, qty(helpers.cost(item)))}</td><td class="num">${all ? pct(helpers.cost(item) / all * 100) : '—'}</td><td>${esc(justification(item))}</td></tr>`).join('') || '<tr><td colspan="7">Sin registros.</td></tr>'}</tbody></table>`;
     const damageRows = centers.slice().sort((a, b) => b.damage.cost - a.damage.cost);
-    const page5 = sheet('Mayores diferencias y cobertura', period, `
-      <div class="mr-row mr-c2">
-        ${panel('Mayores faltantes de todos los centros', globalTable(helpers.shortages.slice(0, 8), RED, '−', total.shortage.cost), 'mr-plain')}
-        ${panel('Mayores sobrantes de todos los centros', globalTable(helpers.surpluses.slice(0, 8), BLUE, '+', total.surplus.cost), 'mr-plain')}
-      </div>
+    const page5 = sheet('Mayores diferencias', period, `
+      ${panel('Mayores faltantes de todos los centros', globalTable(helpers.shortages.slice(0, 8), RED, '−', total.shortage.cost), 'mr-plain')}
+      ${panel('Mayores sobrantes de todos los centros', globalTable(helpers.surpluses.slice(0, 8), BLUE, '+', total.surplus.cost), 'mr-plain')}`, 'Faltantes y sobrantes se muestran por separado; ninguno compensa al otro.');
+    const page6 = sheet('Averías y cobertura', period, `
       <div class="mr-row mr-c2">
         ${panel(`Averías por centro · ${bs(total.damage.cost)} · ${qty(total.damage.lines)} líneas`, `<table class="mr-flat"><tbody>${damageRows.slice(0, 6).map(c => `<tr><td>${esc(c.name)}</td><td>${hbar(c.damage.cost, Math.max(damageRows[0].damage.cost, 1), 110, AMBER, bs(c.damage.cost))}</td><td class="num">${qty(c.damage.lines)} lín.</td></tr>`).join('')}</tbody></table>${damageRows.length > 6 ? `<p class="mr-more">${damageRows.length - 6} centros más · ${bs(sum(damageRows.slice(6), c => c.damage.cost))}</p>` : ''}`)}
         ${panel('Cobertura del corte', `<table class="mr-flat"><tbody><tr><td>Centros con cierre</td><td class="num mr-strong">${centers.length} de ${known}</td></tr><tr><td>Sin cierre</td><td class="num mr-strong mr-wrap">${pending.map(c => `${esc(c.code)} ${esc(c.name)}`).join(', ') || 'Ninguno'}</td></tr><tr><td>Inventarios incluidos</td><td class="num mr-strong">${qty(sum(centers, c => c.inventories.length))}</td></tr><tr><td>Centros con más de un inventario</td><td class="num mr-strong mr-wrap">${centers.filter(c => c.inventories.length > 1).map(c => `${esc(c.center)} (${c.inventories.length})`).join(', ') || 'Ninguno'}</td></tr><tr><td>Códigos revisados</td><td class="num mr-strong">${qty(total.skus)}</td></tr><tr><td>Valor revisado</td><td class="num mr-strong">${bs(total.value)}</td></tr></tbody></table>`)}
       </div>`, 'El corte es el filtro elegido en el dashboard. Cada centro tiene su informe aparte.');
-    return [page1, page2, page3, page4, page5].join('');
+    const overall = worst([i.units, i.codes, i.money]);
+    const belowMinimum = centers.filter(c => c.lvl.key === 'no').map(c => esc(c.name));
+    const differing = total.shortage.lines + total.surplus.lines;
+    const scope = period ? ` (${period})` : '';
+    const conclusion = `El consolidado de ${known} centros${scope} revisó ${qty(metrics.summary?.totalItemsAudited ?? total.skus)} líneas y ${qty(total.units)} unidades del sistema, con resultado <b>${esc(overall.label.toLowerCase())}</b>. ${met} de ${known} centros alcanzan al menos el mínimo${pending.length ? ` y ${pending.length} no ${pending.length === 1 ? 'tiene' : 'tienen'} cierre en este corte` : ''}. Al cierre, la exactitud es ${pct(i.units)} en unidades, ${pct(i.codes)} en códigos y ${pct(i.money)} en valor; la ubicación es ${pct(i.eru)}. ${differing ? `Quedan ${qty(differing)} ${differing === 1 ? 'línea' : 'líneas'} con diferencia: ${differencesText(total)}.` : 'No quedan líneas con diferencia.'}${total.damage.lines ? ` Las averías suman ${bs(total.damage.cost)} (${linesOf(total.damage)}).` : ''} Corresponde dar seguimiento a lo pendiente, conservar la evidencia y obtener las autorizaciones de ajuste antes del cierre administrativo.`;
+    const closing = closingSheet({ right: period, footer: 'Este documento no reemplaza la autorización formal de un ajuste contable. Cada centro firma además su propio informe.', group: total, overall, helpers, conclusion,
+      extraActions: [
+        belowMinimum.length && ['Atender los centros que no cumplen', `Priorizar el seguimiento en ${belowMinimum.join(', ')}.`, `${belowMinimum.length} ${belowMinimum.length === 1 ? 'centro' : 'centros'}`, '—'],
+        pending.length && ['Completar los cierres pendientes', `Falta el cierre de ${pending.map(c => `${esc(c.code)} ${esc(c.name)}`).join(', ')}.`, `${pending.length} ${pending.length === 1 ? 'centro' : 'centros'}`, '—']
+      ],
+      roles: [['Responsable de conteo', []], ['Responsable de almacén', []], ['Auditoría · Control de Gestión', []]] });
+    return [page1, page2, page3, page4, page5, page6, closing].join('');
   }
 
   window.ManagementReport = {

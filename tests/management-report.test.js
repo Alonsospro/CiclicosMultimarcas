@@ -290,3 +290,67 @@ test('a previous inventory of another type is not used as the comparison', async
   const consolidated = { ...metrics, reportData: { ...metrics.reportData, centers: [center, { ...center, center: '1120', name: 'Centro 1120' }] } };
   assert.ok(report.render({ name: 'Corte' }, consolidated).includes('Sin inventario anterior'));
 });
+
+const longMotive = 'ESTAS DIFERENCIAS se originaron por un error de despacho en una venta, con varias notas relacionadas y seguimiento a los clientes sin respuesta.';
+const differing = (center, suffix) => inventory(`INV-${center}-1`, center, [
+  line(`SHORT-${suffix}`, { Stock_Fisico: 7, Stock_Total: 7, Diferencia: -3, Comentario_Justificacion: longMotive }),
+  line(`OVER-${suffix}`, { Stock_Fisico: 12, Stock_Total: 12, Diferencia: 2, Comentario_Justificacion: longMotive, Clasificacion_ABC: 'B' })
+]);
+
+test('consolidated differences read one below the other under a single title, and coverage has its own sheet', async () => {
+  const html = report.render({ name: 'Consolidado Semana 1' }, await load([differing('1160', 'A'), differing('1120', 'B')]));
+  assert.ok(html.includes('<b>Mayores diferencias</b>'));
+  assert.equal(html.includes('Mayores diferencias y cobertura'), false);
+  assert.ok(html.includes('<b>Averías y cobertura</b>'));
+  const sheetOf = title => html.slice(html.indexOf(`<b>${title}</b>`), html.indexOf('</section><section class="mr-sheet"', html.indexOf(`<b>${title}</b>`)));
+  const differences = sheetOf('Mayores diferencias');
+  assert.ok(differences.includes('Mayores faltantes') && differences.includes('Mayores sobrantes'));
+  assert.equal(differences.includes('mr-c2'), false, 'two columns made the long motives overlap');
+  assert.equal(differences.match(/table data-split class="mr-diff"/g).length, 2, 'long lists continue on another sheet');
+});
+
+test('the consolidated report ends with diagnosis, conclusion and signatures with titles only', async () => {
+  const metrics = await load([differing('1160', 'A'), differing('1120', 'B')], {}, [{ username: 'jefe', displayName: 'Encargado Real', role: 'ENCARGADO', center: '1160' }]);
+  const html = report.render({ name: 'Consolidado Semana 1' }, metrics);
+  const closing = html.slice(html.lastIndexOf('<section class="mr-sheet"'));
+  assert.ok(closing.includes('<b>Diagnóstico y recomendación</b>'));
+  for (const text of ['Qué hacer, en orden', 'Regularización contable', 'Conclusión global', 'Aclarar los faltantes', 'Aclarar los sobrantes']) assert.ok(closing.includes(text), text);
+  assert.doesNotMatch(closing, /[Nn]eto\b|impacto absoluto/, 'shortages and surpluses are not netted nor added');
+  for (const role of ['Responsable de conteo', 'Responsable de almacén', 'Auditoría · Control de Gestión']) assert.ok(closing.includes(`<h4>${role}</h4>`), role);
+  assert.equal(closing.includes('Encargado Real'), false, 'the consolidated signatures carry no names');
+  assert.equal(closing.match(/class="mr-sign-line"/g).length, 3);
+  assert.equal(closing.includes('Gerencia'), false);
+});
+
+test('a center report closes with the names of whoever counted and of its warehouse manager', async () => {
+  const counted = inventory('INV-1160-1', '1160', [
+    line('A', { Responsable: 'contador', Fecha_Ultimo_Conteo: '2026-10-15', Stock_Fisico: 7, Stock_Total: 7, Diferencia: -3 }),
+    line('B', { Responsable: 'segundo', Fecha_Ultimo_Conteo: '2026-10-15' })
+  ]);
+  const metrics = await load([counted], {}, [
+    { username: 'contador', displayName: 'Contador Real', role: 'AUXILIAR', center: '1160' },
+    { username: 'segundo', displayName: 'Segundo Contador', role: 'AUXILIAR', center: '1160' },
+    { username: 'jefe', displayName: 'Encargado <Real>', role: 'ENCARGADO', center: '1160' },
+    { username: 'otro', displayName: 'Otro Centro', role: 'ENCARGADO', center: '1120' }
+  ]);
+  const html = report.render({ name: 'Inventario' }, metrics);
+  const closing = html.slice(html.lastIndexOf('<section class="mr-sheet"'));
+  assert.ok(closing.includes('<b>Diagnóstico y recomendación</b>'), 'it is the last sheet, after the annexes');
+  const role = name => closing.slice(closing.indexOf(`<h4>${name}</h4>`), closing.indexOf('</div></div></div>', closing.indexOf(`<h4>${name}</h4>`)));
+  assert.ok(role('Responsable de conteo').includes('Contador Real') && role('Responsable de conteo').includes('Segundo Contador'));
+  assert.ok(role('Responsable de almacén').includes('Encargado &lt;Real&gt;'));
+  assert.equal(closing.includes('Otro Centro'), false);
+  assert.equal(role('Auditoría · Control de Gestión').includes('Real'), false, 'whoever audits signs under the title');
+  assert.equal(html.includes('Encargado del centro'), false, 'the signatures are not repeated earlier');
+  const page4 = html.slice(html.indexOf('<b>Principales diferencias y plan de acción</b>'), html.indexOf('Anexo A'));
+  assert.equal(page4.includes('mr-signs'), false);
+  assert.equal(page4.includes('mr-c2'), false, 'long motives do not overlap in the center report either');
+});
+
+test('without differences the closing sheet says so instead of listing empty actions', async () => {
+  const html = report.render({ name: 'Inventario' }, await load([inventory('INV-1160-1', '1160', [line('OK')])]));
+  const closing = html.slice(html.lastIndexOf('<section class="mr-sheet"'));
+  assert.ok(closing.includes('No quedan diferencias, averías ni bajas de ubicación por atender.'));
+  assert.ok(closing.includes('No quedan faltantes ni sobrantes por regularizar.'));
+  assert.ok(closing.includes('No quedan líneas con diferencia.'));
+});
