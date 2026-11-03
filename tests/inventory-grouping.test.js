@@ -80,3 +80,12 @@ test('the page loads the grouping before the views that use it', () => {
   assert.ok(html.includes('id="inventory-groups"'));
   assert.equal(html.includes('tbody-inventories'), false);
 });
+
+test('month and week cards open with one click and without the shrinking press effect', () => {
+  const feedback = fs.readFileSync(path.join(root, 'public/js/components/buttonFeedback.js'), 'utf8');
+  assert.match(feedback, /NO_FEEDBACK_SELECTOR = '\.inv-group-toggle'/);
+  assert.equal(feedback.match(/matches\(NO_FEEDBACK_SELECTOR\)/g).length, 2);
+  const view = fs.readFileSync(path.join(root, 'public/js/views/inventoryView.js'), 'utf8');
+  assert.match(view, /classList\.toggle\('is-open', open\)/);
+  assert.equal(view.includes('inv-group-body" hidden'), false, 'a hidden attribute would skip the animation');
+});

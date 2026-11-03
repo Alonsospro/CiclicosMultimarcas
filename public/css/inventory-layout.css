@@ -282,6 +282,12 @@
   background: var(--bg-input);
 }
 .inv-week-card { background: transparent; }
+.inv-group-toggle,
+.inv-group-toggle:active:not(:disabled) {
+  transform: none !important;
+  filter: none !important;
+  box-shadow: none !important;
+}
 .inv-group-toggle {
   display: flex;
   flex-wrap: wrap;
@@ -295,8 +301,11 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: background-color 0.15s ease;
 }
-.inv-group-toggle > i { flex: 0 0 auto; font-size: 0.7rem; transition: transform 0.15s ease; }
+.inv-group-toggle:hover { background: rgba(148, 163, 184, 0.08); }
+.inv-group-toggle > i { flex: 0 0 auto; font-size: 0.7rem; transition: transform 0.22s ease; }
 .inv-group-toggle > i.is-open { transform: rotate(90deg); }
 .inv-group-title { font-weight: 700; }
 .inv-month-card > .inv-group-toggle .inv-group-title { font-size: 1.05rem; }
@@ -317,6 +326,34 @@
 [data-theme="light"] .inv-chip.is-progress { color: #0369a1; }
 [data-theme="light"] .inv-chip.is-review { color: #92400e; }
 [data-theme="light"] .inv-chip.is-closed { color: #166534; }
-.inv-group-body { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; padding: 0 0.75rem 0.75rem; }
+/* The rows track animates to the real height of the content, whatever it is. */
+.inv-group-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  min-width: 0;
+  transition: grid-template-rows 0.22s ease;
+}
+.inv-group-body.is-open { grid-template-rows: 1fr; }
+.inv-group-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 0.75rem;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.18s ease, padding-bottom 0.22s ease, visibility 0s linear 0.22s;
+}
+.inv-group-body.is-open > .inv-group-inner {
+  padding-bottom: 0.75rem;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.18s ease, padding-bottom 0.22s ease, visibility 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .inv-group-body, .inv-group-inner, .inv-group-toggle > i { transition: none !important; }
+}
 .inv-type-section { min-width: 0; }
 .inv-type-title { margin: 0.35rem 0.25rem 0.5rem; color: var(--text-main); font-size: 0.85rem; font-weight: 700; }

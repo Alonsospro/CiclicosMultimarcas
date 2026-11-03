@@ -27,13 +27,16 @@
     '[role="button"]'
   ].join(', ');
 
+  // Tarjetas plegables: encoger al presionar un botón tan ancho aleja su borde del cursor y el clic se pierde.
+  const NO_FEEDBACK_SELECTOR = '.inv-group-toggle';
+
   /**
    * Dispara la animación de confirmación táctil y onda expansiva (ripple)
    * @param {HTMLElement} btn - Elemento botón clickeado
    * @param {MouseEvent|PointerEvent|TouchEvent|null} event - Evento origen
    */
   function triggerButtonFeedback(btn, event) {
-    if (!btn) return;
+    if (!btn || btn.matches(NO_FEEDBACK_SELECTOR)) return;
 
     // No animar si el botón está deshabilitado o finalizado de solo lectura
     if (
@@ -138,6 +141,7 @@
         const btn = e.target.closest(BUTTON_SELECTOR);
         if (
           btn &&
+          !btn.matches(NO_FEEDBACK_SELECTOR) &&
           !btn.disabled &&
           btn.getAttribute('aria-disabled') !== 'true' &&
           !btn.classList.contains('disabled') &&

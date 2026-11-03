@@ -969,19 +969,19 @@ window.InventoryView = {
       host.innerHTML = window.InventoryGrouping.group(list).map(month => `
         <section class="inv-month-card" data-group-month="${month.month}">
           ${toggle(month.month, month.label)}
-          <div class="inv-group-body" hidden>
+          <div class="inv-group-body"><div class="inv-group-inner">
             ${month.weeks.map(week => `
               <article class="inv-week-card" data-group-week="${week.key}">
                 ${toggle(week.key, week.label, week.types.length === 1 && week.types[0].termination ? ` <small>${terminationLabel(week.types[0])}</small>` : '')}
-                <div class="inv-group-body" hidden>
+                <div class="inv-group-body"><div class="inv-group-inner">
                   ${week.types.map(section => `
                     <div class="inv-type-section">
                       ${week.types.length > 1 ? `<h4 class="inv-type-title">${section.type}${section.termination ? ` <small>${terminationLabel(section)}</small>` : ''}</h4>` : ''}
                       ${table(section)}
                     </div>`).join('')}
-                </div>
+                </div></div>
               </article>`).join('')}
-          </div>
+          </div></div>
         </section>`).join('') + '<div id="inventory-no-results" class="inventory-groups-message" hidden><i class="fa-solid fa-magnifying-glass"></i> No se encontraron inventarios que coincidan con el filtro o búsqueda.</div>';
       window.Auth?.updateUI();
       this.filterInventoryTable(document.getElementById('search-inventory-list')?.value || '');
@@ -1692,7 +1692,10 @@ window.InventoryView = {
   },
 
   setGroupOpen(card, open) {
-    card.querySelector(':scope > .inv-group-body')?.toggleAttribute('hidden', !open);
+    const body = card.querySelector(':scope > .inv-group-body');
+    body?.classList.toggle('is-open', open);
+    // A closed card stays out of the keyboard order while its height animates to zero.
+    body?.toggleAttribute('inert', !open);
     const toggle = card.querySelector(':scope > .inv-group-toggle');
     toggle?.setAttribute('aria-expanded', String(open));
     toggle?.querySelector('i')?.classList.toggle('is-open', open);
