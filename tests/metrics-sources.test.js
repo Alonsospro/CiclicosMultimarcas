@@ -241,3 +241,37 @@ test('slow files do not leave the remaining read slots idle and concurrent reads
   } finally {release();}
   assert.equal((await loading).length,5);
 });
+
+test('a week report also reads the previous closure of each center, and nothing older',async()=>{
+  const closure=(center,number,closedAt,type='CICLICO')=>({inventoryId:`INV-${type}-${center}-${number}`,type,center,closedAt,
+    spreadsheetUrl:`https://docs.google.com/spreadsheets/d/${type}_${center}_${number}/edit#gid=123`});
+  const f=sourceFixture({history:[
+    closure('5100',1,'2026-10-05T10:00:00.000Z'),
+    // Week 2 was reclosed after week 3: the inventory number still decides which one came before.
+    closure('5100',2,'2026-10-30T10:00:00.000Z'),
+    closure('5100',3,'2026-10-20T10:00:00.000Z'),
+    closure('1120',1,'2026-10-05T10:00:00.000Z'),
+    closure('1120',3,'2026-10-20T10:00:00.000Z'),
+    closure('1300',3,'2026-10-20T10:00:00.000Z'),
+    closure('5100',2,'2026-10-12T10:00:00.000Z','SEMANAL')
+  ]});
+  const loaded=await f.service.load({center:'TODOS',inventoryId:'GRUPO:3',type:'CICLICO'});
+  const read=f.calls.filter(call=>call.kind==='read').map(call=>call.record.inventoryId).sort();
+  assert.deepEqual(read,['INV-CICLICO-1120-1','INV-CICLICO-1120-3','INV-CICLICO-1300-3','INV-CICLICO-5100-2','INV-CICLICO-5100-3']);
+  assert.equal(loaded.find(inv=>inv.inventoryId==='INV-CICLICO-5100-1').sourceValidation.status,'not_requested');
+});
+
+test('the week report compares each center with its previous inventory without changing the week figures',async()=>{
+  const closure=(number,closedAt,physical)=>({inventoryId:`INV-CICLICO-5100-${number}`,type:'CICLICO',center:'5100',closedAt,
+    spreadsheetUrl:`https://docs.google.com/spreadsheets/d/week_${number}/edit#gid=123`,physical});
+  const counted=physical=>({...base,Stock_Total:physical,Stock_Buen_Estado:physical,Mal_estado:0});
+  const f=sourceFixture({history:[closure(1,'2026-10-30T10:00:00.000Z'),closure(2,'2026-10-20T10:00:00.000Z')],read:record=>({
+    headers:contract.columns,gid:123,sheetName:'5100',
+    rows:[contract.columns.map(key=>counted(record.inventoryId.endsWith('-1')?5:10)[key]??'')]})});
+  const metrics=await dashboard(f.service).getDashboardMetrics({type:'CICLICO',center:'TODOS',inventoryId:'GRUPO:2'});
+  const center=metrics.reportData.centers[0];
+  assert.equal(center.inventories.length,1);assert.equal(center.units,10);assert.equal(center.unitsExact,10);
+  assert.deepEqual(Array.from(center.history,entry=>entry.number),['1','2']);
+  assert.equal(center.history[0].exactUnits,5);assert.equal(center.history[0].totalUnits,10);
+  assert.equal(metrics.availableInventories.length,2);
+});

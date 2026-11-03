@@ -269,3 +269,24 @@ test('dashboard and Excel show no net impact and no fixed fallback values', () =
     assert.ok(!view.includes(invented), invented);
   }
 });
+test('consolidated comparison shows the previous inventory, and says so only when there is none', async () => {
+  const metrics = await load([
+    inventory('INV-1160-1', '1160', [line('A', { Stock_Fisico: 5, Stock_Total: 5, Diferencia: -5 }), line('B')], '2026-10-05'),
+    inventory('INV-1160-2', '1160', [line('A'), line('B')], '2026-10-12'),
+    inventory('INV-1120-2', '1120', [line('C')], '2026-10-12')
+  ], { inventoryId: 'GRUPO:2' });
+  const html = report.render({ name: 'Semana 2' }, metrics);
+  assert.deepEqual(metrics.reportData.centers.map(center => center.center).sort(), ['1120', '1160']);
+  assert.match(html, /75,00\s*%? → 100\s*%?|75[,.]\d* ?% → 100/);
+  assert.match(html, /\+25,00 puntos/);
+  assert.equal(html.split('Sin inventario anterior').length - 1, 1, 'only the center without a previous closure');
+});
+
+test('a previous inventory of another type is not used as the comparison', async () => {
+  const weekly = { ...inventory('INV-SEMANAL-1160-1', '1160', [line('A')], '2026-10-05'), type: 'SEMANAL' };
+  const metrics = await load([weekly, inventory('INV-1160-2', '1160', [line('A')], '2026-10-12')], { inventoryId: 'GRUPO:2' });
+  const center = { ...metrics.reportData.centers[0] };
+  assert.equal(center.history.length, 2);
+  const consolidated = { ...metrics, reportData: { ...metrics.reportData, centers: [center, { ...center, center: '1120', name: 'Centro 1120' }] } };
+  assert.ok(report.render({ name: 'Corte' }, consolidated).includes('Sin inventario anterior'));
+});

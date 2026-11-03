@@ -30,6 +30,32 @@ const getInventoryIdentifier = value => {
   return '';
 };
 
+// A reclosure changes the date of an old inventory, so its number decides the order when both have one.
+function closureOrder(a, b) {
+  const first = Number(a.number), second = Number(b.number);
+  if (a.type === b.type && a.number && b.number && first !== second) return first - second;
+  return (Date.parse(a.date) || 0) - (Date.parse(b.date) || 0);
+}
+
+// The closure each selected inventory is compared against: same center and type, immediately before it.
+function previousClosures(groups, isSelected) {
+  const describe = group => {
+    const primary = group.filter(record => !child(record));
+    return {group, center: group[0].center, type: group[0].type, finished: primary.length > 0 && primary.every(closed),
+      number: primary.map(record => getInventoryIdentifier(record)).find(Boolean) || '',
+      date: Math.max(...primary.map(record => Date.parse(record.closedAt || record.createdAt) || 0), 0)};
+  };
+  const closures = groups.map(describe);
+  const previous = new Set();
+  closures.filter(closure => isSelected(closure.group)).forEach(current => {
+    const earlier = closures.filter(closure => closure.finished && closure.group !== current.group && closure.type === current.type
+      && config.isSameCenter(closure.center, current.center) && closureOrder(closure, current) < 0)
+      .sort(closureOrder);
+    if (earlier.length) previous.add(earlier[earlier.length - 1].group);
+  });
+  return previous;
+}
+
 // A cyclic CUADRA rewrites column K of the final file with the counted quantity. The app's
 // inventory record keeps the original system stock per item; restore it so the first count
 // is measured against the real starting point. Rows without a saved original keep K.
@@ -171,16 +197,18 @@ class MetricsSourceService {
 
     const primaryGroups = includeChildren ? groups : groups.filter(group => group.some(record => !child(record)));
     const inventories = new Array(primaryGroups.length);
+    const isGroupFilter = String(inventoryId || '').startsWith('GRUPO:');
+    const groupSuffix = isGroupFilter ? String(inventoryId).slice(6) : null;
+    const matchesRecord = r => isGroupFilter
+      ? (getInventoryIdentifier(r) === groupSuffix)
+      : matchesId(r, inventoryId);
+    // Reports compare each selection with its previous closure, so only that one is read besides it.
+    const previous = inventoryId === 'TODOS' ? new Set() : previousClosures(primaryGroups, group => group.some(matchesRecord));
     let next = 0;
     await Promise.all(Array.from({length:Math.min(3, primaryGroups.length)}, async () => {
       while (next < primaryGroups.length) {
         const index = next++, group = primaryGroups[index];
-        const isGroupFilter = String(inventoryId || '').startsWith('GRUPO:');
-        const groupSuffix = isGroupFilter ? String(inventoryId).slice(6) : null;
-        const matchesRecord = r => isGroupFilter
-          ? (getInventoryIdentifier(r) === groupSuffix)
-          : matchesId(r, inventoryId);
-        inventories[index] = await this.resolve(group, inventoryId !== 'TODOS' && !group.some(matchesRecord), {startDate, endDate, refresh});
+        inventories[index] = await this.resolve(group, inventoryId !== 'TODOS' && !group.some(matchesRecord) && !previous.has(group), {startDate, endDate, refresh});
       }
     }));
     inventories.discoveryIssues = remoteHistory.discoveryIssues || [];
@@ -298,5 +326,6 @@ class MetricsSourceService {
 
 module.exports = new MetricsSourceService();
 module.exports.matchesId = matchesId;
+module.exports.closureOrder = closureOrder;
 module.exports.getInventoryIdentifier = getInventoryIdentifier;
 module.exports.restoreOriginalSystemStock = restoreOriginalSystemStock;

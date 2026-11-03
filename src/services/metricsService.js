@@ -20,6 +20,9 @@ const getInventoryIdentifier = metricsSources.getInventoryIdentifier || (value =
   return '';
 });
 
+// Same order as the source service; test doubles of that service may not provide it.
+const closureOrder = metricsSources.closureOrder || ((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
 function parseDateParam(val, isEndOfDay = false) {
   if (!val || val === 'undefined' || val === 'null' || val === '') return null;
   const d = new Date(val);
@@ -1437,6 +1440,8 @@ class MetricsService {
           id: inv.id || inv.fileId,
           name: inv.name || inv.fileName || inv.id,
           center: inv.center || '',
+          type: inv.type,
+          number: getInventoryIdentifier(inv),
           date: closedDate,
           eri: eriVal,
           totalUnits,
@@ -1452,7 +1457,7 @@ class MetricsService {
     const trendSeries = closedInventories.slice(-5);
     const closureHistory = {};
     closedInventories.forEach(closure => { (closureHistory[closure.center] = closureHistory[closure.center] || []).push(closure); });
-    Object.keys(closureHistory).forEach(code => { closureHistory[code] = closureHistory[code].slice(-5); });
+    Object.keys(closureHistory).forEach(code => { closureHistory[code] = closureHistory[code].sort(closureOrder).slice(-5); });
     const trendLabels = trendSeries.map(item => {
       const d = new Date(item.date);
       const day = String(d.getUTCDate()).padStart(2, '0');

@@ -256,7 +256,7 @@
       const last = index === history.length - 1;
       return `<tr class="${last ? 'mr-strong' : ''}"><td>${esc(closure.name || closure.id)}</td><td>${esc(new Date(closure.date).toLocaleDateString('es-BO', { timeZone: 'America/La_Paz' }))}</td><td class="num">${qty(closure.exactUnits)}</td><td class="num">${qty(closure.totalUnits)}</td><td><div class="mr-ibar"><span class="mr-track"><i style="width:${Math.max(0, (value - 80) * 5)}%;background:${last ? NAVY : GRAY}"></i><u></u></span>${pct(value)}</div></td></tr>`;
     }).join('');
-    const note = history.length === 1 ? '<p class="mr-more">Solo se cargó este cierre. Para comparar, genere el informe con el filtro del centro, sin elegir un inventario.</p>' : '<p class="mr-more">La barra muestra el porcentaje; la marca oscura es el 95%.</p>';
+    const note = history.length === 1 ? '<p class="mr-more">Este centro no tiene un inventario anterior con el que comparar.</p>' : '<p class="mr-more">La barra muestra el porcentaje; la marca oscura es el 95%.</p>';
     return `<table><thead><tr><th>Inventario</th><th>Cierre</th><th class="num">Correctas</th><th class="num">De</th><th>Porcentaje</th></tr></thead><tbody>${rows}</tbody></table>${note}`;
   }
   function flowTable(c) {
@@ -321,8 +321,9 @@
     const cell = (value, quantity) => `<td class="mr-cell lvl-${level(value).key}">${pct(value)}<small>${quantity}</small></td>`;
     const previous = c => {
       const history = c.history || [];
-      if (history.length < 2) return '<span class="mr-more">Sin inventario anterior</span>';
-      const prior = history[history.length - 2], before = ratio(prior.exactUnits, prior.totalUnits) ?? num(prior.eri), now = c.i.units, delta = now - before;
+      const prior = history.slice(0, -1).reverse().find(closure => closure.type === history[history.length - 1].type);
+      if (!prior) return '<span class="mr-more">Sin inventario anterior</span>';
+      const before = ratio(prior.exactUnits, prior.totalUnits) ?? num(prior.eri), now = c.i.units, delta = now - before;
       return `${pct(before)} → ${pct(now)}<br><span class="mr-more">${delta >= 0 ? '+' : '−'}${Math.abs(delta).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} puntos</span>`;
     };
     const money2 = (label, a) => `${bs(a.cost)}<br><span class="mr-more">${qty(a.lines)} lín. · ${qty(a.units)} u.</span>`;
