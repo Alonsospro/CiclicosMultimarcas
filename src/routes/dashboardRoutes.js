@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const metricsService = require('../services/metricsService');
 const inventoryTrackingService = require('../services/inventoryTrackingService');
+const justificationPhotoReport = require('../services/justificationPhotoReport');
 const auditService = require('../services/auditService');
 const { authenticate, requireRole, requireSuperadminAlonso } = require('../middlewares/authMiddleware');
 const firebaseSyncService = require('../services/firebaseSyncService');
@@ -33,6 +34,16 @@ router.get('/tracking', authenticate, requireSuperadminAlonso, async (req, res) 
     res.json({success:true, ...data});
   } catch (err) {
     console.error('[dashboardRoutes] Error in /tracking:', err);
+    res.status(500).json({success:false, message:err.message});
+  }
+});
+
+// GET /api/dashboard/justification-photos — photo backing of each justification (Exclusivo Superadmin Alonso)
+router.get('/justification-photos', authenticate, requireSuperadminAlonso, (req, res) => {
+  try {
+    res.json({success:true, rows:justificationPhotoReport.getRows()});
+  } catch (err) {
+    console.error('[dashboardRoutes] Error in /justification-photos:', err);
     res.status(500).json({success:false, message:err.message});
   }
 });
