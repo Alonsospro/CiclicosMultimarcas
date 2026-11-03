@@ -364,9 +364,19 @@ window.JustificationsView = {
     return `<div class="badge badge-warning" style="display:block; white-space:normal; text-align:left; line-height:1.4;"><strong>No se puede finalizar todavía:</strong>${blockers.map(b => `<br>• ${escape(b)}`).join('')}</div>${forceClose}`;
   },
 
+  // Counted difference, justified units and what remains; null when the row cannot be read yet.
+  settledDifference(item) {
+    try { return window.InventoryContract?.differenceDetail(item) || null; } catch (_) { return null; }
+  },
+
+  // A difference only partly justified: part of it was explained and the rest really is missing or left over.
+  isPartialJustification(settled) {
+    return !!settled && settled.justified !== 0 && settled.remaining !== 0 && settled.remaining !== null;
+  },
+
   reviewHistory(item) {
     const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
-    return (item.justificationHistory || []).map(entry => `<div style="margin-bottom:6px; white-space:normal; overflow-wrap:anywhere;"><strong>${entry.round}ª justificación${entry.superseded ? ' (reemplazada)' : ''} · ${escape(entry.corroboracion)}</strong><br>${escape(entry.justification)}${window.InventoryContract?.isWeekly(item) && window.InventoryContract.has(entry.justifiedQuantity) ? `<br>Compensación: ${Number(entry.justifiedQuantity) > 0 ? '+' : ''}${escape(entry.justifiedQuantity)}` : ''}<br><small>${escape(entry.reviewedBy)} · ${escape(entry.reviewedAt)}</small></div>`).join('') || '-';
+    return (item.justificationHistory || []).map(entry => `<div style="margin-bottom:6px; white-space:normal; overflow-wrap:anywhere;"><strong>${entry.round}ª justificación${entry.superseded ? ' (reemplazada)' : ''} · ${escape(entry.corroboracion)}</strong><br>${escape(entry.justification)}${window.InventoryContract?.has(entry.justifiedQuantity) && Number(entry.justifiedQuantity) !== 0 ? `<br>Compensación: ${Number(entry.justifiedQuantity) > 0 ? '+' : ''}${escape(entry.justifiedQuantity)}` : ''}<br><small>${escape(entry.reviewedBy)} · ${escape(entry.reviewedAt)}</small></div>`).join('') || '-';
   },
 
   async loadJustifications() {
@@ -488,8 +498,13 @@ window.JustificationsView = {
       let finalDamagedCount = 0;
       let finalDamagedCost = 0;
       let reconciledItemsCount = 0;
+      let hasPartialJustification = false;
 
       (task.items || []).forEach(it => {
+        const settled = this.settledDifference(it);
+        const isPartialCyclic = !window.InventoryContract?.isWeekly(it) && this.isPartialJustification(settled);
+        const isPartialFirstCount = isPartialCyclic && settled.stage === 0;
+        if (isPartialCyclic) hasPartialJustification = true;
         const sys = Number(it.Stock_Sistema || 0);
         const cost = Number(it.Costo_Unitario || 0);
         const phys1 = (it.Stock_Buen_Estado !== null && it.Stock_Buen_Estado !== undefined && String(it.Stock_Buen_Estado).trim() !== '')
@@ -498,10 +513,10 @@ window.JustificationsView = {
         const dam1 = Number(it.Mal_estado || 0);
         const isNeg1Match = false; // Physical totals never inherit negative system stock.
 
-        const diff1 = isNeg1Match ? 0 : ((it.Diferencia !== null && it.Diferencia !== undefined && String(it.Diferencia).trim() !== '')
+        const diff1 = isPartialFirstCount ? settled.difference : isNeg1Match ? 0 : ((it.Diferencia !== null && it.Diferencia !== undefined && String(it.Diferencia).trim() !== '')
           ? Number(it.Diferencia)
           : (phys1 - sys));
-        const costDiff1 = isNeg1Match ? 0 : ((it.Costo_Diferencia !== null && it.Costo_Diferencia !== undefined && String(it.Costo_Diferencia).trim() !== '')
+        const costDiff1 = isPartialFirstCount ? settled.difference * cost : isNeg1Match ? 0 : ((it.Costo_Diferencia !== null && it.Costo_Diferencia !== undefined && String(it.Costo_Diferencia).trim() !== '')
           ? Number(it.Costo_Diferencia)
           : (diff1 * cost));
 
@@ -575,6 +590,11 @@ window.JustificationsView = {
           diffFinal = physFinal - sys;
           costDiffFinal = diffFinal * cost;
         }
+        if (isPartialCyclic) {
+          physFinal = settled.physical + settled.justified;
+          diffFinal = settled.remaining;
+          costDiffFinal = diffFinal * cost;
+        }
         finalDiffCostTotal += Math.abs(costDiffFinal);
         if (costDiffFinal < 0) finalFaltantesCost += Math.abs(costDiffFinal);
         if (costDiffFinal > 0) finalSobrantesCost += costDiffFinal;
@@ -588,7 +608,7 @@ window.JustificationsView = {
       });
 
       const clarifiedCost = Math.max(0, initialDiffCostTotal - finalDiffCostTotal);
-      const totalCost = hasRecountData || task.items?.some(it => window.InventoryContract?.isWeekly(it)) ? finalDiffCostTotal : initialDiffCostTotal;
+      const totalCost = hasRecountData || hasPartialJustification || task.items?.some(it => window.InventoryContract?.isWeekly(it)) ? finalDiffCostTotal : initialDiffCostTotal;
       const totalDamaged = hasRecountData ? finalDamagedCount : (task.items || []).reduce((acc, it) => acc + (it.Mal_estado || 0), 0);
 
       const totalDiffItems = (task.items || []).length;
@@ -892,7 +912,11 @@ window.JustificationsView = {
                         `;
                       }
                       return itemsToDisplay.map((item, itemIdx) => {
-                      const diff = item.Diferencia || 0;
+                      const settled = this.settledDifference(item);
+                      const isPartial = this.isPartialJustification(settled);
+                      const isPartialFirstCount = isPartial && settled.stage === 0 && !window.InventoryContract?.isWeekly(item);
+                      const diff = isPartialFirstCount ? settled.difference : (item.Diferencia || 0);
+                      const firstCountCost = isPartialFirstCount ? settled.difference * Number(item.Costo_Unitario || 0) : (item.Costo_Diferencia || 0);
                       const isJustified = !!item.isJustified;
                       const just = item.justificationDetails;
                       const razonVal = (just ? just.reasonType : '') || '-';
@@ -979,7 +1003,7 @@ window.JustificationsView = {
                           <td class="cell-stock-sistema" style="font-family: var(--font-mono);">${item.Stock_Sistema ?? 0}</td>
                           <td class="cell-stock-fisico"><strong style="font-family: var(--font-mono);">${item.Stock_Fisico ?? 0}</strong></td>
                           <td class="cell-diferencia"><span class="badge ${diff < 0 ? 'badge-danger' : (diff > 0 ? 'badge-warning' : 'badge-neutral')}">${diff > 0 ? '+' : ''}${diff}</span></td>
-                          <td class="cell-costo-diferencia"><strong style="color: var(--danger); font-family: var(--font-mono);">${window.AppConfig ? window.AppConfig.formatCurrency(item.Costo_Diferencia || 0) : `Bs. ${(item.Costo_Diferencia || 0).toFixed(2)}`}</strong></td>
+                          <td class="cell-costo-diferencia"><strong style="color: var(--danger); font-family: var(--font-mono);">${window.AppConfig ? window.AppConfig.formatCurrency(firstCountCost) : `Bs. ${firstCountCost.toFixed(2)}`}</strong></td>
                           ${showRecountCols ? `
                             <td style="font-family: var(--font-mono); font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.05);">${hasItemRec1 ? rec1StockTotal : '-'}</td>
                             <td style="font-family: var(--font-mono); background: rgba(56, 189, 248, 0.05);">${hasItemRec1 ? rec1Dam : '-'}</td>
@@ -1011,6 +1035,7 @@ window.JustificationsView = {
                           <td>${item.Mal_estado > 0 ? `<span class="badge badge-danger">${item.Mal_estado}</span>` : '0'}</td>
                           <td class="cell-status">
                             ${window.InventoryContract?.isWeekly(item) ? `<div style="white-space:normal; margin-bottom:6px;"><strong>Final conciliado: ${window.InventoryContract.finalQuantity(item) ?? '-'}</strong><br><small>Físico: ${window.InventoryContract.latestPhysical(window.InventoryContract.normalize(item)) ?? '-'}</small></div>` : ''}
+                            ${isPartial ? `<div style="white-space:normal; margin-bottom:6px;"><strong style="color:var(--danger);">${settled.remaining < 0 ? 'Falta realmente' : 'Sobra realmente'}: ${Math.abs(settled.remaining)}</strong><br><small>Justificado ${Math.abs(settled.justified)} de ${Math.abs(settled.difference)} · ${window.AppConfig ? window.AppConfig.formatCurrency(Math.abs(settled.remaining) * Number(item.Costo_Unitario || 0)) : `Bs. ${(Math.abs(settled.remaining) * Number(item.Costo_Unitario || 0)).toFixed(2)}`}</small></div>` : ''}
                             <div style="display: flex; flex-direction: column; gap: 4px;">
                               ${isCuadra ? `
                                 <span class="badge badge-success" style="font-weight: 800; font-size: 0.76rem;">
@@ -1436,7 +1461,9 @@ window.JustificationsView = {
         diffBadge.className = 'badge badge-success';
         diffBadge.style.cssText = 'background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid #10b981; font-weight: 700;';
       } else {
-        diffBadge.textContent = `Dif: ${effectiveDiff > 0 ? '+' : ''}${effectiveDiff}`;
+        const settled = this.settledDifference(item);
+        const shownDiff = this.isPartialJustification(settled) ? settled.difference : effectiveDiff;
+        diffBadge.textContent = `Dif: ${shownDiff > 0 ? '+' : ''}${shownDiff}${this.isPartialJustification(settled) ? ` · Queda: ${Math.abs(settled.remaining)}` : ''}`;
         diffBadge.className = effectiveDiff < 0 ? 'badge badge-danger' : 'badge badge-warning';
         diffBadge.style.cssText = '';
       }
@@ -1626,34 +1653,52 @@ window.JustificationsView = {
     const amountInput = document.getElementById('just-compensation-quantity');
     if (amountInput) {
       const saved = item[this.currentIsSecondJustification ? 'Cantidad_Justificada_2' : 'Cantidad_Justificada_1'];
-      amountInput.value = window.InventoryContract?.has(saved) ? Math.abs(Number(saved)) : '';
+      amountInput.value = window.InventoryContract?.has(saved) ? Math.abs(Number(saved)) : '0';
+      amountInput.oninput = () => this.refreshCompensation(item);
     }
-    if (corrSelect) corrSelect.onchange = () => this.refreshCompensation(item);
+    if (corrSelect) corrSelect.onchange = () => this.refreshCompensation(item, true);
     this.refreshCompensation(item);
     window.ModalHelper.open('modal-justification');
   },
 
-  refreshCompensation(item) {
+  refreshCompensation(item, decisionChanged = false) {
     const panel = document.getElementById('just-compensation-panel');
     const input = document.getElementById('just-compensation-quantity');
     const hint = document.getElementById('just-compensation-hint');
-    if (!panel || !input || !hint) return;
+    const select = document.getElementById('just-select-corroboration');
+    if (!panel || !input || !hint || !select) return;
     const contract = window.InventoryContract;
-    const enabled = contract?.isWeekly(item) && document.getElementById('just-select-corroboration')?.value === 'CUADRA';
-    panel.hidden = !enabled;
-    panel.style.display = enabled ? '' : 'none';
-    // CUADRA compensates automatically: Cantidad Física Final becomes Stock Sistema (zero difference),
-    // while Stock Sistema and the counted totals stay as they were.
-    input.disabled = true;
-    input.required = false;
-    input.readOnly = true;
-    if (!enabled) return;
     const round = this.currentIsSecondJustification ? 2 : 1;
-    const needed = contract.compensationNeeded(item, round);
-    input.value = String(Math.abs(needed));
-    hint.textContent = 'Stock sistema (no cambia): ' + item.Stock_Sistema + '. Último total físico: ' + contract.latestPhysical(contract.normalize(item))
-      + '. ' + (needed > 0 ? 'Se compensa un faltante de ' + needed : needed < 0 ? 'Se compensa un sobrante de ' + Math.abs(needed) : 'Sin diferencia')
-      + ' unidades: la Cantidad Física Final queda en ' + item.Stock_Sistema + ' y el conteo físico se conserva.';
+    let needed = 0;
+    try { needed = contract?.compensationNeeded(item, round) || 0; } catch (_) { needed = 0; }
+    const total = Math.abs(needed);
+    panel.hidden = total === 0;
+    panel.style.display = total === 0 ? 'none' : '';
+    if (total === 0) return;
+    // Writing the whole difference is CUADRA; leaving CUADRA starts again from nothing justified.
+    if (select.value !== 'CUADRA' && !decisionChanged && Number(input.value) === total) select.value = 'CUADRA';
+    if (select.value !== 'CUADRA' && decisionChanged && Number(input.value) === total) input.value = '0';
+    const isCuadra = select.value === 'CUADRA';
+    if (isCuadra) input.value = String(total);
+    input.max = String(total);
+    input.readOnly = isCuadra;
+    input.disabled = !item.canJustify;
+    input.required = false;
+    const units = Number(input.value === '' ? 0 : input.value);
+    if (!Number.isSafeInteger(units) || units < 0 || units > total) {
+      hint.style.color = 'var(--danger)';
+      hint.textContent = `Escriba una cantidad entera de 0 a ${total}.`;
+      return;
+    }
+    hint.style.color = '';
+    const shortage = needed > 0, remaining = total - units;
+    const normalized = contract.normalize(item), physical = contract.latestPhysical(normalized);
+    const money = value => window.AppConfig ? window.AppConfig.formatCurrency(value) : `Bs. ${value.toFixed(2)}`;
+    const earlier = round === 2 ? Math.abs(Number(item.Cantidad_Justificada_1 || 0)) : 0;
+    hint.textContent = `Último total físico: ${physical}. ${shortage ? 'Faltante' : 'Sobrante'} contado: ${total}. Justificado: ${units}. `
+      + (remaining ? `${shortage ? 'Falta realmente' : 'Sobra realmente'}: ${remaining} (${money(remaining * Number(item.Costo_Unitario || 0))}).` : 'Queda sin diferencia.')
+      + (contract.isWeekly(item) ? ` La Cantidad Física Final queda en ${physical + (shortage ? units : -units) + contract.adjustment(normalized, round === 2 ? 1 : 2)}; Stock Sistema y el conteo físico no cambian.` : '')
+      + (earlier && !item.reviewComplete ? ` En la 1ª justificación se justificaron ${earlier}; este reconteo la reemplaza.` : '');
   },
 
   navigatePopup(direction) {
@@ -1737,11 +1782,13 @@ window.JustificationsView = {
     const isSecondJust = !!(this.currentIsSecondJustification || document.getElementById('just-modal-is-second-just')?.value === 'true');
 
     try {
-      // Weekly CUADRA compensation is computed by the contract; nothing is typed by the user.
-      const justifiedQuantity = undefined;
-      if (window.InventoryContract?.isWeekly(selectedItem)) {
+      // Only a visible panel carries a quantity: without a difference there is nothing to justify.
+      const quantityPanel = document.getElementById('just-compensation-panel');
+      const typedQuantity = document.getElementById('just-compensation-quantity')?.value ?? '';
+      const justifiedQuantity = quantityPanel && !quantityPanel.hidden ? (typedQuantity === '' ? 0 : typedQuantity) : undefined;
+      if (window.InventoryContract) {
         window.InventoryContract.update(selectedItem, {action:'saveJustification', corroboracion:corroboration,
-          round:isSecondJust ? 2 : 1});
+          justifiedQuantity, round:isSecondJust ? 2 : 1});
       }
       const savedResponse=await window.API.saveJustification({
         justifiedQuantity,
@@ -1773,7 +1820,10 @@ window.JustificationsView = {
       if (inventoryId) this.expandedTaskIds.add(inventoryId);
 
       const warLabel = almacen ? ` [${almacen}]` : '';
-      window.Toast.success(`Guardado: SKU ${sku}${warLabel} (${corroboration === 'CUADRA' ? 'Cuadra' : 'No cuadra'})`);
+      const savedSettled = this.settledDifference(selectedItem);
+      const partialLabel = this.isPartialJustification(savedSettled) ? `, justificado ${Math.abs(savedSettled.justified)} de ${Math.abs(savedSettled.difference)}` : '';
+      window.Toast.success(`Guardado: SKU ${sku}${warLabel} (${savedResponse.justification.corroboracion === 'CUADRA' ? 'Cuadra' : 'No cuadra'}${partialLabel})`);
+      if (savedResponse.justification.sheetWarning) window.Toast.warning(savedResponse.justification.sheetWarning);
 
       this.updateCardHeaderProgress(inventoryId);
 
@@ -1810,7 +1860,7 @@ window.JustificationsView = {
   async markCorroboration(inventoryId, sku, status, itemKey, itemIdx) {
     this.openJustifyModal(inventoryId, sku, itemKey, itemIdx);
     const item = this.tasks.find(task => task.inventoryId === inventoryId)?.items?.[itemIdx];
-    if (item?.canJustify) { document.getElementById('just-select-corroboration').value = status; this.refreshCompensation(item); }
+    if (item?.canJustify) { document.getElementById('just-select-corroboration').value = status; this.refreshCompensation(item, true); }
   },
 
   updateCardHeaderProgress(inventoryId) {

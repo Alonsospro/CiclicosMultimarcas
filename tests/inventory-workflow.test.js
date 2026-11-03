@@ -189,6 +189,75 @@ for (const quantity of [9,10,11]) {
   });
 }
 
+for (const [label,schema] of [['cyclic',{}],['weekly',{Schema_Version:contract.weeklyVersion}]]) {
+  const type=label==='weekly'?'SEMANALES':'CICLICO';
+  const start=async({service,put},id)=>{
+    const item={...counted(),...schema};
+    put({id,type,center:'1120',name:id,status:'EN_PROGRESO',items:[item]});
+    await service.updateCount({inventoryId:id,itemId:item.id,stockFisico:3,malEstado:0,user});
+    service.submitInventoryForReview({inventoryId:id,user});
+    return item;
+  };
+
+  test(`${label}: 6 of 7 justified stays NO CUADRA, goes through recount and closes with 1 really missing`,async()=>{
+    const f=fixture(),{service,save,closures,gasCalls}=f;
+    const item=await start(f,'PART');
+    const calls=gasCalls.length;
+    await assert.rejects(save('PART',item,'NO CUADRA',1,'Más de lo contado.',8),/no puede superar la diferencia de 7/);
+    assert.equal(gasCalls.length,calls,'A rejected quantity never reaches Sheets');
+    const first=await save('PART',item,'NO CUADRA',1,'Seis con guía de remisión.',6);
+    assert.equal(first.justifiedQuantity,6);
+    assert.equal(first.corroboracion,'NO CUADRA');
+    assert.equal(first.sheetWarning,null);
+    assert.equal(gasCalls.at(-1).justifiedQuantity,6);
+    assert.equal(contract.differenceDetail(service.getInventoryRaw('PART').items[0]).remaining,-1);
+    assert.equal(first.reviewItem.reviewComplete,true);
+    assert.equal(first.reviewState.canClose,false,'NO CUADRA still needs its recount');
+
+    const child=service.enableRecount({inventoryId:'PART',user}).recountInventory;
+    await service.updateCount({inventoryId:child.id,itemId:child.items[0].id,stockFisico:3,malEstado:0,user});
+    service.submitInventoryForReview({inventoryId:child.id,user});
+    assert.equal(contract.differenceDetail(service.getInventoryRaw('PART').items[0]).remaining,-7,'The recount replaces the earlier justification');
+    await assert.rejects(service.finishReviewAndClose({inventoryId:'PART',user}),/No se puede cerrar/);
+
+    await save('PART',item,'NO CUADRA',2,'Se confirman seis con guía de remisión.',6);
+    await service.finishReviewAndClose({inventoryId:'PART',user});
+    const closed=closures[0].inventory.items[0];
+    assert.equal(closed.Stock_Sistema,10);
+    assert.equal(closed.Estado_Justificacion_2,'NO CUADRA');
+    assert.equal(closed.Stock_Total,3);
+    assert.equal(closed.Stock_Total_Reconteo,3);
+    assert.equal(closed.Diferencia,-7,'The first count keeps what was counted');
+    assert.equal(contract.differenceDetail(closed).remaining,-1);
+    assert.equal(contract.differenceDetail(closed).remaining*closed.Costo_Unitario,-5);
+    if(label==='cyclic'){assert.equal(closed.Diferencia_Final,-1);assert.equal(closed.Costo_Diferencia_Final,-5);}
+    else{assert.equal(closed.Cantidad_Justificada_2,6);assert.equal(closed.Cantidad_Fisica_Final,9);}
+  });
+
+  test(`${label}: justifying the whole difference from NO CUADRA records CUADRA, and zero keeps all of it`,async()=>{
+    const f=fixture(),{service,save,gasCalls}=f;
+    const item=await start(f,'WHOLE');
+    const zero=await save('WHOLE',item,'NO CUADRA',1,'Sin respaldo.',0);
+    assert.equal(zero.corroboracion,'NO CUADRA');
+    assert.equal(contract.differenceDetail(service.getInventoryRaw('WHOLE').items[0]).remaining,-7);
+    const whole=await save('WHOLE',item,'NO CUADRA',1,'Todo con respaldo.',7);
+    assert.equal(whole.corroboracion,'CUADRA');
+    assert.equal(whole.isCuadra,true);
+    assert.equal(gasCalls.at(-1).corroboracion,'CUADRA');
+    assert.equal(contract.differenceDetail(service.getInventoryRaw('WHOLE').items[0]).remaining,0);
+    assert.equal(whole.reviewState.canClose,true);
+  });
+
+  test(`${label}: a script that ignores the quantity does not lose the partial result in the app`,async()=>{
+    const f=fixture(),{service,save,gas,sheets}=f;
+    const item=await start(f,'OLD');
+    gas.saveJustificationToGAS=async(_type,p)=>({item:contract.update(sheets.get(contract.member(p)),{...p,justifiedQuantity:undefined})});
+    const saved=await save('OLD',item,'NO CUADRA',1,'Seis con guía de remisión.',6);
+    assert.match(saved.sheetWarning,/publique la nueva versión del Apps Script/);
+    assert.equal(contract.differenceDetail(service.getInventoryRaw('OLD').items[0]).remaining,-1);
+  });
+}
+
 test('counting inventories are absent from review and direct justification calls cannot write Sheets',async()=>{
   const {service,put,save,gasCalls}=fixture(),item=counted();
   put({id:'INV',status:'EN_PROGRESO',center:'1120',items:[item]});

@@ -133,6 +133,8 @@
   };
   const physical = (item, final) => item.stockFisicoFinal ?? (item.stockSistema === undefined ? null : num(item.stockSistema) + final(item));
   const justification = item => item.justificacion || item.comentarioJustificacion || item.Comentario_Justificacion || item.Razon || item.Comentario || 'Sin justificación registrada';
+  // The difference shown is what really remains; this says how much of the counted one was explained.
+  const justifiedPart = item => num(item.cantidadJustificada) > 0 && num(item.diferenciaFinal ?? item.diferencia) !== 0 ? `Justificado ${qty(item.cantidadJustificada)} de ${qty(Math.abs(num(item.diferenciaContada)))}. ` : '';
 
   function moneyPanel(title, first, close, unit, value, color) {
     const firstCost = num(first.cost), closeCost = num(close.cost), resolved = Math.max(0, firstCost - closeCost);
@@ -151,11 +153,11 @@
   }
   const topTable = (list, helpers, color, total, sign) => {
     const max = Math.max(...list.map(helpers.cost), 1);
-    return `<table data-split class="mr-diff"><thead><tr><th>Código</th><th>Alm.</th><th class="num">Sist.</th><th class="num">Físico</th><th class="num">Dif.</th><th>Bs</th><th class="num">% del total</th><th>Motivo</th></tr></thead><tbody>${list.map(item => `<tr><td>${esc(item.sku)}</td><td>${esc(item.almacen)}</td><td class="num">${qty(item.stockSistema)}</td><td class="num">${qty(physical(item, helpers.final))}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), max, 58, color, qty(helpers.cost(item)))}</td><td class="num">${esc(share(helpers.cost(item), total))}</td><td>${esc(justification(item))}</td></tr>`).join('') || '<tr><td colspan="8">Sin registros.</td></tr>'}</tbody></table>`;
+    return `<table data-split class="mr-diff"><thead><tr><th>Código</th><th>Alm.</th><th class="num">Sist.</th><th class="num">Físico</th><th class="num">Dif.</th><th>Bs</th><th class="num">% del total</th><th>Motivo</th></tr></thead><tbody>${list.map(item => `<tr><td>${esc(item.sku)}</td><td>${esc(item.almacen)}</td><td class="num">${qty(item.stockSistema)}</td><td class="num">${qty(physical(item, helpers.final))}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), max, 58, color, qty(helpers.cost(item)))}</td><td class="num">${esc(share(helpers.cost(item), total))}</td><td>${esc(justifiedPart(item) + justification(item))}</td></tr>`).join('') || '<tr><td colspan="8">Sin registros.</td></tr>'}</tbody></table>`;
   };
   const annexTable = (list, helpers, color, sign, emptyText) => {
     const max = Math.max(...list.map(helpers.cost), 1);
-    return `<table data-split><thead><tr><th>Código</th><th>Descripción</th><th>Clase</th><th>Almacén · ubicación</th><th class="num">Sistema</th><th class="num">Físico</th><th class="num">Dif.</th><th>Bs</th><th>Justificación</th></tr></thead><tbody>${list.map(item => `<tr><td>${esc(item.sku)}</td><td>${esc(item.descripcion)}</td><td>${esc(item.abc)}</td><td>${esc(item.almacen)} · ${esc(item.ubicacion)}</td><td class="num">${qty(item.stockSistema)}</td><td class="num">${qty(physical(item, helpers.final))}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), max, 70, color, decimal(helpers.cost(item)))}</td><td>${esc(justification(item))}</td></tr>`).join('') || `<tr><td colspan="9">${esc(emptyText)}</td></tr>`}</tbody></table>`;
+    return `<table data-split><thead><tr><th>Código</th><th>Descripción</th><th>Clase</th><th>Almacén · ubicación</th><th class="num">Sistema</th><th class="num">Físico</th><th class="num">Dif.</th><th>Bs</th><th>Justificación</th></tr></thead><tbody>${list.map(item => `<tr><td>${esc(item.sku)}</td><td>${esc(item.descripcion)}</td><td>${esc(item.abc)}</td><td>${esc(item.almacen)} · ${esc(item.ubicacion)}</td><td class="num">${qty(item.stockSistema)}</td><td class="num">${qty(physical(item, helpers.final))}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), max, 70, color, decimal(helpers.cost(item)))}</td><td>${esc(justifiedPart(item) + justification(item))}</td></tr>`).join('') || `<tr><td colspan="9">${esc(emptyText)}</td></tr>`}</tbody></table>`;
   };
 
   // Each role signs on its own line. A role without known names keeps one blank line and its title.

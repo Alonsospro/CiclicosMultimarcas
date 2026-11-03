@@ -28,9 +28,11 @@ Las escrituras de conteos y justificaciones sobre una fila existente empiezan en
 
 ## CUADRA y NO CUADRA
 
-Al marcar **CUADRA** la app calcula sola la compensación: suma ante faltantes y resta ante sobrantes, de modo que **M queda igual a L (diferencia cero con el sistema)**. El encargado no escribe cantidades; el formulario muestra la compensación calculada. Si una integración envía una cantidad, debe coincidir exactamente con la diferencia. **NO CUADRA** registra compensación cero y conserva la diferencia.
+Al marcar **CUADRA** la app calcula sola la compensación: suma ante faltantes y resta ante sobrantes, de modo que **M queda igual a L (diferencia cero con el sistema)**. Si una integración envía una cantidad con CUADRA, debe coincidir exactamente con la diferencia.
 
-Ejemplos sin reconteo: L=10, N=8 → Z=+2 y M=10; L=10, N=13 → Z=−3 y M=10. L, N y sus diferencias siguen mostrando el punto de partida y cómo se contó, para analizar variaciones y rotación.
+Con **NO CUADRA** el encargado escribe cuánto justifica, de 0 a la diferencia; 0 conserva toda la diferencia. Justificar toda la diferencia queda registrado como CUADRA. Más que la diferencia, una cantidad negativa o con decimales se rechazan.
+
+Ejemplos sin reconteo: L=10, N=8 → Z=+2 y M=10; L=10, N=13 → Z=−3 y M=10; L=10, N=3 y 6 justificados → Z=+6, M=9 y falta realmente 1; L=10, N=13 y 2 justificados → Z=−2, M=11 y sobra realmente 1. L, N y sus diferencias siguen mostrando el punto de partida y cómo se contó, para analizar variaciones y rotación.
 
 Las etapas físicas no se suman entre sí. Una compensación anterior al último conteo físico permanece como historia y deja de participar en M. Un inventario semanal nuevo no hereda los conteos ni compensaciones del ciclo anterior.
 

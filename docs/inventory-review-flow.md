@@ -11,6 +11,9 @@ La habilitación depende del estado guardado del inventario. El servidor calcula
 | REVISADO | Historial en consulta; requiere reapertura para editar. |
 
 - La primera revisión debe tener decisión y explicación. CUADRA resuelve el ítem y NO CUADRA lo envía a reconteo.
+- Con NO CUADRA se puede indicar cuánta cantidad se justifica, sin superar la diferencia, tanto en faltantes como en sobrantes. Con 6 de 7 faltantes quedan 6 compensados y 1 que falta realmente, con su valor. Faltantes y sobrantes nunca se compensan entre sí. Justificar toda la diferencia equivale a CUADRA.
+- Una cantidad parcial no evita el reconteo, porque el ítem sigue en NO CUADRA. Un conteo nuevo reemplaza lo justificado antes: la revisión siguiente vuelve a indicar la cantidad sobre el nuevo físico y la anterior queda en el historial. Si la segunda revisión cierra en NO CUADRA, lo que queda es el resultado final.
+- En cíclicos no hay columna de cantidad justificada: Stock Sistema (K) no cambia y la diferencia de la última etapa guarda lo que queda, por ejemplo K=10, total=3 y diferencia=−1. La cantidad justificada se deduce de esas columnas. Los inventarios guardados antes siguen igual. Semanales usa sus columnas Cant. Justificada 1 y 2.
 - Se registra la membresía por SKU, almacén y ubicación en `recountItemKeys`. No se reconstruye a partir de diferencias finales.
 - Un cero explícito es un conteo; una celda vacía o una cantidad del primer conteo no completa el reconteo.
 - El segundo reconteo es opcional y solo incluye los ítems con NO CUADRA en la segunda revisión completa (`recount2ItemKeys`). Se puede cerrar sin él, dejando NO CUADRA como resultado final.

@@ -255,18 +255,30 @@ const InventoryContract = (() => {
     const locations=[r.Ubicacion,r.Ubicacion_1,r.Ubicacion_2].filter(has).map(identity);
     if(new Set(locations).size!==locations.length)throw new Error('Ubicaciones duplicadas');
     const justification=p.action==='saveJustification'||[p.isCuadra,p.corroboracion,p.corroboration,p.estadoJustificacion,p.estadoJustificacion2].some(has);
-    let resolved=false;
+    let resolved=false,partial=0;
     if(justification){
       const round=Number(p.round??p.justificationRound??(p.isJustification2?2:1));
       if(![1,2].includes(round))throw new Error('Ronda de justificación inválida');
-      const state=status(p);
+      let state=status(p);
       const originalStock=first(p.originalStockSistema,p.stockSistemaOriginal,r.Stock_Sistema_Original,r.Stock_Sistema);
       r.Stock_Sistema_Original=number(originalStock,'Stock_Sistema_Original');
+      const latest=[r.Stock_Total_Reconteo_2,r.Stock_Total_Reconteo,r.Stock_Total].find(has);
+      const supplied=first(p.justifiedQuantity,p.cantidadJustificada);
+      const units=has(supplied)?quantity(supplied,'cantidad justificada'):null;
+      if(units!==null&&units>0&&!has(latest))throw new Error('No se puede justificar sin conteo');
+      const needed=has(latest)?r.Stock_Sistema_Original-latest:0,total=Math.abs(needed);
+      if(state==='CUADRA'&&units!==null&&units!==total)
+        throw new Error('La cantidad justificada debe ser '+total+' para cuadrar la diferencia; si justifica menos, marque NO CUADRA');
+      if(units!==null&&units>total)throw new Error('La cantidad justificada no puede superar la diferencia de '+total);
+      // Justifying the whole difference is CUADRA, even when the row was left as NO CUADRA.
+      if(total>0&&units===total)state='CUADRA';
       if(state==='CUADRA'){
-        const latest=[r.Stock_Total_Reconteo_2,r.Stock_Total_Reconteo,r.Stock_Total].find(has);
         if(!has(latest))throw new Error('No se puede justificar sin conteo');
         r.Stock_Sistema=latest;resolved=true;
-      }else r.Stock_Sistema=r.Stock_Sistema_Original;
+      }else{
+        r.Stock_Sistema=r.Stock_Sistema_Original;
+        partial=units?(needed<0?-units:units):0;
+      }
       const second=round===2;
       r[second?'Fecha_Justificacion_2':'Fecha_Primera_Justificacion']=date(first(second?p.fechaJustificacion2:p.fechaPrimeraJustificacion,p.fecha));
       r[second?'Estado_Justificacion_2':'Estado']=state;
@@ -277,6 +289,11 @@ const InventoryContract = (() => {
     }
     if(countChanged||justification)for(const [, ,total,diff,cost] of stages){
       if(has(r[total])){r[diff]=resolved?0:r[total]-r.Stock_Sistema;r[cost]=r[diff]*r.Costo_Unitario;}
+    }
+    // There is no compensation column: the latest difference keeps only what the partial justification left.
+    if(partial){
+      const [, , ,diff,cost]=stages[has(r.Stock_Total_Reconteo_2)?2:has(r.Stock_Total_Reconteo)?1:0];
+      r[diff]+=partial;r[cost]=r[diff]*r.Costo_Unitario;
     }
     return normalize(r);
   }

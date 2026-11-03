@@ -49,7 +49,7 @@ function mergeRecountIntoParent(parentItem, recountItem) {
     parentItem.Fecha_Reconteo = contract.first(recountItem.Fecha_Reconteo, parentItem.Fecha_Reconteo, recountItem.Fecha_Ultimo_Conteo);
     parentItem.Estado_Reconteo = 'Recontado';
   }
-  return parentItem;
+  return contract.restoreCompensation(parentItem);
 }
 
 // The row as the sheet has it. Its Estado column holds the first review, never a progress label like
@@ -1444,29 +1444,35 @@ class InventoryService {
     }
     const payload={action:'saveJustification',center:inv.center,inventoryId:inv.id,itemId:item.id,sku:item.SKU,
       almacen:item.Almacen,location:item.Ubicacion,round,isJustification2:round===2,
-      corroboracion:contract.status(p),razon:p.reasonType,comentarioJustificacion:p.justification,reviewedBy:reviewer,
+      // Validated before any remote write; Apps Script validates it again against its live row.
+      corroboracion:contract.resolveJustification(item,p,round).state,justifiedQuantity:p.justifiedQuantity,
+      razon:p.reasonType,comentarioJustificacion:p.justification,reviewedBy:reviewer,
       originalStockSistema:contract.isWeekly(item)?item.Stock_Sistema:(item.Stock_Sistema_Original??item.Stock_Sistema),fecha:new Date().toISOString(),
       photoJustificacion:p.driveUrl||p.photoUrl||'',
       fotosJustificacion:Array.isArray(p.photoUrls)?p.photoUrls.map(photo=>photo.driveUrl||photo.photoUrl).filter(Boolean):[],
       spreadsheetUrl:inv.spreadsheetUrl||inv.driveUrl||null,
       workflow:{version:1,status:inv.status,round,countStage:round===1||!(workflow.countStage(inv)||inv.hasRecount||inv.hasRecount2)?0:workflow.recountStageOf(inv,item),
         reopenedPhase:inv.reopenedPhase||null}};
-    if(contract.isWeekly(item)){
-      payload.justifiedQuantity=p.justifiedQuantity;
-      // Validate compensation before any remote write, then let Apps Script validate against its live row.
-      contract.update(item,payload);
-    }
+    const local=contract.update(item,payload);
+    const quantityKey=round===2?'Cantidad_Justificada_2':'Cantidad_Justificada_1';
     let result = null;
     try {
       result = await gasService.saveJustificationToGAS(inv.type, payload);
     } catch (gasErr) {
       console.warn('[saveJustification] GAS sync notice for', item.SKU, gasErr.message);
     }
+    let confirmed=local,sheetWarning=null;
     if (result && result.item) {
-      Object.assign(item, contract.normalize(result.item));
-    } else {
-      Object.assign(item, contract.update(item, payload));
+      confirmed=contract.normalize(result.item);
+      // A script published before partial justifications ignores the quantity. The close exports these
+      // rows from the app, so its result stays right while the master sheet waits for the new script.
+      if(local[quantityKey]&&contract.differenceDetail(confirmed).remaining!==contract.differenceDetail(local).remaining){
+        console.warn('[saveJustification] Apps Script ignored the justified quantity for', item.SKU);
+        confirmed=local;
+        sheetWarning='La hoja de Sheets no registró la cantidad justificada: publique la nueva versión del Apps Script.';
+      }
     }
+    Object.assign(item,confirmed,{[quantityKey]:local[quantityKey]});
     Object.assign(item,{Stock_Sistema_Original:payload.originalStockSistema,
       corroboracion:payload.corroboracion,corroborationStatus:payload.corroboracion,isCuadra:payload.corroboracion==='CUADRA',
       requiereReconteo:payload.corroboracion!=='CUADRA',reviewedAt:payload.fecha,Revisado_Por:reviewer});
@@ -1479,7 +1485,7 @@ class InventoryService {
       fechaJustificacion2:item.Fecha_Justificacion_2,photoUrl:p.driveUrl||p.photoUrl||null,driveUrl:p.driveUrl||null,
       photoUrls:(p.photoUrls||[]).map(photo=>({photoUrl:photo.driveUrl||photo.photoUrl,driveFileId:photo.driveFileId||null,name:photo.name||null})),
       driveFileId:p.driveFileId||null,center:inv.center,type:inv.type,status:'REVISADO'};
-    if(contract.isWeekly(item))record.justifiedQuantity=item[round===2?'Cantidad_Justificada_2':'Cantidad_Justificada_1'];
+    record.justifiedQuantity=item[quantityKey];
     storagePath.writeJson(path.join(this.justDir,id+'.json'),record);
     inv.reviewedBy=reviewer;delete inv.closeOperationId;this.saveInventory(inv);
     const linkedId=inv.parentInventoryId||inv.recountInventoryId;
@@ -1488,10 +1494,10 @@ class InventoryService {
       const match=linked?.items?.find(it=>contract.member(it)===contract.member(item) || (it.id && it.id === item.id) || (skuMatches(it.SKU, item.SKU) && contract.identity(it.Almacen) === contract.identity(item.Almacen)));
       if(match){
         if (result && result.item) {
-          Object.assign(match,contract.normalize(result.item),{Stock_Sistema_Original:payload.originalStockSistema,
+          Object.assign(match,confirmed,{[quantityKey]:local[quantityKey],Stock_Sistema_Original:payload.originalStockSistema,
             corroboracion:payload.corroboracion,requiereReconteo:item.requiereReconteo});
         } else {
-          contract.update(match, payload);
+          Object.assign(match, contract.update(match, payload));
         }
         this.saveInventory(linked);
       }
@@ -1499,7 +1505,7 @@ class InventoryService {
     auditService.logJustification({inventoryId:inv.id,sku:item.SKU,justification:p.justification,photoUrl:record.photoUrl,
       user:p.user.username,reviewerName:reviewer,center:inv.center,diffQty:item.Diferencia,diffCost:item.Costo_Diferencia});
     const updatedPlan=this.getReviewPlan(inv);
-    return {...record,item,reviewItem:updatedPlan.items.find(it=>contract.member(it)===contract.member(item)),
+    return {...record,item,sheetWarning,reviewItem:updatedPlan.items.find(it=>contract.member(it)===contract.member(item)),
       reviewState:{canClose:updatedPlan.canClose,canEnableRecount:updatedPlan.canEnableRecount,canEnableRecount2:updatedPlan.canEnableRecount2}};
   }
 
@@ -1576,8 +1582,9 @@ class InventoryService {
       Stock_Fisico_1erConteo: it.Stock_Fisico,
       Mal_estado_1erConteo: it.Mal_estado,
       Stock_Total_1erConteo: it.Stock_Total,
-      Diferencia_1erConteo: it.Diferencia,
-      Costo_Diferencia_1erConteo: it.Costo_Diferencia,
+      // The recount replaces any partial justification, so the first count keeps its counted difference.
+      Diferencia_1erConteo: contract.isWeekly(it) ? it.Diferencia : contract.first(contract.differenceDetail(it).difference, it.Diferencia),
+      Costo_Diferencia_1erConteo: contract.isWeekly(it) ? it.Costo_Diferencia : contract.first(contract.differenceDetail(it).difference, it.Diferencia) * Number(it.Costo_Unitario || 0),
       Fecha_Ultimo_Conteo_1erConteo: it.Fecha_Ultimo_Conteo,
       Stock_Fisico: null,
       Stock_Buen_Estado: null,
@@ -1953,6 +1960,7 @@ class InventoryService {
           pItem.Fecha_Reconteo = contract.first(pItem.Fecha_Reconteo, recItem.Fecha_Reconteo, recItem.Fecha_Ultimo_Conteo, childRecountInv.submittedAt, new Date().toISOString());
           pItem.Diferencia_Final = !contract.isWeekly(pItem)&&(pItem.Estado_Justificacion_2||pItem.Estado)==='CUADRA'?0:pItem.Stock_Total_Reconteo - Number(pItem.Stock_Sistema || 0);
           pItem.Costo_Diferencia_Final = pItem.Diferencia_Final * Number(pItem.Costo_Unitario || 0);
+          contract.restoreCompensation(pItem);
         }
       });
     }

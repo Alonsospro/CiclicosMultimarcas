@@ -1628,7 +1628,7 @@ window.DashboardView = {
           <td><span class="badge badge-neutral">${item.abc}</span></td>
           <td style="text-align: center;">${item.stockSistema}</td>
           <td style="text-align: center; font-weight: 700;">${item.stockFisico}</td>
-          <td style="text-align: center;">${diffBadge}</td>
+          <td style="text-align: center;">${diffBadge}${item.cantidadJustificada > 0 && diff !== 0 ? `<br><small style="color: var(--text-dim);">Justificado ${item.cantidadJustificada} de ${Math.abs(item.diferenciaContada)}</small>` : ''}</td>
           <td style="text-align: right; font-family: var(--font-mono);">${window.AppConfig ? window.AppConfig.formatCurrency(item.costoUnitario || 0) : `Bs. ${(item.costoUnitario || 0).toFixed(2)}`}</td>
           <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; ${impactClass}">
             ${sign}${window.AppConfig ? window.AppConfig.formatCurrency(Math.abs(item.costoDiferencia || 0)) : `Bs. ${Math.abs(item.costoDiferencia || 0).toFixed(2)}`}
@@ -1647,7 +1647,7 @@ window.DashboardView = {
       return;
     }
 
-    const headers = ['SKU', 'Descripcion', 'Centro', 'Ubicacion', 'Clasificacion_ABC', 'Stock_Sistema', 'Stock_Fisico', 'Diferencia', 'Costo_Unitario', 'Costo_Diferencia', 'Mal_Estado', 'Tipo_Discrepancia', 'Responsable', 'Fecha_Conteo'];
+    const headers = ['SKU', 'Descripcion', 'Centro', 'Ubicacion', 'Clasificacion_ABC', 'Stock_Sistema', 'Stock_Fisico', 'Diferencia_Contada', 'Cantidad_Justificada', 'Diferencia', 'Costo_Unitario', 'Costo_Diferencia', 'Mal_Estado', 'Tipo_Discrepancia', 'Responsable', 'Fecha_Conteo'];
     
     const rows = list.map(item => [
       `"${item.sku || ''}"`,
@@ -1657,6 +1657,8 @@ window.DashboardView = {
       `"${item.abc || ''}"`,
       item.stockSistema,
       item.stockFisico,
+      item.diferenciaContada ?? item.diferencia,
+      item.cantidadJustificada || 0,
       item.diferencia,
       item.costoUnitario,
       item.costoDiferencia,
@@ -1952,7 +1954,7 @@ window.DashboardView = {
         ['NIBOL S.A. • DETALLE DE DISCREPANCIAS Y AJUSTES DE INVENTARIO'],
         ['Fecha de Generación:', nowStr],
         [],
-        ['SKU', 'Descripción del Repuesto', 'Centro', 'Almacén', 'Ubicación', 'Clasificación ABC', 'Stock Sistema', 'Stock Físico', 'Diferencia', 'Costo Unitario ($)', 'Costo Diferencia ($)', 'Tipo Discrepancia', 'Estado Conciliación', 'Responsable Conteo']
+        ['SKU', 'Descripción del Repuesto', 'Centro', 'Almacén', 'Ubicación', 'Clasificación ABC', 'Stock Sistema', 'Stock Físico', 'Diferencia Contada', 'Cant. Justificada', 'Diferencia', 'Costo Unitario ($)', 'Costo Diferencia ($)', 'Tipo Discrepancia', 'Estado Conciliación', 'Responsable Conteo']
       ];
 
       if (discrepanciesList.length > 0) {
@@ -1966,6 +1968,8 @@ window.DashboardView = {
             item.abc || 'A',
             item.stockSistema !== undefined ? item.stockSistema : 0,
             item.stockFisico !== undefined ? item.stockFisico : 0,
+            item.diferenciaContada !== undefined ? item.diferenciaContada : (item.diferencia !== undefined ? item.diferencia : 0),
+            item.cantidadJustificada || 0,
             item.diferencia !== undefined ? item.diferencia : 0,
             item.costoUnitario || 0,
             item.costoDiferencia || 0,
@@ -1985,6 +1989,8 @@ window.DashboardView = {
           2,
           1,
           -1,
+          0,
+          -1,
           26023.89,
           -26023.89,
           'FALTANTE',
@@ -2003,6 +2009,8 @@ window.DashboardView = {
         { wch: 16 },
         { wch: 14 },
         { wch: 14 },
+        { wch: 12 },
+        { wch: 12 },
         { wch: 12 },
         { wch: 18 },
         { wch: 20 },

@@ -717,10 +717,18 @@ class MetricsService {
         // Regla del usuario: cruce entre stock del sistema (Col K) con la diferencia del primer conteo (Col O).
         // Si en Col O el valor == 0 -> se considera que no hay diferencia (exacto / cuadra).
         // Si en Col O es > 0 -> sobrante. Si < 0 -> faltante.
+        // A cyclic partial justification leaves only what remains in its latest difference column;
+        // the system stock stays the original, so the counted difference is still known.
+        let settled = null;
+        try { settled = contract.differenceDetail(item); } catch (_) { /* Unreadable rows use their columns below. */ }
+        const isPartialCyclic = !weekly && !!settled && settled.justified !== 0 && settled.remaining !== 0;
+        const firstCountPartial = isPartialCyclic && conteoStage === 0 && stockTotal1 !== null;
         let diff1 = 0;
         const firstCountAgainstOriginal = hasOriginalSystem && stockTotal1 !== null;
         if (firstCountAgainstOriginal) {
           diff1 = stockTotal1 - originalSystem;
+        } else if (firstCountPartial) {
+          diff1 = stockTotal1 - stockSistema;
         } else if (item.Diferencia !== undefined && item.Diferencia !== null && String(item.Diferencia).trim() !== '') {
           diff1 = Number(item.Diferencia);
         } else if (stockTotal1 !== null) {
@@ -732,7 +740,7 @@ class MetricsService {
         const rawDiffCost1 = item.Costo_Diferencia !== undefined ? item.Costo_Diferencia :
           (item.costo_diferencia !== undefined ? item.costo_diferencia :
           (item.Diferencia_Costo !== undefined ? item.Diferencia_Costo : null));
-        let diffCost1 = firstCountAgainstOriginal ? diff1 * unitCost : (rawDiffCost1 !== null && rawDiffCost1 !== '' && rawDiffCost1 !== undefined)
+        let diffCost1 = firstCountAgainstOriginal || firstCountPartial ? diff1 * unitCost : (rawDiffCost1 !== null && rawDiffCost1 !== '' && rawDiffCost1 !== undefined)
           ? parseCurrencyOrNumber(rawDiffCost1, diff1 * unitCost)
           : (diff1 * unitCost);
         if (diffCost1 === 0 && diff1 !== 0 && unitCost > 0) {
@@ -784,6 +792,11 @@ class MetricsService {
         if (!weekly && (isCuadra || item.corroboracion === 'CUADRA' || latestDecision === 'CUADRA' || latestDecision === 'JUSTIFICADO')) {
           diffFinal = 0;
           diffCostFinal = 0;
+        }
+        if (isPartialCyclic) {
+          stockFinal = settled.physical + settled.justified;
+          diffFinal = settled.remaining;
+          diffCostFinal = diffFinal * unitCost;
         }
 
         if (weekly) {
@@ -919,7 +932,7 @@ class MetricsService {
 
         const isAdditionalLoc = !!item.isAdditionalLocation;
         const hasRec = (hasRec1 || hasRec2);
-        const finalPhys = weekly ? stockFinal : (finalStage === 2 ? stockTotalRec2 : (finalStage === 1 ? stockTotalRec1 : stockFisico));
+        const finalPhys = weekly || isPartialCyclic ? stockFinal : (finalStage === 2 ? stockTotalRec2 : (finalStage === 1 ? stockTotalRec1 : stockFisico));
         const finalDamaged = (finalStage === 2 ? (rawRecDam2 !== null ? Number(rawRecDam2) : 0) : (finalStage === 1 ? reconteoMalEstado : damaged));
 
         if (damaged > 0) {
@@ -990,6 +1003,9 @@ class MetricsService {
             stockFisicoFinal: finalPhys,
             ...(weekly ? {physicalQuantityFinal: contract.latestPhysical(item),
               justifiedQuantity1: item.Cantidad_Justificada_1, justifiedQuantity2: item.Cantidad_Justificada_2} : {}),
+            // Units covered by a justification and the difference they came from; diferenciaFinal is what remains.
+            cantidadJustificada: settled ? Math.abs(settled.justified) : 0,
+            diferenciaContada: settled && settled.difference !== null ? settled.difference : diffFinal,
             malEstadoFinal: finalDamaged,
             costoMalEstadoFinal: finalDamaged * unitCost,
             malEstado: damaged,
