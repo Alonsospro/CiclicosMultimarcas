@@ -218,6 +218,23 @@ test('each center shows its own share of the shortages and of the surpluses, not
   assert.doesNotMatch(html, /Acum\./);
 });
 
+test('the ranking title only counts centers that have an amount', async () => {
+  const differ = (sku, change) => line(sku, { Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change });
+  const titleAndBold = (html, noun, next) => {
+    const panel = html.slice(html.indexOf(`${noun}: `), html.indexOf(next));
+    return [panel.slice(0, panel.indexOf('<')), panel.match(/class="mr-strong"/g)?.length ?? 0];
+  };
+  const two = report.render({ name: 'Corte' }, await load([
+    inventory('INV-1160-1', '1160', [differ('A', 1), differ('C', -1)]),
+    inventory('INV-1120-1', '1120', [differ('B', 1)]),
+    inventory('INV-5100-1', '5100', [line('OK')])
+  ]));
+  assert.deepEqual(titleAndBold(two, 'Sobrantes', 'Faltantes (Bs) por clase'), ['Sobrantes: Bs 200,00 · 2 centros concentran 100%', 2]);
+  assert.deepEqual(titleAndBold(two, 'Faltantes', 'Sobrantes: '), ['Faltantes: Bs 100,00 · 1 centro concentra 100%', 1]);
+  const none = report.render({ name: 'Corte' }, await load([inventory('INV-1160-1', '1160', [line('OK')]), inventory('INV-1120-1', '1120', [line('OK-2')])]));
+  assert.deepEqual(titleAndBold(none, 'Sobrantes', 'Faltantes (Bs) por clase'), ['Sobrantes: Bs 0,00', 0]);
+});
+
 test('the consolidated location sheet comes right after the damage sheet', async () => {
   const html = report.render({ name: 'Corte' }, await load([mixedCenter(), inventory('INV-1120-1', '1120', [line('OK-1')])]));
   const titles = [...html.matchAll(/<header class="mr-band"><b>([^<]*)<\/b>/g)].map(match => match[1]);

@@ -389,8 +389,9 @@
 
     const ranked = (side, color, noun) => {
       const rows = centers.slice().sort((a, b) => b[side].cost - a[side].cost);
-      const top = sum(rows.slice(0, 3), c => c[side].cost), all = total[side].cost;
-      return panel(`${noun}: ${bs(all)} · 3 centros concentran ${all ? Math.round(top / all * 100) : 0}%`, `<table data-split><thead><tr><th>Centro</th><th>Bs</th><th class="num">Líneas</th><th class="num">Unid.</th><th class="num">% del total</th></tr></thead><tbody>${rows.map((c, index) => `<tr><td class="${index < 3 ? 'mr-strong' : ''}">${esc(c.center)}</td><td>${hbar(c[side].cost, Math.max(rows[0][side].cost, 1), 215, index < 3 ? color : GRAY, qty(c[side].cost))}</td><td class="num">${qty(c[side].lines)}</td><td class="num">${qty(c[side].units)}</td><td class="num">${esc(share(c[side].cost, all))}</td></tr>`).join('')}</tbody></table>`);
+      const leaders = rows.slice(0, 3).filter(c => c[side].cost > 0);
+      const top = sum(leaders, c => c[side].cost), all = total[side].cost;
+      return panel(`${noun}: ${bs(all)}${all ? ` · ${leaders.length} ${leaders.length === 1 ? 'centro concentra' : 'centros concentran'} ${Math.round(top / all * 100)}%` : ''}`, `<table data-split><thead><tr><th>Centro</th><th>Bs</th><th class="num">Líneas</th><th class="num">Unid.</th><th class="num">% del total</th></tr></thead><tbody>${rows.map((c, index) => `<tr><td class="${index < leaders.length ? 'mr-strong' : ''}">${esc(c.center)}</td><td>${hbar(c[side].cost, Math.max(rows[0][side].cost, 1), 215, index < leaders.length ? color : GRAY, qty(c[side].cost))}</td><td class="num">${qty(c[side].lines)}</td><td class="num">${qty(c[side].units)}</td><td class="num">${esc(share(c[side].cost, all))}</td></tr>`).join('')}</tbody></table>`);
     };
     const classRows = side => centers.slice().sort((a, b) => b[side].cost - a[side].cost).slice(0, 5).map(c => ({ name: c.name, cells: Object.fromEntries(c.byClass.map(g => [g.name, { [side]: g[side].cost }])) }));
     const page3 = sheet('Faltantes y sobrantes por centro', 'Se muestran por separado', `
