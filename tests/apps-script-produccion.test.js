@@ -140,13 +140,13 @@ test('production weekly: BD_BASE fills the 44 columns by name and keeps a typed 
   assert.equal(center.grid[1][at('SKU')], 'JD_ADX14037');
   assert.equal(center.grid[1][at('Almacen')], 'CD01');
   assert.equal(center.grid[1][at('Stock_Sistema')], 8);
-  assert.equal(center.grid[1][at('Costo_Unitario')], 15, 'Valor is the value of the line');
+  assert.equal(center.grid[1][at('Costo_Unitario')], 120, 'Valor already holds the unit cost');
   center.grid[1][at('Sobrestock')] = '9Z99999Z99';
   center.grid[1][at('Unidad')] = 'UND';
   base.grid[1][4] = 10;
   f.context.distribuirBaseACentros();
   assert.equal(center.grid[1][at('Stock_Sistema')], 10, 'Uncounted rows take the new master stock');
-  assert.equal(center.grid[1][at('Costo_Unitario')], 12);
+  assert.equal(center.grid[1][at('Costo_Unitario')], 120);
   assert.equal(center.grid[1][at('Sobrestock')], '9Z99999Z99', 'Typed overstock location is kept');
   assert.equal(center.grid[1][at('Unidad')], 'UND', 'A column BD_BASE does not bring is kept');
   base.grid[0].push('Sobrestock'); base.grid[1].push('1A00000A01');
@@ -159,8 +159,8 @@ test('production weekly: the current BD_BASE layout distributes to its centers w
   const at = key => contract.weeklyColumns.indexOf(key);
   const base = f.master.getSheetByName('BD_BASE');
   base.grid = [['codigo','descripcion','tipoMat','centro','almacen','sector','Stock','Ubic','Valor','ClasificacionCentro','Marca','Total USD'],
-    ['JD_N304196','TAPON','XARI',5100,'RJD0',11,14,'2A02037E10',761.88,'','JD',''],
-    ['JD_19M8081','TORNILLO','XARI',5100,'RJD0',11,4,'2A05124C10',80.59,'A','JD',''],
+    ['JD_N304196','TAPON','XARI',5100,'RJD0',11,14,'2A02037E10',54.42,'','JD',''],
+    ['JD_19M8081','TORNILLO','XARI',5100,'RJD0',11,4,'2A05124C10',20.15,'A','JD',''],
     ['FO_CERO','SIN VALOR','XARI',1120,'RFO0',23,2,'2A01008C00',0,'','FO','']];
   const center = f.master.getSheetByName('5100');
   const counted = Array(contract.weeklyColumns.length).fill('');

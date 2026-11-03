@@ -13,7 +13,7 @@ La versión semanal se identifica como `WEEKLY_44_V1`. Los ítems guardados por 
 | Columna | Contenido | Regla |
 | --- | --- | --- |
 | D / E / F | Ubicación, Ubicación 1, Ubicación 2 | Ubicaciones del SKU; cuentan para el ERU. |
-| G | Sobrestock | Ubicación de sobrestock. Viene del maestro (BD_BASE, columna `sobrestock` opcional), se muestra en la app y se conserva; la app nunca la escribe y no cuenta para el ERU. |
+| G | Sobrestock | Ubicación de sobrestock. Viene del maestro (BD_BASE, columna `sobrestock` opcional), se muestra en la app y se conserva. La app solo la escribe desde la ventana de ubicación adicional, cuando se marca la casilla de sobrestock; no cuenta para el ERU. |
 | H | Almacen | Identifica el SKU junto con la ubicación. |
 | L | Stock Sistema | Punto de partida del centro. **Ninguna escritura de conteo o justificación lo modifica.** |
 | M | Cantidad Fisica Final | Último total físico + compensaciones vigentes. Es el resultado final de conteos y justificaciones. |
@@ -24,7 +24,7 @@ La versión semanal se identifica como `WEEKLY_44_V1`. Los ítems guardados por 
 | AL | Cant. Justificada 2 | Compensación de la segunda justificación. |
 | AN / AQ / AR | Total, diferencia y costo del reconteo 2 | AN reemplaza AB como base física final. |
 
-Las escrituras de la app sobre una fila existente empiezan en M: G (Sobrestock) y L (Stock Sistema) nunca se reescriben. La segunda justificación acepta `Estado de Jutificacion 2` y `Estado de Justificacion 2`.
+Las escrituras de conteos y justificaciones sobre una fila existente empiezan en M: L (Stock Sistema) nunca se reescribe y G (Sobrestock) solo cambia desde la ventana de ubicación adicional. La segunda justificación acepta `Estado de Jutificacion 2` y `Estado de Justificacion 2`.
 
 ## CUADRA y NO CUADRA
 
@@ -47,7 +47,7 @@ La confiabilidad del contador usa las cantidades físicas firmadas, separadas de
 2. En el proyecto Apps Script del archivo **SEMANALES NIBOL MULTIMARCAS**, reemplazar el código por el contenido completo de `produccion/InventoryWebhookSemanales.gs`, guardar y crear una **nueva versión** de la implementación existente (se conserva la URL `/exec`).
 3. Con el menú **📦 Inventarios → Verificar columnas** comprobar las 44 columnas. Luego **Actualizar maestros desde BD_BASE**.
 
-En `BD_BASE`, `Valor` es el valor total de la línea: `Costo Unitario` se calcula como `Valor ÷ Stock`. Una columna `Costo Unitario` en la base tiene prioridad y se copia tal cual. Las columnas que la base no trae (código de barras, unidad, ubicaciones adicionales, sobrestock) conservan lo que ya tiene la hoja del centro. Las columnas adicionales de la base, como `tipoMat`, `sector`, `Marca` o `Total USD`, se ignoran.
+En `BD_BASE`, `Valor` debe traer el costo de una unidad: se copia tal cual a `Costo Unitario`, sin dividirlo. Las columnas que la base no trae (código de barras, unidad, ubicaciones adicionales, sobrestock) conservan lo que ya tiene la hoja del centro. Las columnas adicionales de la base, como `tipoMat`, `sector`, `Marca` o `Total USD`, se ignoran.
 
 La appweb y el script deben actualizarse juntos: la app nueva envía `WEEKLY_44_V1` y el script anterior solo aceptaba 43 columnas (que además ya no coinciden con las hojas).
 

@@ -77,7 +77,7 @@ function fixture({countSheetSync='inmediato'}={}) {
     inventoryId:invId,sku:item.SKU,itemId:item.id,almacen:item.Almacen,location:item.Ubicacion,
     round,corroboracion:decision,reasonType:'balanceo',justification:text,justifiedQuantity,user
   });
-  return {service,files,sheets,gasCalls,closures,batches,failures,put,save,gasContext,holdBatches:gate=>{held=gate;}};
+  return {service,gas,files,sheets,gasCalls,closures,batches,failures,put,save,gasContext,holdBatches:gate=>{held=gate;}};
 }
 
 test('weekly physical verification uses signed author, checks role/center and never changes Sheets', async () => {
@@ -808,6 +808,115 @@ test('the sync request waits for Google outside the write queue and the counter 
   const routes=fs.readFileSync(path.join(root,'src/routes/inventoryRoutes.js'),'utf8');
   assert.match(routes,/await inventoryService\.assertSheetCountsSent\(req\.params\.id\);\s*const result = inventoryService\.submitInventoryForReview/);
   assert.match(fs.readFileSync(path.join(root,'server.js'),'utf8'),/setWriteQueue\(persistence\.runExclusive\)/);
+});
+
+test('the add-location window saves an overstock location, alone or with an additional one',async()=>{
+  const {service,put,sheets,gasCalls}=fixture(),item={...counted(),Schema_Version:contract.weeklyVersion};
+  put({id:'OVER',type:'SEMANAL',center:'1120',name:'Semanal',status:'EN_PROGRESO',items:[item]});
+  const add=fields=>service.updateCount({inventoryId:'OVER',itemId:item.id,isNewLocation:true,user,...fields});
+  await add({sobrestock:'9z99999z99'});
+  let stored=service.getInventoryRaw('OVER').items[0];
+  assert.equal(stored.Sobrestock,'9Z99999Z99');
+  assert.equal(stored.Ubicacion_1||'','','Alone it adds no additional location');
+  await add({location:'extra1',sobrestock:'8z99999z99'});
+  stored=service.getInventoryRaw('OVER').items[0];
+  assert.equal(stored.Sobrestock,'8Z99999Z99','The column holds one value: a new one replaces it');
+  assert.equal(stored.Ubicacion_1,'EXTRA1');
+  assert.equal(sheets.get(contract.member(stored)).Sobrestock,'8Z99999Z99');
+  assert.equal(stored.Stock_Total,8,'Quantities stay as counted');
+  await add({location:'extra2'});
+  assert.equal(service.getInventoryRaw('OVER').items[0].Sobrestock,'8Z99999Z99','An additional location leaves it alone');
+  assert.equal('sobrestock' in gasCalls.at(-1),false);
+  await assert.rejects(add({sobrestock:'EXTRA1'}),/ya está registrada/);
+  await assert.rejects(add({}),/ubicación válida/);
+  const full=service.getInventoryRaw('OVER').items[0];
+  await add({sobrestock:'7Z99999Z99'});
+  assert.equal(service.getInventoryRaw('OVER').items[0].Ubicacion_2,full.Ubicacion_2,'A full item can still take overstock');
+});
+
+test('overstock is refused on cyclic items, and a script without the change is reported',async()=>{
+  const cyclic=fixture(),item=counted();
+  cyclic.put({id:'CYC',type:'CICLICO',center:'1120',name:'Ciclico',status:'EN_PROGRESO',items:[item]});
+  await assert.rejects(cyclic.service.updateCount({inventoryId:'CYC',itemId:item.id,isNewLocation:true,sobrestock:'9Z99999Z99',user}),/solo existe en inventarios semanales/);
+  const old=fixture(),weekly={...counted(),Schema_Version:contract.weeklyVersion};
+  old.put({id:'OLD',type:'SEMANAL',center:'1120',name:'Semanal',status:'EN_PROGRESO',items:[weekly]});
+  old.gas.upsertCountToGAS=async(type,{sobrestock,...p})=>({item:contract.update(old.sheets.get(contract.member(p)),p)});
+  await assert.rejects(old.service.updateCount({inventoryId:'OLD',itemId:weekly.id,isNewLocation:true,sobrestock:'9Z99999Z99',user}),/actualice el Apps Script/);
+});
+
+test('adding a location sends the waiting count first, so the row keeps it',async()=>{
+  const context=fixture({countSheetSync:'lotes'}),{service,put,sheets,batches}=context,item={...counted(),Schema_Version:contract.weeklyVersion};
+  put({id:'WAIT',type:'SEMANAL',center:'1120',name:'Semanal',status:'EN_PROGRESO',items:[item]});
+  await service.updateCount({inventoryId:'WAIT',itemId:item.id,stockFisico:6,malEstado:0,user});
+  assert.equal(batches.length,0);
+  await service.updateCount({inventoryId:'WAIT',itemId:item.id,isNewLocation:true,location:'EXTRA1',user});
+  assert.equal(batches.length,1);
+  assert.equal(service.getInventoryRaw('WAIT').items[0].Stock_Total,6);
+  assert.equal(sheets.get(contract.member(item)).Stock_Total,6);
+});
+
+function addLocationView(item){
+  const elements=new Map(),calls=[],toasts=[];
+  const element=id=>{
+    if(!elements.has(id))elements.set(id,{value:'',checked:false,disabled:false,style:{},classList:{add(){},remove(){}},addEventListener(){},focus(){}});
+    return elements.get(id);
+  };
+  const context={
+    document:{getElementById:element,querySelectorAll:()=>[],querySelector:()=>null,addEventListener(){}},
+    setTimeout:()=>0,clearTimeout(){},console,
+    window:{addEventListener(){},Auth:{currentUser:{role:'AUXILIAR'}},InventoryContract:contract,
+      Toast:{success:m=>toasts.push(m),warning:m=>toasts.push(m),danger:m=>toasts.push(m),info(){}},
+      API:{registerCount:async(id,payload)=>{calls.push(payload);return {};}}}
+  };
+  vm.runInNewContext(fs.readFileSync(path.join(root,'public/js/views/inventoryView.js'),'utf8'),context);
+  const view=context.window.InventoryView;
+  view.currentInventory={id:'INV',items:[item]};view.reloadCurrentInventory=async()=>{};
+  return {view,element,calls,toasts};
+}
+
+test('the overstock box appears on weekly items only and sends what was typed',async()=>{
+  const weekly={id:'I',SKU:'A',Ubicacion:'LOC',Schema_Version:contract.weeklyVersion};
+  const {view,element,calls,toasts}=addLocationView(weekly);
+  view.openAddLocationModal('I');
+  assert.equal(element('add-loc-overstock-row').style.display,'block');
+  assert.equal(element('add-loc-overstock-fields').style.display,'none','Closed until the box is ticked');
+  assert.equal(element('add-loc-input-location').disabled,false);
+  await view.saveAddLocation();
+  assert.equal(calls.length,0,'Nothing typed, nothing saved');
+  element('add-loc-overstock-check').checked=true;
+  await view.saveAddLocation();
+  assert.equal(calls.length,0,'A ticked box needs its location');
+  assert.match(toasts.at(-1),/sobrestock/);
+  element('add-loc-item-id').value='I';
+  element('add-loc-input-overstock').value='9z99999z99';
+  await view.saveAddLocation();
+  assert.equal(calls[0].sobrestock,'9Z99999Z99');
+  assert.equal(calls[0].location,'');
+  element('add-loc-input-location').value='extra1';
+  await view.saveAddLocation();
+  assert.equal(calls[1].location,'EXTRA1');
+  assert.equal(calls[1].sobrestock,'9Z99999Z99');
+
+  const cyclic=addLocationView({id:'I',SKU:'A',Ubicacion:'LOC'});
+  cyclic.view.openAddLocationModal('I');
+  assert.equal(cyclic.element('add-loc-overstock-row').style.display,'none');
+});
+
+test('a weekly item with both additional locations still opens the window for overstock',async()=>{
+  const {view,element,calls,toasts}=addLocationView({id:'I',SKU:'A',Ubicacion:'LOC',Ubicacion_1:'E1',Ubicacion_2:'E2',Sobrestock:'9Z99999Z99',Schema_Version:contract.weeklyVersion});
+  view.openAddLocationModal('I');
+  assert.equal(element('add-loc-input-location').disabled,true);
+  assert.equal(element('add-loc-overstock-check').checked,true);
+  assert.equal(element('add-loc-overstock-fields').style.display,'block');
+  assert.equal(element('add-loc-input-overstock').value,'9Z99999Z99');
+  assert.match(element('add-loc-overstock-hint').textContent,/reemplaza/);
+  element('add-loc-item-id').value='I';
+  await view.saveAddLocation();
+  assert.equal(calls.length,0,'The same value changes nothing');
+  assert.match(toasts.at(-1),/Esa ya es/);
+  const full=addLocationView({id:'I',SKU:'A',Ubicacion:'LOC',Ubicacion_1:'E1',Ubicacion_2:'E2'});
+  full.view.openAddLocationModal('I');
+  assert.match(full.toasts.at(-1),/máximo permitido/);
 });
 
 function inlineView(){

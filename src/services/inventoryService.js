@@ -711,6 +711,7 @@ class InventoryService {
     almacen = null,
     warehouse = null,
     isNewLocation = false,
+    sobrestock = null,
     user,
     reason,
     photoUrl = null,
@@ -803,9 +804,14 @@ class InventoryService {
       }
 
       const cleanNewLoc = String(location || '').trim().toUpperCase();
-      if (!cleanNewLoc) {
+      const cleanOverstock = String(sobrestock || '').trim().toUpperCase();
+      if (!cleanNewLoc && !cleanOverstock) {
         throw new Error('Debe especificar una ubicación válida.');
       }
+      if (cleanOverstock && !contract.isWeekly(targetItem)) {
+        throw new Error('La ubicación de sobrestock solo existe en inventarios semanales.');
+      }
+      const previousOverstock = targetItem.Sobrestock;
 
       // Check if this location is already assigned as main or additional location
       const existingLocs = [
@@ -814,26 +820,40 @@ class InventoryService {
         String(targetItem.Ubicacion_2 || '').trim().toUpperCase()
       ].filter(Boolean);
 
-      if (existingLocs.includes(cleanNewLoc)) {
+      if (cleanNewLoc && existingLocs.includes(cleanNewLoc)) {
         throw new Error(`El ítem ya tiene registrada la ubicación ${cleanNewLoc}.`);
       }
+      if (cleanOverstock && (existingLocs.includes(cleanOverstock) || cleanOverstock === cleanNewLoc)) {
+        throw new Error(`La ubicación de sobrestock ${cleanOverstock} ya está registrada como ubicación del ítem.`);
+      }
 
-      // Assign to Ubicacion_1 (Col E) or Ubicacion_2 (Col F)
-      if (!targetItem.Ubicacion_1 || String(targetItem.Ubicacion_1).trim() === '') {
-        targetItem.Ubicacion_1 = cleanNewLoc;
-      } else if (!targetItem.Ubicacion_2 || String(targetItem.Ubicacion_2).trim() === '') {
-        targetItem.Ubicacion_2 = cleanNewLoc;
-      } else {
-        throw new Error('Este ítem ya cuenta con el máximo permitido de 2 ubicaciones adicionales (Columnas E y F).');
+      if (cleanNewLoc) {
+        // Assign to Ubicacion_1 (Col E) or Ubicacion_2 (Col F)
+        if (!targetItem.Ubicacion_1 || String(targetItem.Ubicacion_1).trim() === '') {
+          targetItem.Ubicacion_1 = cleanNewLoc;
+        } else if (!targetItem.Ubicacion_2 || String(targetItem.Ubicacion_2).trim() === '') {
+          targetItem.Ubicacion_2 = cleanNewLoc;
+        } else {
+          throw new Error('Este ítem ya cuenta con el máximo permitido de 2 ubicaciones adicionales (Columnas E y F).');
+        }
       }
 
       targetItem.additionalLocations = [targetItem.Ubicacion_1, targetItem.Ubicacion_2].filter(Boolean);
 
-      // Sync to GAS (Updates Col E and Col F on the existing row in Google Sheets)
+      // The script answers with the row it has: a count still waiting must reach it first.
+      for(const id of [inv.id,inv.recountInventoryId,inv.parentInventoryId].filter(Boolean)){
+        const unsent=await this.flushSheetCounts(id,id===inv.id?inv:null);
+        if(unsent.some(entry=>entry.sku===targetItem.SKU))throw new Error('El conteo de este ítem aún no llegó a Google. Intente de nuevo.');
+      }
+
+      // Sync to GAS (Updates Col E, Col F and, when given, Sobrestock on the existing row in Google Sheets)
       const synced=await gasService.upsertCountToGAS(inv.type,{center:inv.center,sku:targetItem.SKU,
         almacen:targetItem.Almacen,location:targetItem.Ubicacion,ubicacion1:targetItem.Ubicacion_1,
-        ubicacion2:targetItem.Ubicacion_2,inventoryId:inv.id,itemId:targetItem.id});
+        ubicacion2:targetItem.Ubicacion_2,inventoryId:inv.id,itemId:targetItem.id,
+        ...(cleanOverstock?{sobrestock:cleanOverstock}:{})});
       if(!synced.item)throw new Error('Google no devolvió la fila confirmada');
+      // A script without this change answers success and leaves the column as it was.
+      if(cleanOverstock&&contract.identity(synced.item.Sobrestock)!==cleanOverstock)throw new Error('La ubicación de sobrestock no se guardó: actualice el Apps Script de semanales.');
       const firstCountSnapshots=Object.fromEntries(Object.entries(targetItem).filter(([key])=>key.endsWith('_1erConteo')));
       Object.assign(targetItem,contract.normalize(synced.item),firstCountSnapshots);delete inv.closeOperationId;this.saveInventory(inv);
       if(inv.parentInventoryId){
@@ -844,7 +864,8 @@ class InventoryService {
 
       auditService.logAction({
         action: 'ADDITIONAL_LOCATION_ADDED',
-        details: `Ubicación adicional '${cleanNewLoc}' agregada al SKU ${targetItem.SKU} (${targetItem.Ubicacion_2 === cleanNewLoc ? 'Col F / Ubic 2' : 'Col E / Ubic 1'})`,
+        details: [cleanNewLoc && `Ubicación adicional '${cleanNewLoc}' agregada al SKU ${targetItem.SKU} (${targetItem.Ubicacion_2 === cleanNewLoc ? 'Col F / Ubic 2' : 'Col E / Ubic 1'})`,
+          cleanOverstock && `Sobrestock '${cleanOverstock}' registrado en el SKU ${targetItem.SKU} (antes: ${previousOverstock || 'vacío'})`].filter(Boolean).join('. '),
         user: user.username,
         center: inv.center,
         targetId: inv.id
@@ -852,7 +873,7 @@ class InventoryService {
 
       return {
         success: true,
-        message: `Ubicación adicional '${cleanNewLoc}' agregada al SKU ${targetItem.SKU}`,
+        message: [cleanNewLoc && `Ubicación adicional '${cleanNewLoc}'`, cleanOverstock && `Sobrestock '${cleanOverstock}'`].filter(Boolean).join(' y ') + ` registrado en el SKU ${targetItem.SKU}`,
         item: targetItem
       };
     } else {

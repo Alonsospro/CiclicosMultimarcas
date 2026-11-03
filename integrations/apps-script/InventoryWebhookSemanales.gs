@@ -287,6 +287,11 @@ const InventoryContract = (() => {
     }
     const locations=[r.Ubicacion,r.Ubicacion_1,r.Ubicacion_2].filter(has).map(identity);
     if(new Set(locations).size!==locations.length)throw new Error('Ubicaciones duplicadas');
+    if(isWeekly(r)&&has(p.sobrestock)){
+      const overstock=String(p.sobrestock).trim().toUpperCase();
+      if(locations.includes(overstock))throw new Error('La ubicación de sobrestock ya está registrada como ubicación del ítem');
+      r.Sobrestock=overstock;
+    }
     const justification=p.action==='saveJustification'||[p.isCuadra,p.corroboracion,p.corroboration,p.estadoJustificacion,p.estadoJustificacion2].some(has);
     let resolved=false;
     if(justification){
@@ -509,7 +514,9 @@ function upsertCount_(p,batch){
   if(found.rowNumber>sh.getMaxRows())sh.insertRowsAfter(sh.getMaxRows(),1);
   if(created)sh.getRange(found.rowNumber,1,1,SHEET_WIDTH).setValues([rowValues_(item)]);
   else {sh.getRange(found.rowNumber,5,1,2).setValues([[item.Ubicacion_1||'',item.Ubicacion_2||'']]);
-    // Weekly writes start at M (Cantidad Física Final): L (Stock Sistema) and G (Sobrestock) are never rewritten.
+    // G (Sobrestock) is written only when the add-location window sends it.
+    if(COL.Sobrestock&&InventoryContract.has(p.sobrestock))sh.getRange(found.rowNumber,COL.Sobrestock,1,1).setValues([[item.Sobrestock]]);
+    // Weekly writes start at M (Cantidad Física Final): L (Stock Sistema) is never rewritten.
     const first=SHEET_LAYOUT===InventoryContract.weeklyVersion?COL.Cantidad_Fisica_Final:11;
     sh.getRange(found.rowNumber,first,1,SHEET_WIDTH-first+1).setValues([rowValues_(item).slice(first-1)]);}
   if(batch){if(created)batch.rows.push(rowValues_(item));else batch.rows[found.rowNumber-2]=rowValues_(item);}
@@ -846,7 +853,7 @@ function distribuirBaseACentros(){
       ['Ubicacion',['ubic','ubicacion'],true], ['Ubicacion_1',['ubicacion1']], ['Ubicacion_2',['ubicacion2']],
       ['Sobrestock',['sobrestock','ubicsobrestock','ubicacionsobrestock']], ['Almacen',['almacen'],true],
       ['Clasificacion_ABC',['clasificacioncentro','clasificacioncen','clasificacionabc'],true], ['Unidad',['unidad']],
-      ['Costo_Unitario',['costounitario']], ['Stock_Sistema',['stock','stocksistema'],true]
+      ['Costo_Unitario',['valor','costounitario'],true], ['Stock_Sistema',['stock','stocksistema'],true]
     ].filter(([key])=>COL[key]);
     const indexes=sourceHeaders.map(([key,aliases,required])=>{
       const matches=headers.map((h,i)=>aliases.includes(h)?i:-1).filter(i=>i>=0);
@@ -854,23 +861,13 @@ function distribuirBaseACentros(){
       if(required&&!matches.length)throw new Error('Falta columna en BD_BASE: '+aliases[0]);
       return [COL[key]-1,matches.length?matches[0]:-1];
     });
-    // "Valor" is the value of the whole line; the sheet needs the cost of one unit.
-    const costTarget=COL.Costo_Unitario-1,stockIndex=indexes.find(([target])=>target===COL.Stock_Sistema-1)[1];
-    const unitCostIndex=indexes.find(([target])=>target===costTarget)[1];
-    const lineValues=headers.map((h,i)=>h==='valor'?i:-1).filter(i=>i>=0);
-    if(lineValues.length>1)throw new Error('Columnas ambiguas en BD_BASE: valor');
-    if(unitCostIndex<0&&!lineValues.length)throw new Error('Falta columna en BD_BASE: valor');
     // Columns BD_BASE does not bring keep what the center sheet already has.
-    const keptTargets=indexes.filter(([target,idx])=>idx<0&&target!==costTarget).map(([target])=>target);
+    const keptTargets=indexes.filter(([,idx])=>idx<0).map(([target])=>target);
     const groups={};
     all.filter(r=>r.some(InventoryContract.has)).forEach(r=>{
       const center=String(r[centerIndex]).trim();
       if(!/^\d{4}$/.test(center))throw new Error('Centro inválido en BD_BASE: '+center+' (se requiere un código de cuatro dígitos)');
       const row=Array(SHEET_WIDTH).fill('');indexes.forEach(([target,idx])=>{if(idx>=0)row[target]=r[idx]??'';});
-      if(unitCostIndex<0){
-        const stock=InventoryContract.number(r[stockIndex],'Stock'),value=InventoryContract.number(r[lineValues[0]],'Valor');
-        row[costTarget]=stock>0?Math.round(value/stock*1e6)/1e6:0;
-      }
       const item=rowToObject_(row);if(!item.SKU)throw new Error('SKU vacío en BD_BASE');
       if (!groups[center]) groups[center] = [];
       groups[center].push(rowValues_(item));

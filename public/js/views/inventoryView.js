@@ -690,61 +690,15 @@ window.InventoryView = {
     });
 
     // Form: Agregar Ubicación Adicional Manual
-    document.getElementById('form-add-location')?.addEventListener('submit', async (e) => {
+    document.getElementById('add-loc-overstock-check')?.addEventListener('change', (e) => {
+      const fields = document.getElementById('add-loc-overstock-fields');
+      if (fields) fields.style.display = e.target.checked ? 'block' : 'none';
+      if (e.target.checked) document.getElementById('add-loc-input-overstock')?.focus();
+    });
+
+    document.getElementById('form-add-location')?.addEventListener('submit', (e) => {
       e.preventDefault();
-      if (!this.currentInventory) return;
-
-      const itemId = document.getElementById('add-loc-item-id')?.value;
-      const locInput = document.getElementById('add-loc-input-location');
-      const newLoc = locInput ? locInput.value.trim().toUpperCase() : '';
-
-      if (!newLoc) {
-        window.Toast.warning('Debe especificar la nueva ubicación física adicional.');
-        if (locInput) locInput.focus();
-        return;
-      }
-
-      const currentItem = (this.currentInventory.items || []).find(it => it.id === itemId);
-      const sku = currentItem ? currentItem.SKU : '';
-
-      const submitBtn = document.getElementById('btn-submit-add-location');
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Guardando...';
-      }
-
-      try {
-        await window.API.registerCount(this.currentInventory.id, {
-          itemId,
-          sku,
-          location: newLoc,
-          almacen: currentItem?.Almacen || currentItem?.almacen || currentItem?.warehouse || undefined,
-          isNewLocation: true
-        });
-
-        window.Toast.success(`✅ Ubicación adicional '${newLoc}' agregada para ${sku}.`);
-        if (window.ModalHelper) {
-          window.ModalHelper.close('modal-add-location');
-        }
-
-        await this.reloadCurrentInventory();
-
-        setTimeout(() => {
-          const targetRow = document.getElementById(`row-item-${itemId}`) || document.querySelector(`tr[data-sku="${sku}"]`);
-          if (targetRow) {
-            targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            targetRow.classList.add('new-row-highlight');
-            setTimeout(() => targetRow.classList.remove('new-row-highlight'), 3000);
-          }
-        }, 250);
-      } catch (err) {
-        window.Toast.danger(err.message || 'Error al agregar ubicación adicional');
-      } finally {
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Guardar Ubicación Adicional';
-        }
-      }
+      return this.saveAddLocation();
     });
 
     // Submit Inventory for Review & Signature (Firmar y Terminar Conteo)
@@ -1292,7 +1246,7 @@ window.InventoryView = {
                   ` : ''}
 
                   <!-- BOTÓN + PARA AGREGAR UBICACIÓN ADICIONAL (HASTA 2) -->
-                  ${(!item.Ubicacion_1 || !item.Ubicacion_2) ? `
+                  ${(!item.Ubicacion_1 || !item.Ubicacion_2 || window.InventoryContract?.isWeekly(item)) ? `
                     <button
                       type="button"
                       class="btn btn-secondary btn-xs btn-add-loc-plus"
@@ -1482,12 +1436,82 @@ window.InventoryView = {
     this.filterCountTable(document.getElementById('search-count-items')?.value || '');
   },
 
+  async saveAddLocation() {
+    if (!this.currentInventory) return;
+
+    const itemId = document.getElementById('add-loc-item-id')?.value;
+    const locInput = document.getElementById('add-loc-input-location');
+    const newLoc = locInput ? locInput.value.trim().toUpperCase() : '';
+    const overstockInput = document.getElementById('add-loc-input-overstock');
+    const overstockChecked = !!document.getElementById('add-loc-overstock-check')?.checked;
+    const typedOverstock = overstockChecked && overstockInput ? overstockInput.value.trim().toUpperCase() : '';
+
+    const currentItem = (this.currentInventory.items || []).find(it => it.id === itemId);
+    const sku = currentItem ? currentItem.SKU : '';
+
+    if (overstockChecked && !typedOverstock) {
+      window.Toast.warning('Debe especificar la ubicación de sobrestock.');
+      if (overstockInput) overstockInput.focus();
+      return;
+    }
+    // The current value comes filled in: leaving it as it is changes nothing.
+    const overstock = typedOverstock !== String(currentItem?.Sobrestock || '').trim().toUpperCase() ? typedOverstock : '';
+
+    if (!newLoc && !overstock) {
+      window.Toast.warning(typedOverstock ? 'Esa ya es la ubicación de sobrestock de este producto.' : 'Debe especificar la nueva ubicación física adicional.');
+      if (locInput && !locInput.disabled) locInput.focus();
+      return;
+    }
+
+    const submitBtn = document.getElementById('btn-submit-add-location');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Guardando...';
+    }
+
+    try {
+      await window.API.registerCount(this.currentInventory.id, {
+        itemId,
+        sku,
+        location: newLoc,
+        almacen: currentItem?.Almacen || currentItem?.almacen || currentItem?.warehouse || undefined,
+        isNewLocation: true,
+        ...(overstock ? { sobrestock: overstock } : {})
+      });
+
+      window.Toast.success(`✅ ${[newLoc && `Ubicación adicional '${newLoc}'`, overstock && `Sobrestock '${overstock}'`].filter(Boolean).join(' y ')} guardado para ${sku}.`);
+      if (window.ModalHelper) {
+        window.ModalHelper.close('modal-add-location');
+      }
+
+      await this.reloadCurrentInventory();
+
+      setTimeout(() => {
+        const targetRow = document.getElementById(`row-item-${itemId}`) || document.querySelector(`tr[data-sku="${sku}"]`);
+        if (targetRow) {
+          targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          targetRow.classList.add('new-row-highlight');
+          setTimeout(() => targetRow.classList.remove('new-row-highlight'), 3000);
+        }
+      }, 250);
+    } catch (err) {
+      window.Toast.danger(err.message || 'Error al agregar ubicación adicional');
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Guardar Ubicación Adicional';
+      }
+    }
+  },
+
   openAddLocationModal(itemId) {
     if (!this.currentInventory) return;
     const item = (this.currentInventory.items || []).find(it => it.id === itemId);
     if (!item) return;
 
-    if (item.Ubicacion_1 && item.Ubicacion_2) {
+    const weekly = !!window.InventoryContract?.isWeekly(item);
+    const locationsFull = !!(item.Ubicacion_1 && item.Ubicacion_2);
+    if (locationsFull && !weekly) {
       window.Toast.warning('Este producto ya cuenta con el máximo permitido de 2 ubicaciones adicionales (Columnas E y F).');
       return;
     }
@@ -1507,13 +1531,34 @@ window.InventoryView = {
       skuDisplay.textContent = `${item.SKU} (Ubic. Principal: ${item.Ubicacion || 'S/U'}${existingExtras ? ' | ' + existingExtras : ''})`;
     }
     if (descDisplay) descDisplay.textContent = item.Descripcion || '';
-    if (locInput) locInput.value = '';
+    if (locInput) {
+      locInput.value = '';
+      locInput.disabled = locationsFull;
+      locInput.placeholder = locationsFull ? 'Ya tiene 2 ubicaciones adicionales' : 'Ej: RACK-A2-05 o EST-01';
+    }
+
+    // Only weekly sheets have the overstock column.
+    const overstockRow = document.getElementById('add-loc-overstock-row');
+    const overstockCheck = document.getElementById('add-loc-overstock-check');
+    const overstockFields = document.getElementById('add-loc-overstock-fields');
+    const overstockInput = document.getElementById('add-loc-input-overstock');
+    const overstockHint = document.getElementById('add-loc-overstock-hint');
+    if (overstockRow) overstockRow.style.display = weekly ? 'block' : 'none';
+    if (overstockCheck) overstockCheck.checked = weekly && locationsFull;
+    if (overstockFields) overstockFields.style.display = weekly && locationsFull ? 'block' : 'none';
+    if (overstockInput) overstockInput.value = item.Sobrestock || '';
+    if (overstockHint) {
+      overstockHint.textContent = item.Sobrestock
+        ? `Actual: ${item.Sobrestock}. Si escribe otra, la reemplaza en la columna de sobrestock. No cuenta para el ERU.`
+        : 'Se guardará en la columna de sobrestock del centro. No cuenta para el ERU.';
+    }
 
     if (window.ModalHelper) {
       window.ModalHelper.open('modal-add-location');
     }
     setTimeout(() => {
-      if (locInput) locInput.focus();
+      if (locationsFull) overstockInput?.focus();
+      else if (locInput) locInput.focus();
     }, 150);
   },
 

@@ -2247,11 +2247,29 @@
               class="form-input"
               placeholder="Ej: RACK-A2-05 o EST-01"
               style="text-transform: uppercase; font-weight: 800; font-size: 1rem; height: 44px;"
-              required
             />
             <small style="color: var(--text-dim); display: block; margin-top: 4px; font-size: 0.78rem;">
               Se guardará en la <strong>Columna E</strong> (Ubicación 1) o <strong>Columna F</strong> (Ubicación 2) de este mismo producto, sin crear filas duplicadas ni conteos paralelos.
             </small>
+          </div>
+
+          <div id="add-loc-overstock-row" style="display: none; margin-bottom: 0.5rem;">
+            <label for="add-loc-overstock-check" style="display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--text-dim); cursor: pointer;">
+              <input type="checkbox" id="add-loc-overstock-check"> Ubicación de sobrestock
+            </label>
+            <div class="form-group" id="add-loc-overstock-fields" style="display: none; margin-top: 0.6rem;">
+              <label class="form-label" for="add-loc-input-overstock">
+                <i class="fa-solid fa-boxes-stacked" style="color: #fbbf24;"></i> Ubicación de Sobrestock *
+              </label>
+              <input
+                type="text"
+                id="add-loc-input-overstock"
+                class="form-input"
+                placeholder="Ej: 2A01AREA50"
+                style="text-transform: uppercase; font-weight: 800; font-size: 1rem; height: 44px;"
+              />
+              <small id="add-loc-overstock-hint" style="color: var(--text-dim); display: block; margin-top: 4px; font-size: 0.78rem;"></small>
+            </div>
           </div>
 
           <div class="modal-footer" style="padding: 1rem 0 0 0; display: flex; justify-content: flex-end; gap: 0.5rem;">

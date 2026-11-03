@@ -164,7 +164,27 @@ for (const script of ['InventoryWebhookSemanales.gs', 'produccion/InventoryWebho
     grid[0][12]='Total Conteo';
     assert.throws(()=>context.validateHeaders_(sheet), /columna 13/);
   });
+
+  test(`${script}: the add-location window writes Sobrestock (G) and Stock Sistema (L) stays`, () => {
+    const {context,grid,writes} = scriptContext(base(), script);
+    const result = context.upsertCount_({schemaVersion:contract.weeklyVersion, center:'1120',sku:'SKU1',almacen:'A',location:L1,
+      ubicacion1:L2,ubicacion2:'',sobrestock:'1a00area20'});
+    assert.equal(result.item.Sobrestock, '1A00AREA20');
+    assert.equal(grid[1][6], '1A00AREA20', 'G: Sobrestock written');
+    assert.equal(grid[1][4], L2, 'E: Ubicación 1 written');
+    assert.equal(grid[1][11], 10, 'L: Stock Sistema unchanged');
+    assert.ok(writes.every(w => w.column === 7 || w.column + w.width - 1 < 7 || w.column > 12), 'Only G is touched in G..L');
+  });
 }
+
+test('an overstock location cannot repeat a location of the item, and it does not change the ERU', () => {
+  const item = base();
+  const updated = contract.update(item, {sobrestock:'9z99999z99'});
+  assert.equal(updated.Sobrestock, '9Z99999Z99');
+  assert.equal(contract.locationScore(updated), 1);
+  assert.throws(() => contract.update(item, {sobrestock:L1}), /ya está registrada/);
+  assert.equal(contract.update(contract.normalize({SKU:'C',Almacen:'A',Ubicacion:L1,Stock_Sistema:1,Costo_Unitario:1}), {sobrestock:'9Z99999Z99'}).Sobrestock, undefined, 'Cyclic rows have no such column');
+});
 
 function metricsService(items) {
   const module = {exports:{}};

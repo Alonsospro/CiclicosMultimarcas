@@ -175,6 +175,11 @@ const InventoryContract = (() => {
     }
     const locations=[r.Ubicacion,r.Ubicacion_1,r.Ubicacion_2].filter(has).map(identity);
     if(new Set(locations).size!==locations.length)throw new Error('Ubicaciones duplicadas');
+    if(isWeekly(r)&&has(p.sobrestock)){
+      const overstock=String(p.sobrestock).trim().toUpperCase();
+      if(locations.includes(overstock))throw new Error('La ubicación de sobrestock ya está registrada como ubicación del ítem');
+      r.Sobrestock=overstock;
+    }
     const justification=p.action==='saveJustification'||[p.isCuadra,p.corroboracion,p.corroboration,p.estadoJustificacion,p.estadoJustificacion2].some(has);
     let resolved=false;
     if(justification){
