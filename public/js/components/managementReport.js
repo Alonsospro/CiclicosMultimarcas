@@ -34,6 +34,10 @@
   const hbar = (value, max, size, color, label) => `<div class="mr-ibar"><i style="width:${width(value, max, size)}px;background:${color}"></i>${label}</div>`;
   const RED = '#c9373f', BLUE = '#2a78d6', AMBER = '#eda100', GRAY = '#b7c0ce', NAVY = '#17305f';
   const sum = (list, getter) => list.reduce((total, item) => total + num(getter(item)), 0);
+  const share = (value, total) => {
+    const part = total ? num(value) / total * 100 : 0;
+    return part > 0 && part < 1 ? '<1%' : `${Math.round(part)}%`;
+  };
 
   // A center's numbers, always derived from its quantities.
   function indicators(group) {
@@ -147,11 +151,7 @@
   }
   const topTable = (list, helpers, color, total, sign) => {
     const max = Math.max(...list.map(helpers.cost), 1);
-    let running = 0;
-    return `<table data-split class="mr-diff"><thead><tr><th>Código</th><th>Alm.</th><th class="num">Sist.</th><th class="num">Físico</th><th class="num">Dif.</th><th>Bs</th><th class="num">Acum.</th><th>Motivo</th></tr></thead><tbody>${list.map(item => {
-      running += helpers.cost(item);
-      return `<tr><td>${esc(item.sku)}</td><td>${esc(item.almacen)}</td><td class="num">${qty(item.stockSistema)}</td><td class="num">${qty(physical(item, helpers.final))}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), max, 58, color, qty(helpers.cost(item)))}</td><td class="num">${total ? Math.round(running / total * 100) : 0}%</td><td>${esc(justification(item))}</td></tr>`;
-    }).join('') || '<tr><td colspan="8">Sin registros.</td></tr>'}</tbody></table>`;
+    return `<table data-split class="mr-diff"><thead><tr><th>Código</th><th>Alm.</th><th class="num">Sist.</th><th class="num">Físico</th><th class="num">Dif.</th><th>Bs</th><th class="num">% del total</th><th>Motivo</th></tr></thead><tbody>${list.map(item => `<tr><td>${esc(item.sku)}</td><td>${esc(item.almacen)}</td><td class="num">${qty(item.stockSistema)}</td><td class="num">${qty(physical(item, helpers.final))}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), max, 58, color, qty(helpers.cost(item)))}</td><td class="num">${esc(share(helpers.cost(item), total))}</td><td>${esc(justification(item))}</td></tr>`).join('') || '<tr><td colspan="8">Sin registros.</td></tr>'}</tbody></table>`;
   };
   const annexTable = (list, helpers, color, sign, emptyText) => {
     const max = Math.max(...list.map(helpers.cost), 1);
@@ -390,8 +390,7 @@
     const ranked = (side, color, noun) => {
       const rows = centers.slice().sort((a, b) => b[side].cost - a[side].cost);
       const top = sum(rows.slice(0, 3), c => c[side].cost), all = total[side].cost;
-      let running = 0;
-      return panel(`${noun}: ${bs(all)} · 3 centros concentran ${all ? Math.round(top / all * 100) : 0}%`, `<table data-split><thead><tr><th>Centro</th><th>Bs</th><th class="num">Líneas</th><th class="num">Unid.</th><th class="num">Acum.</th></tr></thead><tbody>${rows.map((c, index) => { running += c[side].cost; return `<tr><td class="${index < 3 ? 'mr-strong' : ''}">${esc(c.center)}</td><td>${hbar(c[side].cost, Math.max(rows[0][side].cost, 1), 215, index < 3 ? color : GRAY, qty(c[side].cost))}</td><td class="num">${qty(c[side].lines)}</td><td class="num">${qty(c[side].units)}</td><td class="num">${all ? Math.round(running / all * 100) : 0}%</td></tr>`; }).join('')}</tbody></table>`);
+      return panel(`${noun}: ${bs(all)} · 3 centros concentran ${all ? Math.round(top / all * 100) : 0}%`, `<table data-split><thead><tr><th>Centro</th><th>Bs</th><th class="num">Líneas</th><th class="num">Unid.</th><th class="num">% del total</th></tr></thead><tbody>${rows.map((c, index) => `<tr><td class="${index < 3 ? 'mr-strong' : ''}">${esc(c.center)}</td><td>${hbar(c[side].cost, Math.max(rows[0][side].cost, 1), 215, index < 3 ? color : GRAY, qty(c[side].cost))}</td><td class="num">${qty(c[side].lines)}</td><td class="num">${qty(c[side].units)}</td><td class="num">${esc(share(c[side].cost, all))}</td></tr>`).join('')}</tbody></table>`);
     };
     const classRows = side => centers.slice().sort((a, b) => b[side].cost - a[side].cost).slice(0, 5).map(c => ({ name: c.name, cells: Object.fromEntries(c.byClass.map(g => [g.name, { [side]: g[side].cost }])) }));
     const page3 = sheet('Faltantes y sobrantes por centro', 'Se muestran por separado', `

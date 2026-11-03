@@ -202,6 +202,20 @@ test('consolidated report is its own document, compares centers and lists those 
   assert.equal(totalUnits, metrics.summary.totalAuditedSystemUnits);
 });
 
+test('each center shows its own share of the shortages, not a running total', async () => {
+  const short = (sku, cost) => line(sku, { Stock_Fisico: 9, Stock_Total: 9, Diferencia: -1, Costo_Unitario: cost });
+  const metrics = await load([
+    inventory('INV-1160-1', '1160', [short('A', 600)]),
+    inventory('INV-1120-1', '1120', [short('B', 400)]),
+    inventory('INV-5100-1', '5100', [short('C', 1)])
+  ]);
+  const html = report.render({ name: 'Corte' }, metrics);
+  const panel = html.slice(html.indexOf('Faltantes: '), html.indexOf('Sobrantes: '));
+  assert.deepEqual([...panel.matchAll(/<td class="num">([^<]*%)<\/td><\/tr>/g)].map(match => match[1]), ['60%', '40%', '&lt;1%']);
+  assert.match(panel, /3 centros concentran 100%/);
+  assert.doesNotMatch(html, /Acum\./);
+});
+
 test('a selected center reports no pending centers and history uses real quantities', async () => {
   const older = inventory('INV-1160-0', '1160', [line('A', { Stock_Sistema: 100, Stock_Fisico: 90, Stock_Total: 90, Diferencia: -10 })], '2026-09-01');
   const metrics = await load([older, mixedCenter()], { center: '1160' });
