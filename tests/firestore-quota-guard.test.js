@@ -6,7 +6,6 @@ const vm = require('node:vm');
 const CloudFileStore = require('../src/services/cloudFileStore');
 const FirestoreUsage = require('../src/services/firestoreUsage');
 const createPersistenceMiddleware = require('../src/services/persistenceMiddleware');
-const createHeavyReadLimiter = require('../src/middlewares/quotaGuardMiddleware');
 
 const usersId = Buffer.from('users.json').toString('base64url');
 
@@ -265,7 +264,7 @@ test('usage levels follow the larger of reads and writes and reset with the quot
   usage.addReads(70);
   assert.equal(usage.level(), 'warning');
   usage.addWrites(90);
-  assert.equal(usage.level(), 'protect');
+  assert.equal(usage.level(), 'critical');
   usage.level();
   assert.equal(warnings.length, 2, 'each level is logged once');
   clock = Date.parse('2026-11-03T00:00:01-08:00');
@@ -305,52 +304,52 @@ test('usage reports are throttled, and invalid quota settings fall back to the f
   assert.equal(usage.shouldReport(), true);
 });
 
-test('protection lengthens the control window and serves the cache instead of a full read', async () => {
+test('reaching the quota never delays reads or skips the reconciliation', async () => {
   const f = fixture(), writer = f.store();
-  const usage = { level: () => 'protect' };
-  const reader = f.store({ usage });
+  const reader = f.store({ usage: { level: () => 'critical' } });
   await reader.readConfirmedSnapshot();
   for (let index = 0; index < 26; index++) await save(writer, 'one', { count: index });
-  const fullReads = f.calls.all, controlReads = f.calls.control;
-  f.advance(30000);
+  const fullReads = f.calls.all;
+  f.advance(10000);
+  const fresh = await reader.readConfirmedSnapshot();
+  assert.equal(fresh.files.get('inventories/one.json').value.count, 25, 'the normal 10 s window still applies');
+  assert.equal(f.calls.all, fullReads + 1);
+  f.advance(6 * 60 * 60000);
   await reader.readConfirmedSnapshot();
-  assert.equal(f.calls.control, controlReads, 'the window is 60 s in protection');
-  f.advance(30000);
-  const served = await reader.readConfirmedSnapshot();
-  assert.equal(served.files.has('inventories/one.json'), false);
-  assert.equal(f.calls.all, fullReads, 'no full read while the cache is recent');
-  f.advance(15 * 60000);
-  const refreshed = await reader.readConfirmedSnapshot();
-  assert.equal(refreshed.files.get('inventories/one.json').value.count, 25, 'data is never older than the limit');
+  assert.equal(f.calls.all, fullReads + 2, 'the 6 h reconciliation still runs');
 });
 
-test('protection still honours a client revision', async () => {
-  const f = fixture(), writer = f.store();
-  const reader = f.store({ usage: { level: () => 'protect' } });
-  await reader.readConfirmedSnapshot();
-  for (let index = 0; index < 26; index++) await save(writer, 'one', { count: index });
-  const snapshot = await reader.readConfirmedSnapshot({ minRevision: writer.state.revision });
-  assert.equal(snapshot.files.get('inventories/one.json').value.count, 25);
+test('no route pauses work because of the quota', () => {
+  const routes = fs.readFileSync(path.join(__dirname, '../src/routes/dashboardRoutes.js'), 'utf8');
+  assert.doesNotMatch(routes, /limitHeavyReads|quotaGuard/);
+  assert.equal(fs.existsSync(path.join(__dirname, '../src/middlewares/quotaGuardMiddleware.js')), false);
+  assert.match(routes, /router\.get\('\/usage', authenticate, requireSuperadminAlonso,/);
 });
 
-test('the limiter pauses only heavy work and only under protection', () => {
-  const run = (level, req) => {
-    let nextCalled = false, status = null, body = null;
-    const res = { status(code) { status = code; return this; }, json(value) { body = value; return this; } };
-    createHeavyReadLimiter({ level: () => level })(req, res, () => { nextCalled = true; });
-    return { nextCalled, status, body };
+test('the usage indicator is only for the superadministrator and shows the estimate', async () => {
+  const elements = {
+    'btn-firestore-usage': { title: '', classList: { state: {}, toggle(name, on) { this.state[name] = on; } } },
+    'firestore-usage-text': { textContent: '' }
   };
-  assert.equal(run('warning', { method: 'POST', query: {} }).nextCalled, true);
-  const blocked = run('protect', { method: 'POST', query: {} });
-  assert.equal(blocked.nextCalled, false);
-  assert.equal(blocked.status, 429);
-  assert.equal(blocked.body.code, 'FIRESTORE_QUOTA_PROTECTION');
-  const query = { refresh: 'true', recalculate: '1', center: '1120' };
-  assert.equal(run('protect', { method: 'GET', query }).nextCalled, true);
-  assert.deepEqual(query, { center: '1120' });
-  const untouched = { refresh: 'true' };
-  run('normal', { method: 'GET', query: untouched });
-  assert.deepEqual(untouched, { refresh: 'true' });
+  let requests = 0, allowed = false;
+  const usage = { reads: 45000, readQuota: 50000, readPercent: 90, writes: 1000, writeQuota: 20000, writePercent: 5, level: 'critical' };
+  const window = {
+    Auth: { isSuperadminAlonso: () => allowed },
+    API: { getFirestoreUsage: async () => { requests++; return { usage }; } }
+  };
+  const source = fs.readFileSync(path.join(__dirname, '../public/js/components/firestoreUsageIndicator.js'), 'utf8');
+  assert.doesNotMatch(source, /setInterval|setTimeout|onSnapshot/);
+  vm.runInNewContext(source, { window, document: { getElementById: id => elements[id] } });
+  await window.FirestoreUsageIndicator.load();
+  assert.equal(requests, 0, 'other users do not spend a request');
+  allowed = true;
+  await window.FirestoreUsageIndicator.load();
+  assert.equal(elements['firestore-usage-text'].textContent, 'Lect. 90% · Escr. 5%');
+  assert.equal(elements['btn-firestore-usage'].classList.state['is-critical'], true);
+  window.API.getFirestoreUsage = async () => { throw new Error('offline'); };
+  await window.FirestoreUsageIndicator.load();
+  assert.equal(elements['firestore-usage-text'].textContent, 'Firestore: sin datos');
+  assert.equal(elements['btn-firestore-usage'].classList.state['is-critical'], false);
 });
 
 test('HTTP flow exposes revisions, reads own writes and avoids reloads on rejected requests', async t => {
@@ -396,16 +395,18 @@ test('HTTP flow exposes revisions, reads own writes and avoids reloads on reject
   assert.deepEqual(await afterRollback.json(), { count: 7 });
 });
 
-test('the browser client sends its newest revision on reads only and warns administrators once', async () => {
+test('the browser client sends its newest revision on reads only and warns only the superadministrator once', async () => {
   const toasts = [];
+  let superadmin = true;
   const requests = [];
   const responses = [
     { 'x-sync-revision': '12' },
     { 'x-read-snapshot': '0:15', 'x-firestore-usage': 'warning' },
-    { 'x-firestore-usage': 'warning' }
+    { 'x-firestore-usage': 'warning' },
+    { 'x-firestore-usage': 'critical' }
   ];
   const context = vm.createContext({
-    window: { AppConfig: { apiBaseUrl: '/api', storageTokenKey: 'token' }, Auth: { currentUser: { role: 'ADMIN' } }, Toast: { warning: message => toasts.push(message) } },
+    window: { AppConfig: { apiBaseUrl: '/api', storageTokenKey: 'token' }, Auth: { isSuperadminAlonso: () => superadmin }, Toast: { warning: message => toasts.push(message) } },
     localStorage: { getItem: () => null },
     FormData: class {},
     AbortSignal,
@@ -427,4 +428,7 @@ test('the browser client sends its newest revision on reads only and warns admin
   await api.request('/other', { method: 'POST' });
   assert.equal(requests[2].headers['X-Min-Revision'], undefined);
   assert.equal(toasts.length, 1, 'the same level does not repeat the warning');
+  superadmin = false;
+  await api.request('/another');
+  assert.equal(toasts.length, 1, 'other users, including administrators, see no warning');
 });

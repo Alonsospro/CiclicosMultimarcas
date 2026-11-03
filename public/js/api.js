@@ -16,10 +16,10 @@ window.API = {
     const level = response.headers.get('x-firestore-usage') || 'normal';
     if (level === this.usageLevel) return;
     this.usageLevel = level;
-    const user = window.Auth?.currentUser;
-    if (!user || !(user.role === 'ADMIN' || user.isSuperadmin)) return;
-    if (level === 'warning') window.Toast?.warning('Se usó más del 70% de la cuota diaria estimada de Firestore.', 12000);
-    if (level === 'protect') window.Toast?.warning('Se usó más del 90% de la cuota diaria estimada de Firestore: el recálculo queda en pausa y algunas vistas pueden tardar hasta 15 minutos en actualizarse. Los conteos siguen funcionando.', 15000);
+    if (!window.Auth?.isSuperadminAlonso?.()) return;
+    if (level === 'warning') window.Toast?.warning('Se usó más del 70% de la cuota gratuita diaria estimada de Firestore.', 12000);
+    if (level === 'critical') window.Toast?.warning('Se usó más del 90% de la cuota gratuita diaria estimada de Firestore. La app sigue funcionando; lo que supere la cuota se cobra en Google Cloud.', 15000);
+    window.FirestoreUsageIndicator?.load();
   },
 
   async request(endpoint, options = {}) {
@@ -345,6 +345,10 @@ window.API = {
       method: 'POST',
       body: JSON.stringify(payload)
     });
+  },
+
+  getFirestoreUsage() {
+    return this.request('/dashboard/usage');
   },
 
   enableSecondRecount(inventoryId) {

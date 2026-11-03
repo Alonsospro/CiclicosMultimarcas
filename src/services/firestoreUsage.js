@@ -1,4 +1,5 @@
 // Estimated daily Firestore consumption shared between instances through the control document.
+// It only informs: reaching a quota never pauses or degrades the app.
 // Firestore free quotas reset at midnight Pacific time, so the counter uses that same day.
 const DEFAULT_READ_QUOTA = 50000;
 const DEFAULT_WRITE_QUOTA = 20000;
@@ -13,11 +14,11 @@ const positive = (value, fallback) => {
 const count = value => Math.max(0, Number(value) || 0);
 
 class FirestoreUsage {
-  constructor({ readQuota, writeQuota, warnRatio = 0.7, protectRatio = 0.9, now = () => Date.now(), log = console } = {}) {
+  constructor({ readQuota, writeQuota, warnRatio = 0.7, criticalRatio = 0.9, now = () => Date.now(), log = console } = {}) {
     this.readQuota = positive(readQuota, DEFAULT_READ_QUOTA);
     this.writeQuota = positive(writeQuota, DEFAULT_WRITE_QUOTA);
     this.warnRatio = warnRatio;
-    this.protectRatio = protectRatio;
+    this.criticalRatio = criticalRatio;
     this.now = now;
     this.log = log;
     this.day = null;
@@ -85,8 +86,8 @@ class FirestoreUsage {
   level() {
     const totals = this.totals();
     const ratio = Math.max(totals.reads / this.readQuota, totals.writes / this.writeQuota);
-    const level = ratio >= this.protectRatio ? 'protect' : ratio >= this.warnRatio ? 'warning' : 'normal';
-    const rank = { normal: 0, warning: 1, protect: 2 };
+    const level = ratio >= this.criticalRatio ? 'critical' : ratio >= this.warnRatio ? 'warning' : 'normal';
+    const rank = { normal: 0, warning: 1, critical: 2 };
     if (rank[level] > rank[this.loggedLevel]) {
       this.loggedLevel = level;
       this.log.warn?.(`[firestoreUsage] Consumo diario ${Math.round(ratio * 100)}% (${totals.reads} lecturas, ${totals.writes} escrituras): nivel ${level}.`);

@@ -2251,3 +2251,8 @@ button:active:not(:disabled),
 .progress-history-count.is-single { color:var(--text-dim); font-weight:500; }
 @media (max-width:900px) { .progress-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media (max-width:560px) { .progress-summary { grid-template-columns:1fr 1fr; gap:8px; }.progress-kpi { padding:10px; }.progress-group > header { align-items:flex-start; flex-direction:column; } }
+
+/* Consumo estimado de Firestore (solo superadministrador) */
+.firestore-usage-indicator { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.firestore-usage-indicator.is-warning { color: #f59e0b; border-color: #f59e0b; }
+.firestore-usage-indicator.is-critical { color: #ef4444; border-color: #ef4444; }

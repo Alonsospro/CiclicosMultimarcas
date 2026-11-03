@@ -27,7 +27,7 @@
   <!-- App Stylesheets -->
   <link rel="stylesheet" href="/css/design-tokens.css?v=2.2">
   <link rel="stylesheet" href="/css/layout.css?v=2.2">
-  <link rel="stylesheet" href="/css/components.css?v=2.2">
+  <link rel="stylesheet" href="/css/components.css?v=2.3">
   <link rel="stylesheet" href="/css/responsive.css?v=2.2">
   <link rel="stylesheet" href="/css/liquid-glass.css?v=2.3">
   <link rel="stylesheet" href="/css/counterReliability.css?v=1.0">
@@ -65,6 +65,10 @@
       </nav>
 
       <div class="nav-user-panel">
+        <button class="btn btn-secondary btn-sm firestore-usage-indicator role-alonso-only" id="btn-firestore-usage" style="display: none;" onclick="window.FirestoreUsageIndicator.load()" title="Consumo estimado de Firestore. Clic para actualizar." aria-label="Consumo estimado de Firestore. Clic para actualizar.">
+          <i class="fa-solid fa-database"></i> <span id="firestore-usage-text">Firestore</span>
+        </button>
+
         <button class="btn btn-secondary btn-sm nav-icon-btn" id="btn-gas-health" title="Verificar conexión Google Apps Script (Apps Script Conectado)" aria-label="Verificar conexión Google Apps Script">
           <i class="fa-solid fa-cloud" id="gas-status-icon" style="color: var(--success, #16a34a);"></i>
         </button>
@@ -2914,7 +2918,8 @@
   <script src="/js/components/confirmationModal.js?v=2.2"></script>
   <script src="/js/components/scannerModal.js?v=2.2"></script>
   <script src="/js/components/logoRotator.js?v=2.2"></script>
-  <script src="/js/api.js?v=2.3"></script>
+  <script src="/js/api.js?v=2.4"></script>
+  <script src="/js/components/firestoreUsageIndicator.js?v=1.0"></script>
   <script src="/js/auth.js?v=2.3"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
   <script src="/js/views/inventoryView.js?v=2.4.1"></script>

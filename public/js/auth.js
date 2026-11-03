@@ -145,6 +145,7 @@ window.Auth = {
     document.querySelectorAll('.role-alonso-only').forEach(el => {
       el.style.display = isAlonsoSuperadmin ? '' : 'none';
     });
+    if (isAlonsoSuperadmin) window.FirestoreUsageIndicator?.load();
 
     document.querySelectorAll('.role-inventory-creator-only').forEach(el => {
       el.style.display = canCreateInv ? '' : 'none';

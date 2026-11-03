@@ -1,8 +1,6 @@
 const path = require('path');
 
 const CONTROL_TTL_MS = 10000;
-const PROTECT_CONTROL_TTL_MS = 60000;
-const PROTECT_STALE_MS = 15 * 60000;
 const RECONCILE_MS = 6 * 60 * 60000;
 const MAX_INCREMENTAL_REVISIONS = 25;
 const sameState = (a, b) => !!a && !!b && a.generation === b.generation && a.revision === b.revision;
@@ -61,12 +59,9 @@ class CloudFileStore {
     return control;
   }
 
-  isProtecting() { return this.usage?.level() === 'protect'; }
-
   // At most one control read per window for all read-only requests of this instance.
   async readSharedControl() {
-    const ttl = this.isProtecting() ? Math.max(this.controlTtlMs, PROTECT_CONTROL_TTL_MS) : this.controlTtlMs;
-    if (this.sharedControl && this.now() - this.sharedControl.at < ttl) return this.sharedControl;
+    if (this.sharedControl && this.now() - this.sharedControl.at < this.controlTtlMs) return this.sharedControl;
     if (!this.controlPending) {
       this.controlPending = this.readFreshControl().finally(() => { this.controlPending = null; });
     }
@@ -205,10 +200,8 @@ class CloudFileStore {
     let control = await this.readSharedControl();
     if (control.state.revision < minRevision) control = await this.readFreshControl();
     const cache = this.readCache;
-    const protecting = this.isProtecting();
-    const reconcile = !!cache && !protecting && this.now() - cache.fullAt >= RECONCILE_MS;
+    const reconcile = !!cache && this.now() - cache.fullAt >= RECONCILE_MS;
     if (cache && !reconcile && cache.state.revision >= control.state.revision) return cache;
-    if (cache && protecting && cache.state.revision >= minRevision && this.now() - cache.loadedAt < PROTECT_STALE_MS && !this.canReadIncrementally(cache, control)) return cache;
     if (!this.snapshotPending) {
       this.snapshotPending = this.loadConfirmed(reconcile ? null : cache, control)
         .then(snapshot => { this.publishSnapshot(snapshot); return snapshot; })
