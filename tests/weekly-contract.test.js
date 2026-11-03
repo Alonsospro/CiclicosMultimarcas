@@ -177,6 +177,77 @@ for (const script of ['InventoryWebhookSemanales.gs', 'produccion/InventoryWebho
   });
 }
 
+function cleanupContext({answer, button = 'OK', confirm = 'YES', headers = contract.weeklyHeaders.slice()}) {
+  const context = vm.createContext({console, Date});
+  vm.runInContext(fs.readFileSync(path.join(root,'integrations/apps-script/produccion/InventoryWebhookSemanales.gs'),'utf8'), context);
+  const row = contract.weeklyColumns.map(key => base()[key] ?? '');
+  const tab = (name, grid) => ({
+    grid, getName:()=>name, getMaxColumns:()=>44, getLastRow:()=>grid.length,
+    getRange(rowIndex, column, height=1, width=1) {
+      return {getDisplayValues:()=>grid.slice(rowIndex-1,rowIndex-1+height).map(r=>r.slice(column-1,column-1+width).map(String)),
+        clearContent(){for(let i=rowIndex-1;i<rowIndex-1+height;i++)for(let j=column-1;j<column-1+width;j++)grid[i][j]='';}};
+    }
+  });
+  const sheets = [
+    tab('1120',[headers.slice(),row.slice(),row.slice()]),
+    tab('1160',[contract.weeklyHeaders.slice(),row.slice()]),
+    tab('BD_BASE',[['codigo'],['SKU1']]),
+    tab('_NIBOL_SYNC',[['Operacion'],['op-1']])
+  ];
+  const alerts = [];
+  const ui = {
+    ButtonSet:{OK_CANCEL:'OK_CANCEL',YES_NO:'YES_NO'}, Button:{OK:'OK',YES:'YES'},
+    prompt:()=>({getSelectedButton:()=>button,getResponseText:()=>answer}),
+    alert(...args){alerts.push(args);return args.length>1?confirm:'OK';}
+  };
+  let released = 0;
+  context.SpreadsheetApp = {getUi:()=>ui,flush(){}};
+  context.LockService = {getScriptLock:()=>({waitLock(){},releaseLock(){released++;}})};
+  context.spreadsheet_ = () => ({getSheets:()=>sheets});
+  return {context, sheets, alerts, released:()=>released};
+}
+const hasData = tab => tab.grid.slice(1).some(r => r.some(v => v !== ''));
+
+test('cleanup of one center erases its rows and keeps headers and every other tab', () => {
+  const {context,sheets,alerts,released} = cleanupContext({answer:' 1120 '});
+  context.limpiarHojasCentros();
+  assert.equal(hasData(sheets[0]), false, '1120 rows erased');
+  assert.deepEqual(sheets[0].grid[0], contract.weeklyHeaders, 'Headers preserved');
+  assert.equal(hasData(sheets[1]), true, '1160 untouched');
+  assert.equal(sheets[2].grid[1][0], 'SKU1', 'BD_BASE untouched');
+  assert.equal(sheets[3].grid[1][0], 'op-1', 'Hidden sync tab untouched');
+  assert.match(alerts[0][1], /1120/);
+  assert.match(alerts[1][0], /Filas borradas: 2/);
+  assert.equal(released(), 1);
+});
+
+test('cleanup with TODOS erases only the center tabs', () => {
+  const {context,sheets} = cleanupContext({answer:'todos'});
+  context.limpiarHojasCentros();
+  assert.equal(hasData(sheets[0]), false);
+  assert.equal(hasData(sheets[1]), false);
+  assert.equal(sheets[2].grid[1][0], 'SKU1');
+  assert.equal(sheets[3].grid[1][0], 'op-1');
+});
+
+test('cleanup erases nothing when cancelled, unconfirmed, invalid or with unexpected headers', () => {
+  const headers = contract.weeklyHeaders.slice(); headers[12] = 'Total Conteo';
+  const untouched = sheets => assert.ok(hasData(sheets[0]) && hasData(sheets[1]));
+  let f = cleanupContext({answer:'1120', button:'CANCEL'});
+  f.context.limpiarHojasCentros(); untouched(f.sheets);
+  f = cleanupContext({answer:'1120', confirm:'NO'});
+  f.context.limpiarHojasCentros(); untouched(f.sheets);
+  for (const answer of ['', 'BD_BASE', '_NIBOL_SYNC']) {
+    f = cleanupContext({answer});
+    assert.throws(()=>f.context.limpiarHojasCentros(), /cuatro dígitos/); untouched(f.sheets);
+  }
+  f = cleanupContext({answer:'9999'});
+  assert.throws(()=>f.context.limpiarHojasCentros(), /No existe la pestaña/); untouched(f.sheets);
+  f = cleanupContext({answer:'TODOS', headers});
+  assert.throws(()=>f.context.limpiarHojasCentros(), /Encabezado inesperado en 1120/); untouched(f.sheets);
+  assert.equal(f.alerts.length, 0, 'Stops before asking for confirmation');
+});
+
 test('an overstock location cannot repeat a location of the item, and it does not change the ERU', () => {
   const item = base();
   const updated = contract.update(item, {sobrestock:'9z99999z99'});

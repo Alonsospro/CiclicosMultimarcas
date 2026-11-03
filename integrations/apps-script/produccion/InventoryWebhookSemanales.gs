@@ -348,7 +348,8 @@ const COL = Object.fromEntries(SHEET_COLUMNS.map((key,index)=>[key,index+1]));
 function onOpen(){
   SpreadsheetApp.getUi().createMenu('📦 Inventarios')
     .addItem('Actualizar maestros desde BD_BASE (conservar conteos)','distribuirBaseACentros')
-    .addItem('Verificar columnas','asegurarTodasLasColumnas').addToUi();
+    .addItem('Verificar columnas','asegurarTodasLasColumnas')
+    .addItem('Limpiar hojas de centros (borra filas)','limpiarHojasCentros').addToUi();
 }
 function json_(data){return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(ContentService.MimeType.JSON);}
 function property_(key){return PropertiesService.getScriptProperties().getProperty(key);}
@@ -812,6 +813,38 @@ function asegurarTodasLasColumnas(){
   try{spreadsheet_().getSheets().filter(s=>/^\d{4}$/.test(s.getName())).forEach(ensureColumns_);SpreadsheetApp.flush();}
   finally{lock.releaseLock();}
   SpreadsheetApp.getUi().alert('Columnas verificadas. No se reordenaron ni sobrescribieron datos.');
+}
+// Only center tabs (four digits) qualify, so BD_BASE and the hidden tabs can never be selected.
+function centerSheetsToClean_(ss,answer){
+  const choice=String(answer||'').trim().toUpperCase();
+  const centers=ss.getSheets().filter(s=>/^\d{4}$/.test(s.getName()));
+  if(choice==='TODOS'){if(!centers.length)throw new Error('No hay pestañas de centro para limpiar');return centers;}
+  if(!/^\d{4}$/.test(choice))throw new Error('Escriba un código de centro de cuatro dígitos o TODOS');
+  const selected=centers.filter(s=>s.getName()===choice);
+  if(!selected.length)throw new Error('No existe la pestaña del centro '+choice);
+  return selected;
+}
+function limpiarHojasCentros(){
+  const ui=SpreadsheetApp.getUi(),ss=spreadsheet_();
+  const asked=ui.prompt('Limpiar hojas de centros','Escriba el código del centro (ej. 1120) o TODOS.',ui.ButtonSet.OK_CANCEL);
+  if(asked.getSelectedButton()!==ui.Button.OK)return;
+  const sheets=centerSheetsToClean_(ss,asked.getResponseText());
+  // Validate every tab before any write: a tab with other headers stops the cleanup untouched.
+  sheets.forEach(validateHeaders_);
+  const confirmed=ui.alert('Confirmar limpieza','Se borrarán todas las filas desde la fila 2 de: '+sheets.map(s=>s.getName()).join(', ')+'.\n'
+    +'Se conservan encabezados y formato. BD_BASE y las pestañas ocultas no se tocan.\n'
+    +'Hágalo solo si esos centros no tienen un inventario semanal abierto: los conteos pendientes de llegar a la hoja ya no encontrarían su producto.\n\n¿Continuar?',ui.ButtonSet.YES_NO);
+  if(confirmed!==ui.Button.YES)return;
+  const lock=LockService.getScriptLock();lock.waitLock(25000);
+  let cleared=0;
+  try{
+    sheets.forEach(sh=>{
+      const rows=sh.getLastRow()-1;
+      if(rows>0){sh.getRange(2,1,rows,SHEET_WIDTH).clearContent();cleared+=rows;}
+    });
+    SpreadsheetApp.flush();
+  }finally{lock.releaseLock();}
+  ui.alert('Limpieza terminada. Filas borradas: '+cleared+'. Cargue la semana con "Actualizar maestros desde BD_BASE".');
 }
 function distribuirBaseACentros(){
   const lock=LockService.getScriptLock();lock.waitLock(25000);
