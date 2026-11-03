@@ -818,10 +818,10 @@ window.InventoryView = {
     const type = (window.Auth.currentUser?.role === 'AUXILIAR') ? 'TODOS' : (document.getElementById('filter-inv-type')?.value || 'TODOS');
     const center = document.getElementById('filter-inv-center')?.value || 'TODOS';
 
-    const tbody = document.getElementById('tbody-inventories');
-    if (!tbody) return;
+    const host = document.getElementById('inventory-groups');
+    if (!host) return;
 
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Cargando inventarios...</td></tr>';
+    host.innerHTML = '<div class="inventory-groups-message" style="text-align:center; padding: 2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Cargando inventarios...</div>';
 
     try {
       const res = await window.API.getInventories({ type, center });
@@ -873,7 +873,7 @@ window.InventoryView = {
       }
 
       if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem; color: var(--text-dim);">No se encontraron inventarios asignados a su usuario.</td></tr>';
+        host.innerHTML = '<div class="inventory-groups-message" style="text-align:center; padding: 2rem; color: var(--text-dim);">No se encontraron inventarios asignados a su usuario.</div>';
         return;
       }
 
@@ -888,21 +888,7 @@ window.InventoryView = {
         FIRMADO: 'Firmado'
       };
 
-      const monthlyList = list.map(inv => ({...inv, creationMonth: this.creationMonth(inv.creationDate || inv.createdAt)}))
-        .sort((a, b) => b.creationMonth.localeCompare(a.creationMonth));
-      let currentMonth = null;
-      tbody.innerHTML = monthlyList.map(inv => {
-        const monthHeader = inv.creationMonth === currentMonth ? '' : `
-          <tr class="inventory-month-row" data-inv-month-header="${inv.creationMonth}">
-            <td colspan="7">
-              <button type="button" class="inventory-month-toggle" aria-expanded="false" onclick="window.InventoryView.toggleInventoryMonth('${inv.creationMonth}')">
-                <i class="fa-solid fa-chevron-right"></i>
-                <span>${this.creationMonthLabel(inv.creationMonth)}</span>
-                <small class="inventory-month-count"></small>
-              </button>
-            </td>
-          </tr>`;
-        currentMonth = inv.creationMonth;
+      const renderRow = inv => {
         const stageCompleted = ['EN_RECONTEO', 'RECONTEO_COMPLETADO', 'PENDIENTE_JUSTIFICACION', 'REVISADO', 'CERRADO', 'FINALIZADO', 'FIRMADO'].includes(String(inv.status || '').toUpperCase());
         const displayedCountedItems = stageCompleted ? inv.totalItems : inv.countedItems;
         const percent = inv.totalItems > 0 ? Math.round((displayedCountedItems / inv.totalItems) * 100) : 0;
@@ -913,8 +899,8 @@ window.InventoryView = {
 
         const safeName = encodeURIComponent(inv.name || inv.id);
 
-        return `${monthHeader}
-          <tr data-inv-id="${inv.id}" data-inv-month="${inv.creationMonth}" data-inv-status="${inv.status || ''}" data-inv-type="${inv.type || ''}" data-inv-center="${inv.center || ''}">
+        return `
+          <tr data-inv-id="${inv.id}" data-inv-counted="${displayedCountedItems}" data-inv-items="${inv.totalItems}" data-inv-status="${inv.status || ''}" data-inv-type="${inv.type || ''}" data-inv-center="${inv.center || ''}">
             <td class="inventory-code" data-label="ID / Código"><strong>${inv.id}</strong></td>
             <td class="inventory-name" data-label="Nombre del inventario"><strong>${inv.name}</strong></td>
             <td class="role-encargado-admin col-inv-type" data-label="Tipo"><span class="badge badge-neutral">${inv.type}</span></td>
@@ -955,12 +941,53 @@ window.InventoryView = {
             </td>
           </tr>
         `;
-      }).join('');
+      };
+      const toggle = (key, title, extra = '') => `
+        <button type="button" class="inv-group-toggle" data-group-key="${key}" aria-expanded="false" onclick="window.InventoryView.toggleInventoryGroup('${key}')">
+          <i class="fa-solid fa-chevron-right"></i>
+          <span class="inv-group-title">${title}${extra}</span>
+          <span class="inv-group-summary"></span>
+        </button>`;
+      const table = section => `
+        <div class="table-responsive inventory-list-container">
+          <table class="data-table inventories-table">
+            <thead>
+              <tr>
+                <th>ID / Código</th>
+                <th>Nombre del Inventario</th>
+                <th class="role-encargado-admin col-inv-type">Tipo</th>
+                <th>Centro</th>
+                <th>Estado</th>
+                <th>Progreso</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>${section.items.map(renderRow).join('')}</tbody>
+          </table>
+        </div>`;
+      const terminationLabel = section => section.termination ? `terminación ${section.termination}` : '';
+      host.innerHTML = window.InventoryGrouping.group(list).map(month => `
+        <section class="inv-month-card" data-group-month="${month.month}">
+          ${toggle(month.month, month.label)}
+          <div class="inv-group-body" hidden>
+            ${month.weeks.map(week => `
+              <article class="inv-week-card" data-group-week="${week.key}">
+                ${toggle(week.key, week.label, week.types.length === 1 && week.types[0].termination ? ` <small>${terminationLabel(week.types[0])}</small>` : '')}
+                <div class="inv-group-body" hidden>
+                  ${week.types.map(section => `
+                    <div class="inv-type-section">
+                      ${week.types.length > 1 ? `<h4 class="inv-type-title">${section.type}${section.termination ? ` <small>${terminationLabel(section)}</small>` : ''}</h4>` : ''}
+                      ${table(section)}
+                    </div>`).join('')}
+                </div>
+              </article>`).join('')}
+          </div>
+        </section>`).join('') + '<div id="inventory-no-results" class="inventory-groups-message" hidden><i class="fa-solid fa-magnifying-glass"></i> No se encontraron inventarios que coincidan con el filtro o búsqueda.</div>';
       window.Auth?.updateUI();
       this.filterInventoryTable(document.getElementById('search-inventory-list')?.value || '');
     } catch (err) {
       console.warn('[InventoryView] Error loading inventories:', err);
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 2rem; color: var(--danger);"><i class="fa-solid fa-triangle-exclamation"></i> Error al cargar inventarios: ${err.message}</td></tr>`;
+      host.innerHTML = `<div class="inventory-groups-message" style="text-align:center; padding: 2rem; color: var(--danger);"><i class="fa-solid fa-triangle-exclamation"></i> Error al cargar inventarios: ${err.message}</div>`;
     }
   },
 
@@ -1645,25 +1672,30 @@ window.InventoryView = {
     this.handleInlineCountChange(itemId);
   },
 
-  // Calendar month in Bolivia, the same rule the server uses for the metrics.
-  creationMonth(value) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''))) return String(value).slice(0, 7);
-    const date = new Date(value);
-    if (!value || !Number.isFinite(date.getTime())) return '';
-    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit' }).format(date);
-  },
-
-  creationMonthLabel(month) {
-    const names = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-    const [year, number] = String(month || '').split('-');
-    return number ? `${names[Number(number) - 1]} ${year}` : 'Sin fecha de creación';
-  },
-
-  toggleInventoryMonth(month) {
-    const header = document.querySelector(`#tbody-inventories tr[data-inv-month-header="${month}"] .inventory-month-toggle`);
-    this.inventoryMonthState = this.inventoryMonthState || new Map();
-    this.inventoryMonthState.set(month, header?.getAttribute('aria-expanded') !== 'true');
+  toggleInventoryGroup(key) {
+    const button = [...document.querySelectorAll('#inventory-groups .inv-group-toggle')].find(item => item.dataset.groupKey === key);
+    this.inventoryGroupState = this.inventoryGroupState || new Map();
+    this.inventoryGroupState.set(key, button?.getAttribute('aria-expanded') !== 'true');
     this.filterInventoryTable();
+  },
+
+  renderGroupSummary(card, rows) {
+    const summary = window.InventoryGrouping.summarize(rows.map(row => ({
+      status: row.dataset.invStatus, counted: row.dataset.invCounted, items: row.dataset.invItems })));
+    const chip = (count, cls, label) => count ? `<span class="inv-chip ${cls}">${count} ${label}</span>` : '';
+    const target = card.querySelector(':scope > .inv-group-toggle .inv-group-summary');
+    if (target) target.innerHTML = `<span class="inv-chip">${summary.total} inventario${summary.total === 1 ? '' : 's'}</span>`
+      + chip(summary.progress, 'is-progress', 'en curso') + chip(summary.review, 'is-review', 'en justificación')
+      + chip(summary.closed, 'is-closed', summary.closed === 1 ? 'cerrado' : 'cerrados')
+      + (summary.pending ? `<span class="inv-chip">${summary.percent}% contado</span>` : '');
+    return summary;
+  },
+
+  setGroupOpen(card, open) {
+    card.querySelector(':scope > .inv-group-body')?.toggleAttribute('hidden', !open);
+    const toggle = card.querySelector(':scope > .inv-group-toggle');
+    toggle?.setAttribute('aria-expanded', String(open));
+    toggle?.querySelector('i')?.classList.toggle('is-open', open);
   },
 
   filterInventoryTable(term) {
@@ -1671,9 +1703,8 @@ window.InventoryView = {
     const statusSelect = document.getElementById('filter-inv-status');
     const selectedStatusGroup = statusSelect ? statusSelect.value : 'ACTIVOS';
 
-    const rows = document.querySelectorAll('#tbody-inventories tr[data-inv-id]');
+    const rows = document.querySelectorAll('#inventory-groups tr[data-inv-id]');
     let visibleCount = 0;
-    const matchesByMonth = new Map();
 
     rows.forEach(row => {
       const text = row.textContent.toLowerCase();
@@ -1697,47 +1728,38 @@ window.InventoryView = {
       }
 
       const visible = matchesSearch && matchesStatus;
-      row.style.display = 'none';
-      if (visible) {
-        visibleCount++;
-        const month = row.getAttribute('data-inv-month') || '';
-        if (!matchesByMonth.has(month)) matchesByMonth.set(month, []);
-        matchesByMonth.get(month).push(row);
-      }
+      row.style.display = visible ? '' : 'none';
+      if (visible) visibleCount++;
     });
 
-    // The newest month with results opens by itself, a search opens all of them, and a choice made by hand stays.
-    const newestMonth = [...matchesByMonth.keys()].sort().pop();
-    document.querySelectorAll('#tbody-inventories tr[data-inv-month-header]').forEach(header => {
-      const month = header.getAttribute('data-inv-month-header');
-      const matches = matchesByMonth.get(month) || [];
-      const open = filter ? true : (this.inventoryMonthState?.has(month) ? this.inventoryMonthState.get(month) : month === newestMonth);
-      header.style.display = matches.length ? '' : 'none';
-      matches.forEach(row => { row.style.display = open ? '' : 'none'; });
-      const toggle = header.querySelector('.inventory-month-toggle');
-      toggle?.setAttribute('aria-expanded', String(open));
-      toggle?.querySelector('i')?.classList.toggle('is-open', open);
-      const count = header.querySelector('.inventory-month-count');
-      if (count) count.textContent = `${matches.length} inventario${matches.length === 1 ? '' : 's'}`;
+    // Pending work opens by itself, a search opens every match, an auxiliary with few inventories
+    // sees them directly, and a card opened or closed by hand stays that way.
+    const visibleIn = card => [...card.querySelectorAll('tr[data-inv-id]')].filter(row => row.style.display !== 'none');
+    const state = this.inventoryGroupState;
+    const openAll = !!filter || window.Auth?.currentUser?.role === 'AUXILIAR';
+    const isOpen = (key, byDefault) => openAll || (state?.has(key) ? state.get(key) : byDefault);
+    const monthCards = [...document.querySelectorAll('#inventory-groups .inv-month-card')];
+    const monthSummaries = new Map(monthCards.map(card => [card, this.renderGroupSummary(card, visibleIn(card))]));
+    const shownMonths = monthCards.filter(card => monthSummaries.get(card).total > 0);
+    const defaultMonth = shownMonths.find(card => monthSummaries.get(card).pending > 0) || shownMonths[0];
+
+    monthCards.forEach(card => {
+      const summary = monthSummaries.get(card);
+      card.hidden = summary.total === 0;
+      this.setGroupOpen(card, isOpen(card.dataset.groupMonth, card === defaultMonth));
+      const weekCards = [...card.querySelectorAll('.inv-week-card')];
+      const weekSummaries = new Map(weekCards.map(week => [week, this.renderGroupSummary(week, visibleIn(week))]));
+      const newestWeek = weekCards.find(week => weekSummaries.get(week).total > 0);
+      weekCards.forEach(week => {
+        const weekSummary = weekSummaries.get(week);
+        week.hidden = weekSummary.total === 0;
+        this.setGroupOpen(week, isOpen(week.dataset.groupWeek, weekSummary.pending > 0 || (!summary.pending && week === newestWeek)));
+        week.querySelectorAll('.inv-type-section').forEach(section => { section.hidden = visibleIn(section).length === 0; });
+      });
     });
 
-    let noResults = document.getElementById('row-no-inv-results');
-    if (visibleCount === 0 && rows.length > 0) {
-      if (!noResults) {
-        const tbody = document.getElementById('tbody-inventories');
-        if (tbody) {
-          noResults = document.createElement('tr');
-          noResults.id = 'row-no-inv-results';
-          tbody.appendChild(noResults);
-        }
-      }
-      if (noResults) {
-        noResults.innerHTML = `<td colspan="7" style="text-align:center; padding: 2rem; color: var(--text-dim);"><i class="fa-solid fa-magnifying-glass" style="margin-right: 6px;"></i> No se encontraron inventarios que coincidan con el filtro o búsqueda.</td>`;
-        noResults.style.display = '';
-      }
-    } else if (noResults) {
-      noResults.style.display = 'none';
-    }
+    const noResults = document.getElementById('inventory-no-results');
+    if (noResults) noResults.hidden = !(visibleCount === 0 && rows.length > 0);
   },
 
   filterCountTable(term) {

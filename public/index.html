@@ -31,7 +31,7 @@
   <link rel="stylesheet" href="/css/responsive.css?v=2.2">
   <link rel="stylesheet" href="/css/liquid-glass.css?v=2.3">
   <link rel="stylesheet" href="/css/counterReliability.css?v=1.0">
-  <link rel="stylesheet" href="/css/inventory-layout.css?v=2.6">
+  <link rel="stylesheet" href="/css/inventory-layout.css?v=2.7">
   <link rel="stylesheet" href="/css/management-report.css?v=1.0">
   <link rel="stylesheet" href="/css/dashboard-sources.css?v=1.0">
   <link rel="stylesheet" href="/css/weekly-groups.css?v=1.0">
@@ -276,24 +276,7 @@
             </div>
           </div>
 
-          <div class="table-responsive inventory-list-container">
-            <table class="data-table" id="table-inventories">
-              <thead>
-                <tr>
-                  <th>ID / Código</th>
-                  <th>Nombre del Inventario</th>
-                  <th class="role-encargado-admin col-inv-type">Tipo</th>
-                  <th>Centro</th>
-                  <th>Estado</th>
-                  <th>Progreso</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody id="tbody-inventories">
-                <!-- Dynamically rendered -->
-              </tbody>
-            </table>
-          </div>
+          <div id="inventory-groups" class="inventory-groups"></div>
         </div>
       </section>
 
@@ -2923,7 +2906,8 @@
   <script src="/js/components/firestoreUsageIndicator.js?v=1.1"></script>
   <script src="/js/auth.js?v=2.4"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
-  <script src="/js/views/inventoryView.js?v=2.4.2"></script>
+  <script src="/js/inventoryGrouping.js?v=1.0"></script>
+  <script src="/js/views/inventoryView.js?v=2.5.0"></script>
   <script src="/js/views/barridoView.js?v=2.2"></script>
   <script src="/js/views/assignmentsView.js?v=2.2"></script>
   <script src="/js/inventoryContract.js?v=final-sheet-3"></script>
@@ -2934,7 +2918,7 @@
   <script src="/js/components/metricsReportModal.js?v=3.0"></script>
   <script src="/js/components/snapshotManagerModal.js?v=2.2"></script>
   <script src="/js/components/counterReliabilityPanel.js?v=1.0"></script>
-  <script src="/js/views/dashboardView.js?v=creation-month-1"></script>
+  <script src="/js/views/dashboardView.js?v=creation-month-2"></script>
   <script src="/js/views/progressView.js?v=1.0"></script>
   <script src="/js/views/userManagementView.js?v=2.2"></script>
   <script src="/js/app.js?v=2.4"></script>

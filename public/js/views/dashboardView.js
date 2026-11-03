@@ -458,6 +458,10 @@ window.DashboardView = {
     const period = document.getElementById('dash-filter-period')?.value || 'TODO';
     const targetVal = String(selectedId !== undefined && selectedId !== null && selectedId !== '' ? selectedId : (select.value || 'TODOS')).trim();
     const targetValLower = targetVal.toLowerCase();
+    const monthLabels = ['ESTE_MES', 'MES_ESPECIFICO', 'MES_ANTERIOR'].includes(period)
+      ? window.InventoryGrouping.monthWeekLabels(cleanList, inv => inv.groupId || this.getInventoryIdentifier(inv.id || inv.name))
+      : new Map();
+    const weekLabel = suffix => monthLabels.get(String(suffix)) || this.getInventoryWeekLabel(suffix);
 
     // Group items by suffix identifier
     const groupsMap = new Map();
@@ -468,7 +472,7 @@ window.DashboardView = {
         groupsMap.set(key, {
           groupId: key,
           suffix,
-          label: suffix ? this.getInventoryWeekLabel(suffix) : 'Otros inventarios',
+          label: suffix ? weekLabel(suffix) : 'Otros inventarios',
           items: []
         });
       }
@@ -499,7 +503,7 @@ window.DashboardView = {
 
         if (group.suffix) {
           const groupOption = new Option(
-            `📊 Consolidado ${this.getInventoryWeekLabel(group.suffix)} (${group.items.length} inventarios)`,
+            `📊 Consolidado ${weekLabel(group.suffix)} (${group.items.length} inventarios)`,
             `GRUPO:${group.suffix}`
           );
           groupOption.style.fontWeight = 'bold';
