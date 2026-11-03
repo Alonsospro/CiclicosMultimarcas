@@ -42,86 +42,40 @@ window.JustificationsView = {
     // Justification photo upload with immediate Google Drive sync
     const photoZone = document.getElementById('zone-just-photo');
     const photoInput = document.getElementById('input-just-photo-file');
-    const previewImg = document.getElementById('img-just-preview');
-    const statusDiv = document.getElementById('just-photo-status');
 
     photoZone?.addEventListener('click', () => photoInput.click());
 
     photoInput?.addEventListener('change', async (e) => {
-      const rawFiles = Array.from(e.target.files || []);
-      if (!rawFiles.length) return;
-
-      const inventoryId = document.getElementById('just-modal-inv-id')?.value;
-      const sku = document.getElementById('just-modal-sku-input')?.value;
-      const itemId = document.getElementById('just-modal-item-id')?.value || '';
-      const almacen = document.getElementById('just-modal-almacen-input')?.value || '';
-      const task = this.tasks?.find(t => t.inventoryId === inventoryId);
-
-      const center = task ? task.center : (window.Auth.currentUser?.center || '1120');
-      const dateStr = new Date().toISOString().split('T')[0];
-
-      try {
-        if (statusDiv) {
-          statusDiv.style.display = 'block';
-          statusDiv.innerHTML = `<span style="color: var(--primary); display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-spinner fa-spin"></i> Optimizando y subiendo ${rawFiles.length} imagen(es) de forma secuencial...</span>`;
-        }
-        window.Toast.info('Subiendo imagen de justificación a Google Drive...');
-
-        const isSecondJust = !!(this.currentIsSecondJustification || document.getElementById('just-modal-is-second-just')?.value === 'true');
-        const previousPhotos = this.uploadedPhotos || [];
-        const uploadedPhotos = [];
-        for (let index = 0; index < rawFiles.length; index++) {
-        const rawFile = rawFiles[index];
-        if (!rawFile.type.startsWith('image/')) throw new Error(`${rawFile.name}: el archivo no es una imagen válida`);
-        const file = await this.compressImage(rawFile);
-        if (statusDiv) statusDiv.innerHTML = `<span style="color: var(--primary);"><i class="fa-solid fa-spinner fa-spin"></i> Subiendo imagen ${index + 1} de ${rawFiles.length} (${Math.round(file.size / 1024)} KB)...</span>`;
-        const res = await window.API.uploadPhoto(file, {
-          category: 'justificaciones',
-          photoType: 'justificaciones',
-          sku: sku || '',
-          almacen,
-          center: center,
-          date: dateStr,
-          inventoryId: inventoryId || '',
-          itemId,
-          type: task?.type || 'CICLICO',
-          prefix: isSecondJust ? 'JS2' : '',
-          isJustification2: isSecondJust,
-          round: isSecondJust ? 2 : 1,
-          evidenceIndex: previousPhotos.length + index
-        });
-
-        if (res.photo && (res.photo.driveUrl || res.photo.url)) {
-          const driveUrl = res.photo.driveUrl || res.photo.url;
-          const driveFileId = res.photo.driveFileId || '';
-          const previewSrc = res.photo.thumbnailUrl || res.photo.url;
-          const uploadedFileName = res.photo.name || (isSecondJust ? `JS2_${sku}.jpg` : `${sku}.jpg`);
-          uploadedPhotos.push({photoUrl: driveUrl, driveUrl, driveFileId, thumbnailUrl: previewSrc, name: uploadedFileName});
-          const photoUrls = [...previousPhotos, ...uploadedPhotos];
-          this.uploadedPhotos = photoUrls;
-          this.uploadedPhotoUrl = photoUrls[0].photoUrl;
-          this.uploadedDriveUrl = photoUrls[0].driveUrl;
-          this.uploadedDriveFileId = photoUrls[0].driveFileId;
-          document.getElementById('just-photo-url').value = photoUrls[0].photoUrl;
-          document.getElementById('just-photo-urls').value = JSON.stringify(photoUrls);
-          const driveUrlInput = document.getElementById('just-drive-url');
-          if (driveUrlInput) driveUrlInput.value = photoUrls[0].driveUrl;
-          const driveFileIdInput = document.getElementById('just-drive-file-id');
-          if (driveFileIdInput) driveFileIdInput.value = photoUrls[0].driveFileId;
-          previewImg.src = previewSrc;
-          previewImg.style.display = 'block';
-          if (statusDiv) statusDiv.innerHTML = `<div style="color:#22c55e;">${photoUrls.length} foto(s) guardada(s) en Google Drive: ${photoUrls.map((photo, i) => `<a href="${photo.driveUrl}" target="_blank" rel="noopener">Foto ${i + 1}</a>`).join(' · ')}</div>`;
-        }
-        }
-        window.Toast.success(`${uploadedPhotos.length} foto(s) subida(s) a Google Drive`);
-      } catch (err) {
-        if (statusDiv) {
-          statusDiv.style.display = 'block';
-          statusDiv.innerHTML = `<span style="color: var(--danger);"><i class="fa-solid fa-circle-exclamation"></i> Error: ${err.message}</span>`;
-        }
-        window.Toast.danger(err.message || 'Error al subir foto de respaldo a Google Drive');
-      }
+      const files = Array.from(e.target.files || []);
+      // Allows choosing the same file again after an error.
+      e.target.value = '';
+      await this.uploadJustificationPhotos(files);
     });
+
+    const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes('Files');
+    photoZone?.addEventListener('dragover', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      photoZone.classList.add('is-dragging');
+    });
+    photoZone?.addEventListener('dragleave', (e) => {
+      if (!photoZone.contains(e.relatedTarget)) photoZone.classList.remove('is-dragging');
+    });
+    photoZone?.addEventListener('drop', async (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      photoZone.classList.remove('is-dragging');
+      const files = Array.from(e.dataTransfer.files || []);
+      const images = files.filter(file => file.type.startsWith('image/'));
+      if (images.length < files.length) window.Toast.warning(`Se omitieron ${files.length - images.length} archivo(s) que no son imágenes.`);
+      await this.uploadJustificationPhotos(images);
+    });
+    // A file dropped beside the zone must not make the browser leave the page and lose the text being written.
+    const justificationModal = document.getElementById('modal-justification');
+    ['dragover', 'drop'].forEach(name => justificationModal?.addEventListener(name, (e) => {
+      if (hasFiles(e)) e.preventDefault();
+    }));
 
     // Form submit: Save Justification
     document.getElementById('form-submit-justification')?.addEventListener('submit', async (e) => {
@@ -255,6 +209,90 @@ window.JustificationsView = {
         }
       }
     });
+  },
+
+  async uploadJustificationPhotos(rawFiles) {
+    if (!rawFiles.length) return;
+    if (this.uploadingJustificationPhotos) {
+      window.Toast.warning('Espere a que terminen de subirse las fotos en curso.');
+      return;
+    }
+
+    const previewImg = document.getElementById('img-just-preview');
+    const statusDiv = document.getElementById('just-photo-status');
+    const inventoryId = document.getElementById('just-modal-inv-id')?.value;
+    const sku = document.getElementById('just-modal-sku-input')?.value;
+    const itemId = document.getElementById('just-modal-item-id')?.value || '';
+    const almacen = document.getElementById('just-modal-almacen-input')?.value || '';
+    const task = this.tasks?.find(t => t.inventoryId === inventoryId);
+
+    const center = task ? task.center : (window.Auth.currentUser?.center || '1120');
+    const dateStr = new Date().toISOString().split('T')[0];
+
+    this.uploadingJustificationPhotos = true;
+    try {
+      if (statusDiv) {
+        statusDiv.style.display = 'block';
+        statusDiv.innerHTML = `<span style="color: var(--primary); display: flex; align-items: center; gap: 6px;"><i class="fa-solid fa-spinner fa-spin"></i> Optimizando y subiendo ${rawFiles.length} imagen(es) de forma secuencial...</span>`;
+      }
+      window.Toast.info('Subiendo imagen de justificación a Google Drive...');
+
+      const isSecondJust = !!(this.currentIsSecondJustification || document.getElementById('just-modal-is-second-just')?.value === 'true');
+      const previousPhotos = this.uploadedPhotos || [];
+      const uploadedPhotos = [];
+      for (let index = 0; index < rawFiles.length; index++) {
+      const rawFile = rawFiles[index];
+      if (!rawFile.type.startsWith('image/')) throw new Error(`${rawFile.name}: el archivo no es una imagen válida`);
+      const file = await this.compressImage(rawFile);
+      if (statusDiv) statusDiv.innerHTML = `<span style="color: var(--primary);"><i class="fa-solid fa-spinner fa-spin"></i> Subiendo imagen ${index + 1} de ${rawFiles.length} (${Math.round(file.size / 1024)} KB)...</span>`;
+      const res = await window.API.uploadPhoto(file, {
+        category: 'justificaciones',
+        photoType: 'justificaciones',
+        sku: sku || '',
+        almacen,
+        center: center,
+        date: dateStr,
+        inventoryId: inventoryId || '',
+        itemId,
+        type: task?.type || 'CICLICO',
+        prefix: isSecondJust ? 'JS2' : '',
+        isJustification2: isSecondJust,
+        round: isSecondJust ? 2 : 1,
+        evidenceIndex: previousPhotos.length + index
+      });
+
+      if (res.photo && (res.photo.driveUrl || res.photo.url)) {
+        const driveUrl = res.photo.driveUrl || res.photo.url;
+        const driveFileId = res.photo.driveFileId || '';
+        const previewSrc = res.photo.thumbnailUrl || res.photo.url;
+        const uploadedFileName = res.photo.name || (isSecondJust ? `JS2_${sku}.jpg` : `${sku}.jpg`);
+        uploadedPhotos.push({photoUrl: driveUrl, driveUrl, driveFileId, thumbnailUrl: previewSrc, name: uploadedFileName});
+        const photoUrls = [...previousPhotos, ...uploadedPhotos];
+        this.uploadedPhotos = photoUrls;
+        this.uploadedPhotoUrl = photoUrls[0].photoUrl;
+        this.uploadedDriveUrl = photoUrls[0].driveUrl;
+        this.uploadedDriveFileId = photoUrls[0].driveFileId;
+        document.getElementById('just-photo-url').value = photoUrls[0].photoUrl;
+        document.getElementById('just-photo-urls').value = JSON.stringify(photoUrls);
+        const driveUrlInput = document.getElementById('just-drive-url');
+        if (driveUrlInput) driveUrlInput.value = photoUrls[0].driveUrl;
+        const driveFileIdInput = document.getElementById('just-drive-file-id');
+        if (driveFileIdInput) driveFileIdInput.value = photoUrls[0].driveFileId;
+        previewImg.src = previewSrc;
+        previewImg.style.display = 'block';
+        if (statusDiv) statusDiv.innerHTML = `<div style="color:#22c55e;">${photoUrls.length} foto(s) guardada(s) en Google Drive: ${photoUrls.map((photo, i) => `<a href="${photo.driveUrl}" target="_blank" rel="noopener">Foto ${i + 1}</a>`).join(' · ')}</div>`;
+      }
+      }
+      window.Toast.success(`${uploadedPhotos.length} foto(s) subida(s) a Google Drive`);
+    } catch (err) {
+      if (statusDiv) {
+        statusDiv.style.display = 'block';
+        statusDiv.innerHTML = `<span style="color: var(--danger);"><i class="fa-solid fa-circle-exclamation"></i> Error: ${err.message}</span>`;
+      }
+      window.Toast.danger(err.message || 'Error al subir foto de respaldo a Google Drive');
+    } finally {
+      this.uploadingJustificationPhotos = false;
+    }
   },
 
   async compressImage(file, maxDimension = 1600, quality = 0.82) {

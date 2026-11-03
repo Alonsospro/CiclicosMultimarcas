@@ -753,6 +753,12 @@ button:active:not(:disabled),
   background: rgba(16, 185, 129, 0.05);
 }
 
+.photo-upload-zone.is-dragging {
+  border-color: var(--primary);
+  border-style: solid;
+  background: rgba(16, 185, 129, 0.12);
+}
+
 .photo-preview-img {
   max-width: 100%;
   max-height: 220px;
