@@ -326,13 +326,14 @@ test('no route pauses work because of the quota', () => {
   assert.match(routes, /router\.get\('\/usage', authenticate, requireSuperadminAlonso,/);
 });
 
-test('the usage indicator is only for the superadministrator and shows the estimate', async () => {
-  const elements = {
-    'btn-firestore-usage': { title: '', classList: { state: {}, toggle(name, on) { this.state[name] = on; } } },
-    'firestore-usage-text': { textContent: '' }
-  };
+test('the usage bars are only for the superadministrator and show each quota by color', async () => {
+  const element = () => ({ textContent: '', style: {}, attributes: {}, setAttribute(name, value) { this.attributes[name] = value; },
+    classList: { state: {}, toggle(name, on) { this.state[name] = on; } } });
+  const elements = Object.fromEntries(['btn-firestore-usage', ...['read', 'write'].flatMap(name =>
+    [`firestore-usage-${name}`, `firestore-usage-${name}-fill`, `firestore-usage-${name}-value`])].map(id => [id, element()]));
+  const meter = name => ({ state: elements[`firestore-usage-${name}`].classList.state, width: elements[`firestore-usage-${name}-fill`].style.width, text: elements[`firestore-usage-${name}-value`].textContent });
   let requests = 0, allowed = false;
-  const usage = { reads: 45000, readQuota: 50000, readPercent: 90, writes: 1000, writeQuota: 20000, writePercent: 5, level: 'critical' };
+  let usage = { reads: 45000, readQuota: 50000, readPercent: 90, writes: 80, writeQuota: 20000, writePercent: 0.4, level: 'critical' };
   const window = {
     Auth: { isSuperadminAlonso: () => allowed },
     API: { getFirestoreUsage: async () => { requests++; return { usage }; } }
@@ -344,12 +345,27 @@ test('the usage indicator is only for the superadministrator and shows the estim
   assert.equal(requests, 0, 'other users do not spend a request');
   allowed = true;
   await window.FirestoreUsageIndicator.load();
-  assert.equal(elements['firestore-usage-text'].textContent, 'Lect. 90% · Escr. 5%');
-  assert.equal(elements['btn-firestore-usage'].classList.state['is-critical'], true);
+  assert.equal(meter('read').text, '90%');
+  assert.equal(meter('read').width, '90%');
+  assert.equal(meter('read').state['is-critical'], true);
+  assert.equal(meter('write').text, '<1%');
+  assert.equal(meter('write').state['is-critical'], false);
+  assert.equal(meter('write').state['is-warning'], false);
+  usage = { ...usage, readPercent: 69.9, writePercent: 130 };
+  await window.FirestoreUsageIndicator.load();
+  assert.equal(meter('read').state['is-warning'], false);
+  assert.equal(meter('write').text, '130%');
+  assert.equal(meter('write').width, '100%', 'the bar never overflows its track');
+  usage = { ...usage, readPercent: 70, writePercent: 89.9 };
+  await window.FirestoreUsageIndicator.load();
+  assert.equal(meter('read').state['is-warning'], true);
+  assert.equal(meter('write').state['is-warning'], true);
   window.API.getFirestoreUsage = async () => { throw new Error('offline'); };
   await window.FirestoreUsageIndicator.load();
-  assert.equal(elements['firestore-usage-text'].textContent, 'Firestore: sin datos');
-  assert.equal(elements['btn-firestore-usage'].classList.state['is-critical'], false);
+  assert.equal(meter('read').text, '–');
+  assert.equal(meter('read').width, '0');
+  assert.equal(meter('read').state['is-warning'], false);
+  assert.match(elements['btn-firestore-usage'].title, /No se pudo/);
 });
 
 test('HTTP flow exposes revisions, reads own writes and avoids reloads on rejected requests', async t => {

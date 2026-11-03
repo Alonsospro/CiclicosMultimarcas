@@ -27,7 +27,7 @@
   <!-- App Stylesheets -->
   <link rel="stylesheet" href="/css/design-tokens.css?v=2.2">
   <link rel="stylesheet" href="/css/layout.css?v=2.2">
-  <link rel="stylesheet" href="/css/components.css?v=2.3">
+  <link rel="stylesheet" href="/css/components.css?v=2.4">
   <link rel="stylesheet" href="/css/responsive.css?v=2.2">
   <link rel="stylesheet" href="/css/liquid-glass.css?v=2.3">
   <link rel="stylesheet" href="/css/counterReliability.css?v=1.0">
@@ -44,6 +44,11 @@
   <div id="app">
     <!-- Top Navigation Bar -->
     <header class="navbar" id="main-navbar" style="display: none;">
+      <button type="button" class="firestore-usage-bars role-alonso-only" id="btn-firestore-usage" style="display: none;" onclick="window.FirestoreUsageIndicator.load()" title="Consumo estimado de Firestore. Clic para actualizar." aria-label="Consumo estimado de Firestore. Clic para actualizar.">
+        <span class="firestore-usage-meter" id="firestore-usage-read"><span class="firestore-usage-label">Lect.</span><span class="firestore-usage-track"><span class="firestore-usage-fill" id="firestore-usage-read-fill"></span></span><span class="firestore-usage-value" id="firestore-usage-read-value">–</span></span>
+        <span class="firestore-usage-meter" id="firestore-usage-write"><span class="firestore-usage-label">Escr.</span><span class="firestore-usage-track"><span class="firestore-usage-fill" id="firestore-usage-write-fill"></span></span><span class="firestore-usage-value" id="firestore-usage-write-value">–</span></span>
+      </button>
+
       <div class="nav-brand">
         <div class="logo-rotator-container" id="nav-logo-rotator" title="NIBOL Multimarcas (Clic para cambiar marca)">
           <div class="logo-rotator-viewport">
@@ -65,10 +70,6 @@
       </nav>
 
       <div class="nav-user-panel">
-        <button class="btn btn-secondary btn-sm firestore-usage-indicator role-alonso-only" id="btn-firestore-usage" style="display: none;" onclick="window.FirestoreUsageIndicator.load()" title="Consumo estimado de Firestore. Clic para actualizar." aria-label="Consumo estimado de Firestore. Clic para actualizar.">
-          <i class="fa-solid fa-database"></i> <span id="firestore-usage-text">Firestore</span>
-        </button>
-
         <button class="btn btn-secondary btn-sm nav-icon-btn" id="btn-gas-health" title="Verificar conexión Google Apps Script (Apps Script Conectado)" aria-label="Verificar conexión Google Apps Script">
           <i class="fa-solid fa-cloud" id="gas-status-icon" style="color: var(--success, #16a34a);"></i>
         </button>
@@ -2919,7 +2920,7 @@
   <script src="/js/components/scannerModal.js?v=2.2"></script>
   <script src="/js/components/logoRotator.js?v=2.2"></script>
   <script src="/js/api.js?v=2.4"></script>
-  <script src="/js/components/firestoreUsageIndicator.js?v=1.0"></script>
+  <script src="/js/components/firestoreUsageIndicator.js?v=1.1"></script>
   <script src="/js/auth.js?v=2.3"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
   <script src="/js/views/inventoryView.js?v=2.4.1"></script>
