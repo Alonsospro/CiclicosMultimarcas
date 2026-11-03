@@ -15,8 +15,7 @@
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-glass) transparent;
+  scrollbar-width: none;
   scroll-padding-inline: 0.25rem;
   padding: 0.35rem 0.25rem 0.5rem;
 }
@@ -30,10 +29,25 @@
   white-space: nowrap;
 }
 
-.navbar .nav-links::-webkit-scrollbar { height: 4px; }
-.navbar .nav-links::-webkit-scrollbar-thumb {
-  background: var(--border-glass);
-  border-radius: 999px;
+.navbar .nav-links::-webkit-scrollbar { display: none; }
+
+/* Below this width the tabs no longer fit beside the logo and the user panel. */
+@media screen and (max-width: 1300px) {
+  .navbar {
+    flex-wrap: wrap;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 0.65rem;
+  }
+
+  .navbar .nav-brand { order: 1; width: auto; }
+  .navbar .nav-user-panel { order: 2; width: auto; min-width: 0; }
+  .navbar > nav {
+    order: 3;
+    flex: 0 0 100%;
+    width: 100%;
+    margin: 0;
+  }
 }
 
 #view-inventories,

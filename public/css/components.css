@@ -2282,7 +2282,7 @@ button:active:not(:disabled),
 .firestore-usage-meter.is-critical .firestore-usage-fill { background: #ef4444; }
 .firestore-usage-meter.is-critical .firestore-usage-value { color: #ef4444; }
 /* Con la barra en varias filas pasa a su propia fila para no tapar el logo */
-@media screen and (max-width: 1100px) {
+@media screen and (max-width: 1300px) {
   .firestore-usage-bars {
     position: static;
     order: -1;
