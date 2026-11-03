@@ -178,7 +178,14 @@
       ['Códigos correctos', 'Códigos sin diferencia frente a los revisados', i.codes, `${qty(group.skusExact)} de ${qty(group.skus)}`],
       ['Valor correcto', 'Valor sin faltantes ni sobrantes frente al del sistema', i.money, `${bs(i.valueExact)} de ${bs(group.value)}`]
     ];
-    const lowest = rows.slice().sort((a, b) => num(a[2]) - num(b[2]))[0];
+    const below = limit => rows.filter(row => row[2] < limit).map(row => `<b>${esc(row[0].toLowerCase())}</b> (${pct(row[2])})`).join(', ');
+    const standing = {
+      perfect: 'Unidades, códigos y valor están al 100%.',
+      ok: 'Unidades, códigos y valor están en 98% o más.',
+      min: `Unidades, códigos y valor están en 95% o más. Para llegar a Cumplimiento falta alcanzar 98% en ${below(98)}.`,
+      no: `No se alcanza el mínimo de 95% en ${below(95)}.`,
+      nil: 'No hay datos suficientes para dar un resultado.'
+    }[overall.key];
     const eruLoss = group.eru.evaluated - group.eru.exact;
     const concentration = (list, total) => {
       const top = list.slice(0, 3);
@@ -194,7 +201,7 @@
     ].filter(Boolean);
     return sheet('Diagnóstico y recomendación', right, `
       <div class="mr-row mr-c13-wide">
-        ${panel('Dónde estamos', `<p class="mr-lead">${chip(overall)}</p><p class="mr-text">El resultado lo fija el indicador más bajo: <b>${esc(lowest[0].toLowerCase())}</b>, con ${pct(lowest[2])}.</p><p class="mr-more">Ubicación (ERU): ${pct(i.eru)}. Se informa y no cuenta para el resultado.</p>`)}
+        ${panel('Dónde estamos', `<p class="mr-lead">${chip(overall)}</p><p class="mr-text">${standing}</p><p class="mr-more">Ubicación (ERU): ${pct(i.eru)}. Es un dato aparte y no cambia este resultado.</p>`)}
         ${panel('Indicadores al cierre', `<table><thead><tr><th>Indicador</th><th>Qué mide</th><th class="num">Resultado</th><th class="num">Cantidad</th><th>Nivel</th></tr></thead><tbody>${rows.map(([name, meaning, value, amount]) => `<tr><td class="mr-strong">${name}</td><td>${meaning}</td><td class="num mr-strong">${pct(value)}</td><td class="num">${amount}</td><td>${chip(level(value))}</td></tr>`).join('')}</tbody></table>`)}
       </div>
       ${panel('Qué hacer, en orden', `<table data-split class="mr-actions"><thead><tr><th class="num">#</th><th>Acción</th><th>Cómo</th><th>Alcance</th><th class="num">Monto</th></tr></thead><tbody>${actions.map(([what, how, reach, amount], index) => `<tr><td class="num">${index + 1}</td><td class="mr-strong mr-nowrap">${what}</td><td>${how}</td><td class="mr-nowrap">${reach}</td><td class="num mr-strong">${amount}</td></tr>`).join('') || '<tr><td colspan="5">No quedan diferencias, averías ni bajas de ubicación por atender.</td></tr>'}</tbody></table><p class="mr-more">Asignar responsable y fecha a cada acción, y dejar constancia antes del cierre administrativo.</p>`, 'mr-plain')}
@@ -235,7 +242,7 @@
       <div class="mr-row mr-c2">
         ${panel('Faltantes por código · cada bloque es su peso en Bs', treemap(codeBlocks(helpers.shortages, helpers.cost, c.shortage.cost, RED), 500, 104))}
         ${panel('Sobrantes por código · cada bloque es su peso en Bs', treemap(codeBlocks(helpers.surpluses, helpers.cost, c.surplus.cost, BLUE), 500, 104))}
-      </div>`, 'Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%. El resultado es el nivel más bajo de unidades, códigos y valor.', 'Resumen del centro');
+      </div>`, 'Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%. Para alcanzar un nivel, unidades, códigos y valor deben cumplirlo los tres.', 'Resumen del centro');
 
     const page2 = sheet('Dónde está el problema', small, `
       ${panel('Por almacén', breakdownTable('Almacén', c.byWarehouse, c), 'mr-plain')}
@@ -284,7 +291,7 @@
         <tr><th>Valor correcto<small>ERI monetario</small></th><td>(Valor del sistema − faltantes − sobrantes) ÷ valor del sistema. Un sobrante no compensa un faltante.</td></tr>
         <tr><th>Ubicación correcta<small>ERU</small></th><td>Cada almacén se evalúa por separado: códigos con una sola ubicación en ese almacén, que es la principal y tiene 10 caracteres ÷ códigos evaluados por almacén. No cuenta para el resultado.</td></tr>
         <tr><th>Escala NIBOL Multimarcas</th><td>100%: perfecto cumplimiento · 98% o más: cumplimiento · 95% a menos de 98%: mínimo de cumplimiento · menos de 95%: no cumple.</td></tr>
-        <tr><th>Resultado del informe</th><td>El nivel más bajo entre unidades, códigos y valor.</td></tr>
+        <tr><th>Resultado del informe</th><td>Para alcanzar un nivel, unidades, códigos y valor deben cumplirlo los tres.</td></tr>
         <tr><th>Responsables de conteo</th><td>${counters.map(esc).join(', ') || 'No registrados'}</td></tr>
         <tr><th>Inventarios incluidos</th><td>${c.inventories.map(esc).join(', ')}</td></tr>
         <tr><th>Alcance</th><td>${qty(s.totalItemsAudited)} líneas revisadas.</td></tr>
