@@ -146,6 +146,14 @@
     const row = g => { const i = indicators(g); return `<td class="num">${qty(g.skusExact)} / ${qty(g.skus)}</td><td class="num">${pct(i.codes)}</td><td class="num">${qty(g.unitsExact)} / ${qty(g.units)}</td><td class="num">${pct(i.units)}</td><td class="num">${qty(g.shortage.lines)}</td><td class="num">${qty(g.shortage.units)}</td>`; };
     return `<table data-split><thead><tr><th></th><th class="mr-group" colspan="2">Códigos correctos</th><th class="mr-group" colspan="2">Unidades correctas</th><th class="mr-group" colspan="3">Faltantes</th><th class="mr-group" colspan="3">Sobrantes</th><th></th></tr><tr><th>${esc(first)}</th><th class="num">Cant.</th><th class="num">%</th><th class="num">Cant.</th><th class="num">%</th><th class="num">Líneas</th><th class="num">Unid.</th><th>Bs</th><th class="num">Líneas</th><th class="num">Unid.</th><th>Bs</th><th class="num">Averías Bs</th></tr></thead><tbody>${groups.map(g => `<tr><td class="mr-strong">${esc(g.name)}</td>${row(g)}<td>${hbar(g.shortage.cost, maxS, 75, RED, qty(g.shortage.cost))}</td><td class="num">${qty(g.surplus.lines)}</td><td class="num">${qty(g.surplus.units)}</td><td>${hbar(g.surplus.cost, maxP, 60, BLUE, qty(g.surplus.cost))}</td><td class="num">${qty(g.damage.cost)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td>${row(total)}<td>${qty(total.shortage.cost)}</td><td class="num">${qty(total.surplus.lines)}</td><td class="num">${qty(total.surplus.units)}</td><td>${qty(total.surplus.cost)}</td><td class="num">${qty(total.damage.cost)}</td></tr></tfoot></table>`;
   }
+  // How a group started per system and how it closed. Shortages and surpluses stay apart.
+  const closingUnits = g => g.units - g.shortage.units + g.surplus.units;
+  const closingValue = g => g.value - g.shortage.cost + g.surplus.cost;
+  const MOVEMENT_NOTE = 'Cubre los códigos revisados en cada inventario. Cierre = inicio − faltantes + sobrantes al cierre; lo justificado no queda como diferencia.';
+  function movementTable(first, groups, total) {
+    const row = (name, g, cls = '') => `<tr class="${cls}"><td class="mr-strong">${esc(name)}</td><td class="num">${qty(g.skus)}</td><td class="num">${qty(g.units)}</td><td class="num">${qty(g.value)}</td><td class="num">${qty(g.shortage.units)}</td><td class="num">${qty(g.shortage.cost)}</td><td class="num">${qty(g.surplus.units)}</td><td class="num">${qty(g.surplus.cost)}</td><td class="num">${qty(closingUnits(g))}</td><td class="num">${qty(closingValue(g))}</td></tr>`;
+    return `<table data-split><thead><tr><th></th><th class="mr-group" colspan="3">Inicio según sistema</th><th class="mr-group" colspan="2">Faltantes</th><th class="mr-group" colspan="2">Sobrantes</th><th class="mr-group" colspan="2">Cierre</th></tr><tr><th>${esc(first)}</th><th class="num">Códigos</th><th class="num">Unid.</th><th class="num">Bs</th><th class="num">Unid.</th><th class="num">Bs</th><th class="num">Unid.</th><th class="num">Bs</th><th class="num">Unid.</th><th class="num">Bs</th></tr></thead><tbody>${groups.map(g => row(g.name, g)).join('')}${row('Total', total, 'mr-strong')}</tbody></table>`;
+  }
   function eruGroups(first, groups) {
     const lossOf = g => sum(CAUSE_KEYS, key => g.eru.causes[key]);
     const max = Math.max(...groups.map(lossOf), 1);
@@ -248,11 +256,12 @@
 
     const page2 = sheet('Dónde está el problema', small, `
       ${panel('Por almacén', breakdownTable('Almacén', c.byWarehouse, c), 'mr-plain')}
+      ${panel('Del inicio según sistema al cierre · por almacén', movementTable('Almacén', c.byWarehouse, c), 'mr-plain')}
       ${panel('Por clase ABC', breakdownTable('Clase', c.byClass, c), 'mr-plain')}
       <div class="mr-row mr-c2">
         ${panel('Faltantes (Bs) por almacén y clase', heat(c.crossWarehouse, 'shortage', 'red', 'Almacén'))}
         ${panel('Sobrantes (Bs) por almacén y clase', heat(c.crossWarehouse, 'surplus', 'blue', 'Almacén'))}
-      </div>`, 'Faltantes y sobrantes se muestran por separado; ninguno compensa al otro. Las líneas son registros de conteo.');
+      </div>`, 'Faltantes y sobrantes se muestran por separado; ninguno compensa al otro. Las líneas son registros de conteo. ' + MOVEMENT_NOTE);
 
     const page3 = sheet('Ubicación (ERU) y causas de la baja', small, `
       <div class="mr-row mr-c13">
@@ -409,15 +418,12 @@
     const page4 = sheet('Mayores diferencias', period, `
       ${panel('Mayores faltantes de todos los centros', globalTable(helpers.shortages.slice(0, 8), RED, '−', total.shortage.cost), 'mr-plain')}
       ${panel('Mayores sobrantes de todos los centros', globalTable(helpers.surpluses.slice(0, 8), BLUE, '+', total.surplus.cost), 'mr-plain')}`, 'Faltantes y sobrantes se muestran por separado; ninguno compensa al otro.');
-    const closingUnits = g => g.units - g.shortage.units + g.surplus.units;
-    const closingValue = g => g.value - g.shortage.cost + g.surplus.cost;
-    const movementRow = (name, g, cls = '') => `<tr class="${cls}"><td class="mr-strong">${esc(name)}</td><td class="num">${qty(g.skus)}</td><td class="num">${qty(g.units)}</td><td class="num">${qty(g.value)}</td><td class="num">${qty(g.shortage.units)}</td><td class="num">${qty(g.shortage.cost)}</td><td class="num">${qty(g.surplus.units)}</td><td class="num">${qty(g.surplus.cost)}</td><td class="num">${qty(closingUnits(g))}</td><td class="num">${qty(closingValue(g))}</td></tr>`;
     const page5 = sheet('Averías y cobertura', period, `
       <div class="mr-row mr-c2">
         ${panel(`Averías por centro · ${bs(total.damage.cost)} · ${qty(total.damage.lines)} líneas`, `<table class="mr-flat"><tbody>${damageRows.slice(0, 6).map(c => `<tr><td>${esc(c.name)}</td><td>${hbar(c.damage.cost, Math.max(damageRows[0].damage.cost, 1), 110, AMBER, bs(c.damage.cost))}</td><td class="num">${qty(c.damage.lines)} lín.</td></tr>`).join('')}</tbody></table>${damageRows.length > 6 ? `<p class="mr-more">${damageRows.length - 6} centros más · ${bs(sum(damageRows.slice(6), c => c.damage.cost))}</p>` : ''}`)}
         ${panel('Cobertura del corte', `<table class="mr-flat"><tbody><tr><td>Centros con cierre</td><td class="num mr-strong">${centers.length} de ${known}</td></tr><tr><td>Sin cierre</td><td class="num mr-strong mr-wrap">${pending.map(c => `${esc(c.code)} ${esc(c.name)}`).join(', ') || 'Ninguno'}</td></tr><tr><td>Inventarios incluidos</td><td class="num mr-strong">${qty(sum(centers, c => c.inventories.length))}</td></tr><tr><td>Centros con más de un inventario</td><td class="num mr-strong mr-wrap">${centers.filter(c => c.inventories.length > 1).map(c => `${esc(c.center)} (${c.inventories.length})`).join(', ') || 'Ninguno'}</td></tr><tr><td>Códigos revisados</td><td class="num mr-strong">${qty(total.skus)}</td></tr><tr><td>Inicio según sistema</td><td class="num mr-strong">${qty(total.units)} unid. · ${bs(total.value)}</td></tr><tr><td>Faltantes al cierre</td><td class="num mr-strong">${qty(total.shortage.units)} unid. · ${bs(total.shortage.cost)}</td></tr><tr><td>Sobrantes al cierre</td><td class="num mr-strong">${qty(total.surplus.units)} unid. · ${bs(total.surplus.cost)}</td></tr><tr><td>Cierre</td><td class="num mr-strong">${qty(closingUnits(total))} unid. · ${bs(closingValue(total))}</td></tr></tbody></table>`)}
       </div>
-      ${panel('Del inicio según sistema al cierre · por centro', `<table data-split><thead><tr><th></th><th class="mr-group" colspan="3">Inicio según sistema</th><th class="mr-group" colspan="2">Faltantes</th><th class="mr-group" colspan="2">Sobrantes</th><th class="mr-group" colspan="2">Cierre</th></tr><tr><th>Centro</th><th class="num">Códigos</th><th class="num">Unid.</th><th class="num">Bs</th><th class="num">Unid.</th><th class="num">Bs</th><th class="num">Unid.</th><th class="num">Bs</th><th class="num">Unid.</th><th class="num">Bs</th></tr></thead><tbody>${centers.map(c => movementRow(c.name, c)).join('')}${movementRow('Total', total, 'mr-strong')}</tbody></table>`, 'mr-plain')}`, 'Cubre los códigos revisados en cada inventario. Cierre = inicio − faltantes + sobrantes al cierre; lo justificado no queda como diferencia.');
+      ${panel('Del inicio según sistema al cierre · por centro', movementTable('Centro', centers, total), 'mr-plain')}`, MOVEMENT_NOTE);
     const eruRows = centers.slice().sort((a, b) => num(a.i.eru) - num(b.i.eru));
     const lossOf = c => sum(CAUSE_KEYS, key => c.eru.causes[key]);
     const maxLoss = Math.max(...eruRows.map(lossOf), 1);

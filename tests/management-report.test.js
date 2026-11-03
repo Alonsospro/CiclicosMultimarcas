@@ -225,6 +225,21 @@ test('the coverage sheet shows how each center started per system and how it clo
   assert.doesNotMatch(html, /[Nn]eto\b|NETO/);
 });
 
+test('the center report shows how each warehouse started per system and how it closed', async () => {
+  const differ = (sku, warehouse, change) => line(sku, { Almacen: warehouse, Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change });
+  const html = report.render({ name: 'Corte' }, await load([
+    inventory('INV-1160-1', '1160', [differ('A', 'RFO7', -3), differ('B', 'RFO7', 2), differ('C', 'RFO8', -1)])
+  ]));
+  const start = html.indexOf('Del inicio según sistema al cierre · por almacén');
+  assert.ok(start > 0);
+  const table = html.slice(start, html.indexOf('</table>', start));
+  const row = label => cellsOf(table.split('<tr').find(text => text.includes(`>${label}<`)));
+  assert.deepEqual(row('RFO7'), ['RFO7', '2', '20', '2.000', '3', '300', '2', '200', '19', '1.900']);
+  assert.deepEqual(row('RFO8'), ['RFO8', '1', '10', '1.000', '1', '100', '0', '0', '9', '900']);
+  assert.deepEqual(row('Total'), ['Total', '3', '30', '3.000', '4', '400', '2', '200', '28', '2.800']);
+  assert.doesNotMatch(html, /[Nn]eto\b|NETO/);
+});
+
 test('a partly justified shortage closes with the units explained and only the remainder as shortage', async () => {
   const metrics = await load([
     inventory('INV-1160-1', '1160', [line('A', { Stock_Fisico: 3, Stock_Total: 3, Estado: 'NO CUADRA', Diferencia: -1 })]),
