@@ -1433,13 +1433,25 @@ class MetricsService {
       let exactUnits = 0;
       let linesCount = 0;
       let exactLines = 0;
+      let totalValue = 0;
+      let wrongValue = 0;
+      // Same rule as the selected inventory: weekly codes count per warehouse and every row must match;
+      // cyclic codes add up their locations and a CUADRA settles the code.
+      const closureCodes = new Map();
+      const codeOf = (it, weekly) => {
+        const key = weekly ? JSON.stringify([it.SKU || it.id, it.Almacen]) : (it.SKU || it.id);
+        if (!closureCodes.has(key)) closureCodes.set(key, { weekly, total: 0, allExact: true, justified: false, audited: false });
+        return closureCodes.get(key);
+      };
 
       (inv.items || []).forEach(raw => {
         const weekly = contract.isWeekly(raw);
         const it = weekly ? contract.normalize(raw) : raw;
+        const code = codeOf(it, weekly);
         const rawPhysical = it.Stock_Fisico !== undefined ? it.Stock_Fisico : it.stock_fisico;
-        if (rawPhysical === null || rawPhysical === undefined || rawPhysical === '') return;
+        if (rawPhysical === null || rawPhysical === undefined || rawPhysical === '') { code.allExact = false; return; }
         linesCount++;
+        code.audited = true;
         const fileSystem = parseCurrencyOrNumber(it.Stock_Sistema !== undefined ? it.Stock_Sistema : (it.stock_sistema || 0), 0);
         const original = weekly || !contract.has(it.Stock_Sistema_Original) ? null : parseCurrencyOrNumber(it.Stock_Sistema_Original, null);
         const system = Number.isFinite(original) ? original : fileSystem;
@@ -1454,7 +1466,15 @@ class MetricsService {
         totalUnits += system;
         exactUnits += Math.max(0, system - Math.abs(difference));
         if (difference === 0) exactLines++;
+        const unitCost = parseCurrencyOrNumber(it.Costo_Unitario !== undefined ? it.Costo_Unitario : it.costo_unitario, 0);
+        totalValue += system * unitCost;
+        wrongValue += Math.abs(difference * unitCost);
+        code.total += difference;
+        if (difference !== 0) code.allExact = false;
+        if (justified) code.justified = true;
       });
+      const auditedCodes = [...closureCodes.values()].filter(code => code.audited);
+      const exactCodes = auditedCodes.filter(code => code.weekly ? code.allExact : code.total === 0 || code.justified).length;
 
       let eriVal = totalUnits > 0 ? parseFloat(((exactUnits / totalUnits) * 100).toFixed(2)) : (linesCount > 0 ? parseFloat(((exactLines / linesCount) * 100).toFixed(2)) : null);
 
@@ -1476,7 +1496,11 @@ class MetricsService {
           date: closedDate,
           eri: eriVal,
           totalUnits,
-          exactUnits
+          exactUnits,
+          totalCodes: auditedCodes.length,
+          exactCodes,
+          totalValue: Math.round(totalValue * 100) / 100,
+          exactValue: Math.round(Math.max(0, totalValue - wrongValue) * 100) / 100
         });
       }
     });

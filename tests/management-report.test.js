@@ -338,9 +338,58 @@ test('the state of all centers is one chart: lowest indicator at the close, mark
   assert.match(pending, /5100/);
   assert.match(pending, /Sin cierre en este corte/);
   assert.equal(pending.split('mr-legend')[0].includes('mr-vbar'), false);
-  assert.match(html, /Marca: primer conteo del mismo indicador/);
+  assert.match(html, /Marca: primer conteo/);
   assert.match(html, /Menos de 95%: no cumple/);
   assert.match(html, /grid-template-columns:repeat\(3,/);
+});
+
+test('each closure keeps its three indicators, by the same rules as the selected inventory', async () => {
+  const differ = (sku, change, extra = {}) => line(sku, { Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change, ...extra });
+  const metrics = await load([inventory('INV-1160-1', '1160', [line('A'), differ('B', -2), differ('C', 0, { Stock_Sistema: 3, Stock_Sistema_Original: 10, Estado: 'CUADRA', Stock_Fisico: 3, Stock_Total: 3 })])]);
+  const [closure] = metrics.reportData.centers[0].history;
+  const center = metrics.reportData.centers[0];
+  assert.equal(closure.exactUnits, center.unitsExact);
+  assert.equal(closure.totalUnits, center.units);
+  assert.equal(closure.exactCodes, center.skusExact);
+  assert.equal(closure.totalCodes, center.skus);
+  assert.equal(closure.totalValue, center.value);
+  assert.equal(closure.exactValue, center.value - center.shortage.cost - center.surplus.cost);
+});
+
+test('the chart compares each center with its earlier inventories of the same type', async () => {
+  const differ = (sku, change, extra = {}) => line(sku, { Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change, ...extra });
+  const closed = (id, center, items, date, type = 'CICLICO') => ({ ...inventory(id, center, items, date), type, createdAt: date });
+  const service = metricsService();
+  const inventories = [
+    closed('INV-1160-1', '1160', [differ('A', -5), differ('B', 0)], '2026-08-15'),
+    closed('INV-1160-2', '1160', [differ('A', -2), differ('B', 0), differ('C', 0), differ('D', 0)], '2026-09-15'),
+    closed('SEM-1160-9', '1160', [differ('Z', -9)], '2026-09-20', 'SEMANAL'),
+    closed('INV-1160-3', '1160', [line('A')], '2026-10-15'),
+    closed('INV-1120-1', '1120', [line('A')], '2026-10-15')
+  ];
+  service.getAllInventoriesData = async () => inventories;
+  const metrics = JSON.parse(JSON.stringify(await service.getDashboardMetrics({ startDate: '2026-10-01', endDate: '2026-10-31' })));
+  const html = report.render({ name: 'Corte' }, metrics);
+  const columns = html.split('<div class="mr-vcol"').slice(1);
+  const center1160 = columns.find(column => column.includes('Centro 1160'));
+  const earlier = [...center1160.matchAll(/mr-vbefore" style="height:([\d.]+)%/g)].map(match => Number(match[1]));
+  assert.deepEqual(earlier, [50, 75], 'Lowest indicator of each earlier cyclic closure, oldest first and without the weekly one');
+  assert.match(center1160, /mr-vbar lvl-perfect" style="height:100%/);
+  assert.match(center1160, /Anterior: 75,00% · Códigos/);
+  const center1120 = columns.find(column => column.includes('Centro 1120'));
+  assert.equal(center1120.includes('mr-vbefore'), false);
+  assert.match(center1120, /Sin anterior/);
+});
+
+test('a closure read before the three indicators existed still shows its units', () => {
+  const center = { name: 'C', center: '1', units: 10, unitsExact: 10, skus: 1, skusExact: 1, skusExact1: 1, unitsExact1: 10, value: 10, lines: 1,
+    shortage: { lines: 0, units: 0, cost: 0 }, surplus: { lines: 0, units: 0, cost: 0 }, damage: { lines: 0, units: 0, cost: 0 },
+    firstCount: { shortage: { cost: 0 }, surplus: { cost: 0 } }, eru: { evaluated: 1, exact: 1, causes: { multiple: 0, format: 0, none: 0, additional: 0 } },
+    byWarehouse: [], byClass: [], crossWarehouse: [], crossClass: [], flow: { firstDifferences: 0, resolved: 0, stillShort: 0, stillSurplus: 0, appeared: 0 }, inventories: ['NEW'], issues: [],
+    history: [{ id: 'OLD', type: 'CICLICO', date: '2026-09-01', eri: 92, totalUnits: 100, exactUnits: 92 }, { id: 'NEW', type: 'CICLICO', date: '2026-10-01', eri: 100, totalUnits: 10, exactUnits: 10 }] };
+  const html = report.render({ name: 'Corte' }, { reportData: { centers: [center, { ...center, center: '2', name: 'D', inventories: ['OTHER'], history: [] }], pendingCenters: [] }, discrepanciesList: [], summary: {}, filters: {} });
+  assert.match(html, /mr-vbefore" style="height:92%/);
+  assert.match(html, /Anterior: 92,00% · Unidades/);
 });
 
 test('a partly justified shortage closes with the units explained and only the remainder as shortage', async () => {

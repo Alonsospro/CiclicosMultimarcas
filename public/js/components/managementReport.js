@@ -158,13 +158,36 @@
   function durationTable(rows, showCenter) {
     return `<table data-split><thead><tr>${showCenter ? '<th>Centro</th>' : ''}<th>Inventario</th><th>Primer registro</th><th>Último registro</th><th>Tiempo</th><th>Días</th></tr></thead><tbody>${rows.map(row => `<tr>${showCenter ? `<td class="mr-strong">${esc(row.centerName || row.center)}</td>` : ''}<td>${esc(row.inventoryName)}</td><td>${esc(row.startLabel)}</td><td>${esc(row.endLabel)}${row.lastEntry ? ` · ${esc(row.lastEntry)}` : ''}</td><td class="mr-strong">${esc(row.timeLabel)}</td><td>${esc(row.dayLabel)}</td></tr>`).join('') || `<tr><td colspan="${showCenter ? 6 : 5}">No disponible</td></tr>`}</tbody></table>`;
   }
-  // One column per center, 0 to 100%: its lowest indicator at the close, marked with the same
-  // indicator at the first count. Plain boxes, because the PDF is captured with html2canvas.
+  // The lowest of the three indicators of a closure, the same rule as the columns of the current cut.
+  // Closures read before these fields existed only know their units.
+  function closureLowest(closure) {
+    const units = ratio(closure.exactUnits, closure.totalUnits) ?? (closure.eri === null || closure.eri === undefined ? null : num(closure.eri));
+    const known = [['Unidades', units], ['Códigos', ratio(closure.exactCodes, closure.totalCodes)], ['Valor', ratio(closure.exactValue, closure.totalValue)]]
+      .filter(([, value]) => value !== null && value !== undefined);
+    return known.sort((a, b) => a[1] - b[1])[0] || null;
+  }
+  // Closures of the same type before the current cut, oldest first. Only what the dashboard already read.
+  function earlierClosures(c) {
+    const history = c.history || [];
+    const inCut = closure => (c.inventories || []).includes(closure.id);
+    const firstInCut = history.findIndex(inCut);
+    const before = firstInCut >= 0 ? history.slice(0, firstInCut) : history;
+    const type = (firstInCut >= 0 ? history[firstInCut] : history[history.length - 1])?.type;
+    return before.filter(closure => closure.type === type).map(closure => {
+      const low = closureLowest(closure);
+      return low && { name: closure.name || closure.id, indicator: low[0], value: low[1] };
+    }).filter(Boolean);
+  }
+  // One group per center, 0 to 100%: its earlier inventories and its lowest indicator at this close, marked
+  // with the same indicator at the first count. Plain boxes, because the PDF is captured with html2canvas.
   function statusChart(rows, pending) {
     const limit = value => Math.min(100, Math.max(0, num(value)));
-    const column = row => `<div class="mr-vcol" title="${esc(row.name)} · ${esc(row.detail)}"><div class="mr-vplot"><div class="mr-vbar lvl-${row.lvl.key}" style="height:${limit(row.value)}%"></div>${row.first === null || row.first === undefined ? '' : `<i class="mr-vfirst" style="bottom:${limit(row.first)}%"></i>`}<b class="mr-vvalue" style="bottom:${limit(row.value)}%">${row.lvl.icon} ${pct(row.value)}</b></div><div class="mr-vname">${esc(row.name)}</div><small>${esc(row.detail)}</small></div>`;
-    const missing = c => `<div class="mr-vcol"><div class="mr-vplot"><b class="mr-vvalue" style="bottom:0">–</b></div><div class="mr-vname">${esc(c.code)} - ${esc(c.name)}</div><small>Sin cierre en este corte</small></div>`;
-    return `<div class="mr-vchart"><div class="mr-vlines"><span style="bottom:98%"><u>98%</u></span><span style="bottom:95%"><u class="mr-vlow">95%</u></span></div><div class="mr-vcols" style="grid-template-columns:repeat(${rows.length + pending.length},minmax(0,1fr))">${rows.map(column).join('')}${pending.map(missing).join('')}</div></div><div class="mr-legend">${scaleLegend.replace(/^<div class="mr-legend">|<\/div>$/g, '')}<span><i class="mr-vkey"></i>Marca: primer conteo del mismo indicador</span><span>Cada columna es el indicador más bajo del centro al cierre</span></div>`;
+    const column = row => {
+      const before = row.earlier[row.earlier.length - 1];
+      return `<div class="mr-vcol"><b class="mr-vvalue">${row.lvl.icon} ${pct(row.value)}</b><div class="mr-vplot">${row.earlier.map(closure => `<div class="mr-vslot" title="${esc(closure.name)} · ${esc(closure.indicator)}: ${pct(closure.value)}"><div class="mr-vbar mr-vbefore" style="height:${limit(closure.value)}%"></div></div>`).join('')}<div class="mr-vslot" title="${esc(row.name)} · ${esc(row.detail)}"><div class="mr-vbar lvl-${row.lvl.key}" style="height:${limit(row.value)}%"></div>${row.first === null || row.first === undefined ? '' : `<i class="mr-vfirst" style="bottom:${limit(row.first)}%"></i>`}</div></div><div class="mr-vname">${esc(row.name)}</div><small>${esc(row.detail)}</small><small>${before ? `Anterior: ${pct(before.value)} · ${esc(before.indicator)}` : 'Sin anterior'}</small></div>`;
+    };
+    const missing = c => `<div class="mr-vcol"><b class="mr-vvalue">–</b><div class="mr-vplot"></div><div class="mr-vname">${esc(c.code)} - ${esc(c.name)}</div><small>Sin cierre en este corte</small></div>`;
+    return `<div class="mr-vchart"><div class="mr-vlines"><span style="bottom:98%"><u>98%</u></span><span style="bottom:95%"><u class="mr-vlow">95%</u></span></div><div class="mr-vcols" style="grid-template-columns:repeat(${rows.length + pending.length},minmax(0,1fr))">${rows.map(column).join('')}${pending.map(missing).join('')}</div></div><div class="mr-legend">${scaleLegend.replace(/^<div class="mr-legend">|<\/div>$/g, '')}<span><i class="mr-vkey mr-vkey-before"></i>Inventarios anteriores, de izquierda a derecha</span><span><i class="mr-vkey"></i>Marca: primer conteo</span><span>Cada columna es el indicador más bajo de ese inventario</span></div>`;
   }
   function eruGroups(first, groups) {
     const lossOf = g => sum(CAUSE_KEYS, key => g.eru.causes[key]);
@@ -397,7 +420,7 @@
         ${kpi({ label: 'Averías', value: bs(total.damage.cost), line: `${qty(total.damage.lines)} líneas · ${qty(total.damage.units)} unidades`, cls: 'top-damage' })}
         ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(total.eru.exact)} de ${qty(total.eru.evaluated)} códigos por almacén`, cls: 'top-info' })}
       </div>
-      ${panel(`Estado por centro · ${levelsLine}`, statusChart(byWorst.map(c => { const low = lowest(c); return { name: c.name, lvl: c.lvl, value: low[1], first: low[3], detail: `${low[0]}: ${low[2]}` }; }), pending))}`, 'Totales calculados sumando las bases de cada centro. Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%.', 'Resumen consolidado');
+      ${panel(`Estado por centro · ${levelsLine}`, statusChart(byWorst.map(c => { const low = lowest(c); return { name: c.name, lvl: c.lvl, value: low[1], first: low[3], detail: `${low[0]}: ${low[2]}`, earlier: earlierClosures(c) }; }), pending))}`, 'Totales calculados sumando las bases de cada centro. Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%.', 'Resumen consolidado');
 
     const kMoney = value => value >= 1e6 ? `${(value / 1e6).toLocaleString('es-BO', { maximumFractionDigits: 2 })} M` : qty(value);
     const cell = (value, quantity) => `<td class="mr-cell lvl-${level(value).key}">${pct(value)}<small>${quantity}</small></td>`;
