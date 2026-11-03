@@ -155,25 +155,6 @@ window.DashboardView = {
     });
   },
 
-  getPeriodDates(period) {
-    const dateOnly = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    if (period === 'SEMANA_ESPECIFICA') {
-      // Week selection is keyed by inventory numbering, never by its recorded date.
-      return null;
-    }
-    if (period === 'MES_ESPECIFICO') {
-      const value = document.getElementById('dash-filter-month')?.value;
-      if (!value) return null;
-      if (value.includes(':')) {
-        const [startDate, endDate] = value.split(':');
-        return { startDate, endDate };
-      }
-      const [year, month] = value.split('-').map(Number);
-      return {startDate: `${value}-01`, endDate: dateOnly(new Date(year, month, 0))};
-    }
-    return null;
-  },
-
   switchTab(tabId) {
     document.querySelectorAll('.dash-tab-btn').forEach(btn => {
       btn.classList.toggle('active', btn.getAttribute('data-dash-tab') === tabId);
@@ -268,9 +249,8 @@ window.DashboardView = {
       if (period === 'PERSONALIZADO') {
         if (startDate) params.startDate = startDate;
         if (endDate) params.endDate = endDate;
-      } else if (['SEMANA_ESPECIFICA', 'MES_ESPECIFICO'].includes(period)) {
-        const range = period === 'MES_ESPECIFICO' ? this.getPeriodDates(period) : null;
-        if (range) Object.assign(params, range);
+      } else if (period === 'MES_ESPECIFICO') {
+        params.month = document.getElementById('dash-filter-month')?.value || '';
       }
 
       const auditParams = {
@@ -366,9 +346,8 @@ window.DashboardView = {
       if (period === 'PERSONALIZADO') {
         if (startDate) params.startDate = startDate;
         if (endDate) params.endDate = endDate;
-      } else if (['SEMANA_ESPECIFICA', 'MES_ESPECIFICO'].includes(period)) {
-        const range = period === 'MES_ESPECIFICO' ? this.getPeriodDates(period) : null;
-        if (range) Object.assign(params, range);
+      } else if (period === 'MES_ESPECIFICO') {
+        params.month = document.getElementById('dash-filter-month')?.value || '';
       }
 
       const auditParams = {

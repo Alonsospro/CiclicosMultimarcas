@@ -224,6 +224,8 @@ class InventoryService {
           center: inv.center,
           status: inv.status,
           createdAt: inv.createdAt,
+          // A recount is grouped by month with the inventory it belongs to.
+          creationDate: (inv.parentInventoryId && this.getInventoryRaw(inv.parentInventoryId)?.createdAt) || inv.createdAt,
           createdBy: inv.createdBy,
           assignedAuxiliars: inv.assignedAuxiliars || [],
           totalItems,

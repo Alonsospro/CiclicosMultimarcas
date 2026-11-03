@@ -30,6 +30,23 @@ const getInventoryIdentifier = value => {
   return '';
 };
 
+// Calendar month in Bolivia: an inventory created on the night of day 31 belongs to that month, not to the next UTC one.
+const monthFormat = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit' });
+function monthOf(value) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''))) return String(value).slice(0, 7);
+  const date = new Date(value);
+  return value && Number.isFinite(date.getTime()) ? monthFormat.format(date) : '';
+}
+
+// The inventory record keeps the real creation date; closures found only in Drive fall back to their closing date.
+function creationDateOf(group) {
+  const primary = group.filter(record => !child(record));
+  const records = primary.length ? primary : group;
+  const created = records.find(record => !record.isHistory && record.createdAt)?.createdAt;
+  return created || records.map(record => record.launchedAt || record.closedAt || record.createdAt).filter(Boolean)
+    .sort((a, b) => (Date.parse(a) || 0) - (Date.parse(b) || 0))[0] || null;
+}
+
 // A reclosure changes the date of an old inventory, so its number decides the order when both have one.
 function closureOrder(a, b) {
   const first = Number(a.number), second = Number(b.number);
@@ -156,7 +173,7 @@ class MetricsSourceService {
     return value;
   }
 
-  async load({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', startDate = null, endDate = null, refresh = false, includeChildren = false } = {}) {
+  async load({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', month = null, startDate = null, endDate = null, refresh = false, includeChildren = false } = {}) {
     const candidates = [];
     for (const [dir, isHistory] of [[storage.getHistoryDirectory(), true], [storage.getInventoriesDirectory(), false]]) {
       for (const file of storage.listFiles(dir).filter(f => f.endsWith('.json'))) {
@@ -202,13 +219,15 @@ class MetricsSourceService {
     const matchesRecord = r => isGroupFilter
       ? (getInventoryIdentifier(r) === groupSuffix)
       : matchesId(r, inventoryId);
+    const isSelected = group => (inventoryId === 'TODOS' || group.some(matchesRecord))
+      && (!month || monthOf(creationDateOf(group)) === month);
     // Reports compare each selection with its previous closure, so only that one is read besides it.
-    const previous = inventoryId === 'TODOS' ? new Set() : previousClosures(primaryGroups, group => group.some(matchesRecord));
+    const previous = inventoryId === 'TODOS' && !month ? new Set() : previousClosures(primaryGroups, isSelected);
     let next = 0;
     await Promise.all(Array.from({length:Math.min(3, primaryGroups.length)}, async () => {
       while (next < primaryGroups.length) {
         const index = next++, group = primaryGroups[index];
-        inventories[index] = await this.resolve(group, inventoryId !== 'TODOS' && !group.some(matchesRecord) && !previous.has(group), {startDate, endDate, refresh});
+        inventories[index] = await this.resolve(group, !isSelected(group) && !previous.has(group), {startDate, endDate, refresh});
       }
     }));
     inventories.discoveryIssues = remoteHistory.discoveryIssues || [];
@@ -225,7 +244,7 @@ class MetricsSourceService {
     const anchor = primary[0] || group[0];
     const reopened = !closed(anchor) && !!anchor.reopenedAt;
     const linked = reopened ? null : (closed(anchor) ? primary.find(r => closed(r) && sheetKey(r)) : (primary.find(r => sheetKey(r)) || null));
-    const record = { ...anchor, items: [], aliases: [...new Set(group.flatMap(r => [r.id, r.inventoryId, r.fileId, r.driveFileId, r.fileName]).filter(Boolean))] };
+    const record = { ...anchor, creationDate: creationDateOf(group), items: [], aliases: [...new Set(group.flatMap(r => [r.id, r.inventoryId, r.fileId, r.driveFileId, r.fileName]).filter(Boolean))] };
     if (linked) {
       record.spreadsheetUrl = group.find(r => sheetKey(r) === sheetKey(linked) && /[#&?]gid=\d+/.test(r.spreadsheetUrl || ''))?.spreadsheetUrl || linked.spreadsheetUrl || linked.driveUrl;
       record.driveFileId = sheetKey(linked);

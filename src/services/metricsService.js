@@ -20,6 +20,14 @@ const getInventoryIdentifier = metricsSources.getInventoryIdentifier || (value =
   return '';
 });
 
+// Calendar month in Bolivia: an inventory created on the night of day 31 belongs to that month, not to the next UTC one.
+const monthFormat = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit' });
+function monthOf(value) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''))) return String(value).slice(0, 7);
+  const date = new Date(value);
+  return value && Number.isFinite(date.getTime()) ? monthFormat.format(date) : '';
+}
+
 // Same order as the source service; test doubles of that service may not provide it.
 const closureOrder = metricsSources.closureOrder || ((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -114,7 +122,7 @@ class MetricsService {
     return metricsSources.load(filters);
   }
 
-  async getDashboardMetrics({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', period = 'TODO', startDate = null, endDate = null, forceRefresh = false }) {
+  async getDashboardMetrics({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', period = 'TODO', month = null, startDate = null, endDate = null, forceRefresh = false }) {
     if (forceRefresh) {
       this.invalidateCache({sources:true});
     }
@@ -125,8 +133,15 @@ class MetricsService {
     const cleanInventoryId = (!inventoryId || inventoryId === 'undefined' || inventoryId === 'null') ? 'TODOS' : inventoryId;
     const cleanPeriod = (!period || period === 'undefined' || period === 'null') ? 'TODO' : period;
 
+    // Month periods follow the month the inventory was created in, whenever it was closed.
+    const nowMonth = monthOf(new Date());
+    const [nowYear, nowMonthNumber] = nowMonth.split('-').map(Number);
+    const creationMonth = cleanPeriod === 'ESTE_MES' ? nowMonth
+      : cleanPeriod === 'MES_ANTERIOR' ? (nowMonthNumber === 1 ? `${nowYear - 1}-12` : `${nowYear}-${String(nowMonthNumber - 1).padStart(2, '0')}`)
+      : cleanPeriod === 'MES_ESPECIFICO' && /^\d{4}-\d{2}$/.test(String(month || '')) ? month : null;
+
     // Check calculation cache
-    const cacheKey = `${cleanType}_${cleanCenter}_${cleanInventoryId}_${cleanPeriod}_${startDate || ''}_${endDate || ''}`;
+    const cacheKey = `${cleanType}_${cleanCenter}_${cleanInventoryId}_${cleanPeriod}_${creationMonth || ''}_${startDate || ''}_${endDate || ''}`;
     const nowTs = Date.now();
     const cachedItem = metricsCalculationCache.get(cacheKey);
     if (!forceRefresh && cachedItem && (nowTs - cachedItem.timestamp < METRICS_CALCULATION_CACHE_TTL)) {
@@ -156,12 +171,9 @@ class MetricsService {
       monday.setHours(0, 0, 0, 0);
       effectiveStartDate = monday;
       effectiveEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-    } else if (cleanPeriod === 'ESTE_MES') {
-      effectiveStartDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-      effectiveEndDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    } else if (cleanPeriod === 'MES_ANTERIOR') {
-      effectiveStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
-      effectiveEndDate = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    } else if (creationMonth) {
+      effectiveStartDate = null;
+      effectiveEndDate = null;
     }
 
     const checkDateRange = (dateVal) => {
@@ -173,7 +185,7 @@ class MetricsService {
       return true;
     };
 
-    const inventories = await this.getAllInventoriesData({type:cleanType, center:cleanCenter, inventoryId:cleanInventoryId,
+    const inventories = await this.getAllInventoriesData({type:cleanType, center:cleanCenter, inventoryId:cleanInventoryId, month:creationMonth,
       startDate:isValidDate(effectiveStartDate) ? effectiveStartDate.toISOString() : null,
       endDate:isValidDate(effectiveEndDate) ? effectiveEndDate.toISOString() : null,
       refresh: forceRefresh});
@@ -182,6 +194,7 @@ class MetricsService {
       if (inv.parentInventoryId || String(inv.inventoryId || inv.id || '').startsWith('REC-')) return false;
       if (cleanType !== 'TODOS' && inv.type !== cleanType) return false;
       if (!['TODOS','GLOBAL'].includes(cleanCenter) && !config.isSameCenter(inv.center, cleanCenter)) return false;
+      if (creationMonth) return monthOf(inv.creationDate || inv.launchedAt || inv.createdAt || inv.closedAt) === creationMonth;
       return checkDateRange(inv.closedAt || inv.createdAt);
     });
     const isGroupFilter = String(cleanInventoryId || '').startsWith('GRUPO:');
@@ -1560,6 +1573,7 @@ class MetricsService {
         center: cleanCenter,
         inventoryId: cleanInventoryId,
         period: cleanPeriod,
+        month: creationMonth,
         startDate: isValidDate(effectiveStartDate) ? effectiveStartDate.toISOString().split('T')[0] : null,
         endDate: isValidDate(effectiveEndDate) ? effectiveEndDate.toISOString().split('T')[0] : null
       },

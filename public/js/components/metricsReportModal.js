@@ -137,7 +137,8 @@ window.MetricsReportModal = {
           metricsData = await window.API.getDashboardMetrics({
             inventoryId: 'TODOS',
             center: centerFilter === 'TODOS' ? '' : centerFilter,
-            period: document.getElementById('dash-filter-period')?.value || 'TODO'
+            period: document.getElementById('dash-filter-period')?.value || 'TODO',
+            month: document.getElementById('dash-filter-month')?.value || ''
           });
         }
         inventoryObj = {

@@ -300,7 +300,9 @@
     const met = count('perfect') + count('ok') + count('min');
     const known = centers.length + pending.length;
     const levelsLine = `${count('perfect')} perfecto · ${count('ok')} cumplimiento · ${count('min')} mínimo · ${count('no')} no cumple${pending.length ? ` · ${pending.length} sin cierre` : ''}`;
-    const period = metrics.filters?.startDate || metrics.filters?.endDate ? `${esc(metrics.filters.startDate || 'Inicio')} a ${esc(metrics.filters.endDate || 'Actualidad')}` : esc(inv?.name || 'Todo el histórico');
+    const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const [reportYear, reportMonth] = String(metrics.filters?.month || '').split('-');
+    const period = reportMonth ? `Inventarios creados en ${monthNames[Number(reportMonth) - 1]} ${esc(reportYear)}` : metrics.filters?.startDate || metrics.filters?.endDate ? `${esc(metrics.filters.startDate || 'Inicio')} a ${esc(metrics.filters.endDate || 'Actualidad')}` : esc(inv?.name || 'Todo el histórico');
 
     const page1 = sheet(`Consolidado nacional · ${known} centros`, period, `
       <div class="mr-row mr-c4">

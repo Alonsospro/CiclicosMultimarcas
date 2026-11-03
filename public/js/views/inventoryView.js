@@ -888,7 +888,21 @@ window.InventoryView = {
         FIRMADO: 'Firmado'
       };
 
-      tbody.innerHTML = list.map(inv => {
+      const monthlyList = list.map(inv => ({...inv, creationMonth: this.creationMonth(inv.creationDate || inv.createdAt)}))
+        .sort((a, b) => b.creationMonth.localeCompare(a.creationMonth));
+      let currentMonth = null;
+      tbody.innerHTML = monthlyList.map(inv => {
+        const monthHeader = inv.creationMonth === currentMonth ? '' : `
+          <tr class="inventory-month-row" data-inv-month-header="${inv.creationMonth}">
+            <td colspan="7">
+              <button type="button" class="inventory-month-toggle" aria-expanded="false" onclick="window.InventoryView.toggleInventoryMonth('${inv.creationMonth}')">
+                <i class="fa-solid fa-chevron-right"></i>
+                <span>${this.creationMonthLabel(inv.creationMonth)}</span>
+                <small class="inventory-month-count"></small>
+              </button>
+            </td>
+          </tr>`;
+        currentMonth = inv.creationMonth;
         const stageCompleted = ['EN_RECONTEO', 'RECONTEO_COMPLETADO', 'PENDIENTE_JUSTIFICACION', 'REVISADO', 'CERRADO', 'FINALIZADO', 'FIRMADO'].includes(String(inv.status || '').toUpperCase());
         const displayedCountedItems = stageCompleted ? inv.totalItems : inv.countedItems;
         const percent = inv.totalItems > 0 ? Math.round((displayedCountedItems / inv.totalItems) * 100) : 0;
@@ -899,8 +913,8 @@ window.InventoryView = {
 
         const safeName = encodeURIComponent(inv.name || inv.id);
 
-        return `
-          <tr data-inv-id="${inv.id}" data-inv-status="${inv.status || ''}" data-inv-type="${inv.type || ''}" data-inv-center="${inv.center || ''}">
+        return `${monthHeader}
+          <tr data-inv-id="${inv.id}" data-inv-month="${inv.creationMonth}" data-inv-status="${inv.status || ''}" data-inv-type="${inv.type || ''}" data-inv-center="${inv.center || ''}">
             <td class="inventory-code" data-label="ID / Código"><strong>${inv.id}</strong></td>
             <td class="inventory-name" data-label="Nombre del inventario"><strong>${inv.name}</strong></td>
             <td class="role-encargado-admin col-inv-type" data-label="Tipo"><span class="badge badge-neutral">${inv.type}</span></td>
@@ -1631,16 +1645,37 @@ window.InventoryView = {
     this.handleInlineCountChange(itemId);
   },
 
+  // Calendar month in Bolivia, the same rule the server uses for the metrics.
+  creationMonth(value) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? ''))) return String(value).slice(0, 7);
+    const date = new Date(value);
+    if (!value || !Number.isFinite(date.getTime())) return '';
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit' }).format(date);
+  },
+
+  creationMonthLabel(month) {
+    const names = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const [year, number] = String(month || '').split('-');
+    return number ? `${names[Number(number) - 1]} ${year}` : 'Sin fecha de creación';
+  },
+
+  toggleInventoryMonth(month) {
+    const header = document.querySelector(`#tbody-inventories tr[data-inv-month-header="${month}"] .inventory-month-toggle`);
+    this.inventoryMonthState = this.inventoryMonthState || new Map();
+    this.inventoryMonthState.set(month, header?.getAttribute('aria-expanded') !== 'true');
+    this.filterInventoryTable();
+  },
+
   filterInventoryTable(term) {
     const filter = (term !== undefined ? term : (document.getElementById('search-inventory-list')?.value || '')).toLowerCase().trim();
     const statusSelect = document.getElementById('filter-inv-status');
     const selectedStatusGroup = statusSelect ? statusSelect.value : 'ACTIVOS';
 
-    const rows = document.querySelectorAll('#tbody-inventories tr');
+    const rows = document.querySelectorAll('#tbody-inventories tr[data-inv-id]');
     let visibleCount = 0;
+    const matchesByMonth = new Map();
 
     rows.forEach(row => {
-      if (row.cells.length <= 1) return;
       const text = row.textContent.toLowerCase();
       const matchesSearch = !filter || text.includes(filter);
 
@@ -1662,12 +1697,32 @@ window.InventoryView = {
       }
 
       const visible = matchesSearch && matchesStatus;
-      row.style.display = visible ? '' : 'none';
-      if (visible) visibleCount++;
+      row.style.display = 'none';
+      if (visible) {
+        visibleCount++;
+        const month = row.getAttribute('data-inv-month') || '';
+        if (!matchesByMonth.has(month)) matchesByMonth.set(month, []);
+        matchesByMonth.get(month).push(row);
+      }
+    });
+
+    // The newest month with results opens by itself, a search opens all of them, and a choice made by hand stays.
+    const newestMonth = [...matchesByMonth.keys()].sort().pop();
+    document.querySelectorAll('#tbody-inventories tr[data-inv-month-header]').forEach(header => {
+      const month = header.getAttribute('data-inv-month-header');
+      const matches = matchesByMonth.get(month) || [];
+      const open = filter ? true : (this.inventoryMonthState?.has(month) ? this.inventoryMonthState.get(month) : month === newestMonth);
+      header.style.display = matches.length ? '' : 'none';
+      matches.forEach(row => { row.style.display = open ? '' : 'none'; });
+      const toggle = header.querySelector('.inventory-month-toggle');
+      toggle?.setAttribute('aria-expanded', String(open));
+      toggle?.querySelector('i')?.classList.toggle('is-open', open);
+      const count = header.querySelector('.inventory-month-count');
+      if (count) count.textContent = `${matches.length} inventario${matches.length === 1 ? '' : 's'}`;
     });
 
     let noResults = document.getElementById('row-no-inv-results');
-    if (visibleCount === 0 && rows.length > 0 && rows[0].cells.length > 1) {
+    if (visibleCount === 0 && rows.length > 0) {
       if (!noResults) {
         const tbody = document.getElementById('tbody-inventories');
         if (tbody) {

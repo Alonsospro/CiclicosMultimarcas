@@ -40,7 +40,7 @@ router.get('/tracking', authenticate, requireSuperadminAlonso, async (req, res) 
 // GET /api/dashboard/metrics
 router.get('/metrics', authenticate, async (req, res) => {
   try {
-    let { type, center, inventoryId, period, startDate, endDate, week, refresh, recalculate } = req.query;
+    let { type, center, inventoryId, period, month, startDate, endDate, week, refresh, recalculate } = req.query;
 
     if (type === 'undefined' || type === 'null') type = 'TODOS';
     if (center === 'undefined' || center === 'null') center = 'TODOS';
@@ -58,6 +58,7 @@ router.get('/metrics', authenticate, async (req, res) => {
         center: targetCenter || 'TODOS',
         inventoryId: inventoryId || 'TODOS',
         period: period || 'TODO',
+        month,
         startDate,
         endDate,
         week,
@@ -75,6 +76,7 @@ router.get('/metrics', authenticate, async (req, res) => {
       center: targetCenter || 'TODOS',
       inventoryId: inventoryId || 'TODOS',
       period: period || 'TODO',
+      month,
       startDate,
       endDate,
       week,
@@ -91,7 +93,7 @@ router.get('/metrics', authenticate, async (req, res) => {
 // POST /api/dashboard/recalculate (Recalculate metrics directly from Database & Google Sheets)
 router.post('/recalculate', authenticate, async (req, res) => {
   try {
-    let { type, center, inventoryId, period, startDate, endDate, week } = req.body || {};
+    let { type, center, inventoryId, period, month, startDate, endDate, week } = req.body || {};
 
     if (type === 'undefined' || type === 'null') type = 'TODOS';
     if (center === 'undefined' || center === 'null') center = 'TODOS';
@@ -108,6 +110,7 @@ router.post('/recalculate', authenticate, async (req, res) => {
       center: targetCenter || 'TODOS',
       inventoryId: inventoryId || 'TODOS',
       period: period || 'TODO',
+      month,
       startDate,
       endDate,
       week,

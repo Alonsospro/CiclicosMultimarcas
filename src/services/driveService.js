@@ -173,7 +173,8 @@ class DriveService {
       operationId:inventory.closeOperationId,center:inventory.center,driveRecord:record,
       ...(inventory.closedAt&&inventory.driveFileId?{replaceFileId:inventory.driveFileId}:{})});
     if(!result.success||!result.fileId||!result.spreadsheetUrl)throw new Error('Google no confirmó el archivo final');
-    const history={...record,fileId:result.fileId,fileName:result.fileName,spreadsheetUrl:result.spreadsheetUrl,
+    // launchedAt keeps the creation date, which groups the closure by month even if the inventory record goes away.
+    const history={...record,launchedAt:inventory.createdAt,fileId:result.fileId,fileName:result.fileName,spreadsheetUrl:result.spreadsheetUrl,
       driveUrl:result.spreadsheetUrl,manifest:result.manifest};
     // Keep signed authorship in application history; it does not occupy Sheet columns.
     history.items = items.map((item, index) => inventory.items[index].counterEvidence

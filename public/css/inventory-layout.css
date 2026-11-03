@@ -256,3 +256,31 @@
   .navbar .nav-brand,
   .navbar .nav-user-panel { width: 100%; }
 }
+
+/* Inventarios agrupados por mes de creación */
+#table-inventories .inventory-month-row td {
+  display: table-cell;
+  padding: 0;
+  background: rgba(148, 163, 184, 0.08);
+}
+#table-inventories .inventory-month-row td::before { content: none; }
+.inventory-month-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.85rem;
+  border: 0;
+  background: none;
+  color: var(--text-main);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.inventory-month-toggle i { font-size: 0.7rem; transition: transform 0.15s ease; }
+.inventory-month-toggle i.is-open { transform: rotate(90deg); }
+.inventory-month-count { color: var(--text-muted); font-weight: 500; }
+@media screen and (max-width: 1100px) {
+  #table-inventories .inventory-month-row, #table-inventories .inventory-month-row td { display: block; width: 100%; }
+}

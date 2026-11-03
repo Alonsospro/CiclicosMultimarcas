@@ -275,3 +275,34 @@ test('the week report compares each center with its previous inventory without c
   assert.equal(center.history[0].exactUnits,5);assert.equal(center.history[0].totalUnits,10);
   assert.equal(metrics.availableInventories.length,2);
 });
+
+test('a month groups closures by the date the inventory was created, not when it was closed',async()=>{
+  const sheet=id=>`https://docs.google.com/spreadsheets/d/${id}/edit#gid=123`;
+  const inv=(id,createdAt,closedAt)=>({id,inventoryId:id,type:'CICLICO',center:'5100',status:'REVISADO',name:id,createdAt,closedAt,spreadsheetUrl:sheet(id),
+    items:[{...base}]});
+  const f=sourceFixture({active:[
+    inv('INV-CICLICO-5100-1','2026-09-12T15:00:00.000Z','2026-09-20T15:00:00.000Z'),
+    inv('INV-CICLICO-5100-2','2026-10-30T15:00:00.000Z','2026-11-10T15:00:00.000Z'),
+    inv('INV-CICLICO-5100-3','2026-11-01T02:00:00.000Z','2026-11-05T15:00:00.000Z'),
+    inv('INV-CICLICO-5100-4','2026-11-06T15:00:00.000Z','2026-11-09T15:00:00.000Z')
+  ]});
+  const service=dashboard(f.service);
+  const october=await service.getDashboardMetrics({period:'MES_ESPECIFICO',month:'2026-10'});
+  // Created at 22:00 of October 31 in Bolivia: it is an October inventory, although UTC already says November.
+  assert.deepEqual(Array.from(october.filteredInventories||october.reportData.centers[0].inventories,value=>value.id||value).sort(),['INV-CICLICO-5100-2','INV-CICLICO-5100-3']);
+  assert.equal(october.filters.month,'2026-10');
+  const november=await service.getDashboardMetrics({period:'MES_ESPECIFICO',month:'2026-11'});
+  assert.deepEqual(Array.from(november.reportData.centers[0].inventories,value=>value.id||value),['INV-CICLICO-5100-4']);
+  assert.deepEqual(Array.from(october.reportData.centers[0].history,entry=>entry.number),['1','2','3'],'the closure before the month is read to compare');
+  const read=f.calls.filter(call=>call.kind==='read').map(call=>call.record.id);
+  assert.equal(read.includes('INV-CICLICO-5100-1'),true);
+});
+
+test('a closure known only from Drive falls back to its closing date for the month',async()=>{
+  const f=sourceFixture({remote:type=>type==='CICLICO'?[{fileId:'file-1',inventoryId:'INV-CICLICO-5100-9',fileName:'Final',type:'CICLICO',center:'5100',
+    closedAt:'2026-08-20T15:00:00.000Z',spreadsheetUrl:url}]:[]});
+  const loaded=await f.service.load({month:'2026-08'});
+  assert.equal(loaded[0].creationDate,'2026-08-20T15:00:00.000Z');assert.equal(loaded[0].sourceValidation.status,'valid');
+  const other=await f.service.load({month:'2026-09'});
+  assert.equal(other[0].sourceValidation.status,'not_requested');
+});

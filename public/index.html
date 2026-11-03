@@ -31,7 +31,7 @@
   <link rel="stylesheet" href="/css/responsive.css?v=2.2">
   <link rel="stylesheet" href="/css/liquid-glass.css?v=2.3">
   <link rel="stylesheet" href="/css/counterReliability.css?v=1.0">
-  <link rel="stylesheet" href="/css/inventory-layout.css?v=2.4">
+  <link rel="stylesheet" href="/css/inventory-layout.css?v=2.5">
   <link rel="stylesheet" href="/css/management-report.css?v=1.0">
   <link rel="stylesheet" href="/css/dashboard-sources.css?v=1.0">
   <link rel="stylesheet" href="/css/weekly-groups.css?v=1.0">
@@ -793,9 +793,9 @@
               <option value="HOY">📅 Hoy</option>
               <option value="ESTA_SEMANA">📅 Esta Semana</option>
               <option value="SEMANA_ESPECIFICA">📚 Consolidados de semanas</option>
-              <option value="ESTE_MES">📅 Este Mes</option>
-              <option value="MES_ESPECIFICO">📅 Mes específico</option>
-              <option value="MES_ANTERIOR">📅 Mes Anterior</option>
+              <option value="ESTE_MES">📅 Creados este mes</option>
+              <option value="MES_ESPECIFICO">📅 Creados en un mes</option>
+              <option value="MES_ANTERIOR">📅 Creados el mes anterior</option>
               <option value="PERSONALIZADO">📅 Rango Personalizado...</option>
             </select>
 
@@ -807,7 +807,7 @@
             </div>
             <div id="dash-specific-period-box" style="display: none; align-items: center; gap: 0.3rem;">
               <select id="dash-filter-week" class="form-select" style="width: auto; min-width: 250px; padding: 0.35rem 0.45rem; font-size: 0.8rem;" title="Seleccionar numeración de inventario"></select>
-              <select id="dash-filter-month" class="form-select" style="width: auto; min-width: 175px; padding: 0.35rem 0.45rem; font-size: 0.8rem;" title="Seleccionar mes a consolidar"></select>
+              <select id="dash-filter-month" class="form-select" style="width: auto; min-width: 175px; padding: 0.35rem 0.45rem; font-size: 0.8rem;" title="Consolida los inventarios creados en este mes, sin importar cuándo se cerraron"></select>
             </div>
 
             <!-- Type Selector -->
@@ -2923,18 +2923,18 @@
   <script src="/js/components/firestoreUsageIndicator.js?v=1.1"></script>
   <script src="/js/auth.js?v=2.4"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
-  <script src="/js/views/inventoryView.js?v=2.4.1"></script>
+  <script src="/js/views/inventoryView.js?v=2.4.2"></script>
   <script src="/js/views/barridoView.js?v=2.2"></script>
   <script src="/js/views/assignmentsView.js?v=2.2"></script>
   <script src="/js/inventoryContract.js?v=final-sheet-3"></script>
   <script src="/js/views/justificationsView.js?v=3.1"></script>
   <script src="/js/views/historyView.js?v=2.3"></script>
 
-  <script src="/js/components/managementReport.js?v=1.1"></script>
+  <script src="/js/components/managementReport.js?v=1.2"></script>
   <script src="/js/components/metricsReportModal.js?v=3.0"></script>
   <script src="/js/components/snapshotManagerModal.js?v=2.2"></script>
   <script src="/js/components/counterReliabilityPanel.js?v=1.0"></script>
-  <script src="/js/views/dashboardView.js?v=exact-week-month-1"></script>
+  <script src="/js/views/dashboardView.js?v=creation-month-1"></script>
   <script src="/js/views/progressView.js?v=1.0"></script>
   <script src="/js/views/userManagementView.js?v=2.2"></script>
   <script src="/js/app.js?v=2.4"></script>
