@@ -97,6 +97,8 @@
 .mr-sheet table.mr-diff td:last-child { white-space: normal; min-width: 42%; line-height: 1.3; overflow-wrap: anywhere; }
 .mr-sheet table.mr-actions td { padding-top: 5px; padding-bottom: 5px; line-height: 1.3; }
 .mr-signs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 26px; padding-top: 8px; }
+.mr-signs-single { display: flex; justify-content: center; }
+.mr-signs-single .mr-sign-role { width: min(320px, 100%); text-align: center; }
 .mr-sign-role h4 { margin: 0 0 2px; color: var(--mr-navy); font-size: 12px; font-weight: 700; }
 .mr-sign-lines { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0 14px; }
 .mr-sign-line i { display: block; height: 42px; border-bottom: 1px solid var(--mr-ink); }

@@ -202,6 +202,50 @@ test('consolidated report is its own document, compares centers and lists those 
   assert.equal(totalUnits, metrics.summary.totalAuditedSystemUnits);
 });
 
+const cellsOf = row => row.split('</tr>')[0].replace(/^[^>]*>/, '').replace(/<[^>]+>/g, '|').split('|').map(cell => cell.trim()).filter(Boolean);
+
+test('the coverage sheet shows how each center started per system and how it closed, shortages and surpluses apart', async () => {
+  const differ = (sku, change, extra = {}) => line(sku, { Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change, ...extra });
+  const metrics = await load([
+    inventory('INV-1160-1', '1160', [differ('A', -3), differ('B', 2), line('C')]),
+    inventory('INV-1120-1', '1120', [differ('D', -1)])
+  ]);
+  const html = report.render({ name: 'Corte' }, metrics);
+  const rowOf = (text, label) => cellsOf(text.split('<tr').find(row => row.includes(`${label}<`)));
+  const coverage = html.slice(html.indexOf('Cobertura del corte'), html.indexOf('Del inicio según sistema al cierre'));
+  const units = (label) => rowOf(coverage, label)[1];
+  assert.match(units('Inicio según sistema'), /^40 unid\. · Bs 4\.000/);
+  assert.match(units('Faltantes al cierre'), /^4 unid\. · Bs 400/);
+  assert.match(units('Sobrantes al cierre'), /^2 unid\. · Bs 200/);
+  assert.match(units('Cierre'), /^38 unid\. · Bs 3\.800/);
+  const table = html.slice(html.indexOf('Del inicio según sistema al cierre'));
+  assert.deepEqual(rowOf(table, 'Centro 1160').slice(1), ['3', '30', '3.000', '3', '300', '2', '200', '29', '2.900']);
+  assert.deepEqual(rowOf(table, 'Centro 1120').slice(1), ['1', '10', '1.000', '1', '100', '0', '0', '9', '900']);
+  assert.deepEqual(rowOf(table, 'Total'), ['Total', '4', '40', '4.000', '4', '400', '2', '200', '38', '3.800']);
+  assert.doesNotMatch(html, /[Nn]eto\b|NETO/);
+});
+
+test('a partly justified shortage closes with the units explained and only the remainder as shortage', async () => {
+  const metrics = await load([
+    inventory('INV-1160-1', '1160', [line('A', { Stock_Fisico: 3, Stock_Total: 3, Estado: 'NO CUADRA', Diferencia: -1 })]),
+    inventory('INV-1120-1', '1120', [line('B')])
+  ]);
+  const table = report.render({ name: 'Corte' }, metrics);
+  const row = table.slice(table.indexOf('Del inicio según sistema al cierre')).split('<tr').find(text => text.includes('Centro 1160<'));
+  assert.deepEqual(cellsOf(row).slice(1), ['1', '10', '1.000', '1', '100', '0', '0', '9', '900']);
+});
+
+test('a single signature is centered and several keep their columns', async () => {
+  const css = fs.readFileSync(path.join(root, 'public/css/management-report.css'), 'utf8');
+  assert.match(css, /\.mr-signs-single \{[^}]*justify-content: center/);
+  assert.match(css, /\.mr-signs-single \.mr-sign-role \{[^}]*text-align: center/);
+  const consolidated = report.render({ name: 'Corte' }, await load([inventory('INV-1160-1', '1160', [line('A')]), inventory('INV-1120-1', '1120', [line('B')])]));
+  assert.equal(consolidated.match(/class="mr-signs mr-signs-single"/g).length, 1);
+  const center = report.render({ name: 'Corte' }, await load([inventory('INV-1160-1', '1160', [line('A')])]));
+  assert.equal(center.includes('mr-signs-single'), false);
+  assert.match(center, /class="mr-signs"/);
+});
+
 test('each center shows its own share of the shortages and of the surpluses, not a running total', async () => {
   const differ = (sku, cost, change) => line(sku, { Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change, Costo_Unitario: cost });
   const metrics = await load([
