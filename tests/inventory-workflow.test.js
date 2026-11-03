@@ -13,7 +13,8 @@ const counted = (sku = 'A', warehouse = 'R001') => contract.normalize({id:sku+wa
   Ubicacion:'LOC', Stock_Sistema:10, Costo_Unitario:5, Stock_Buen_Estado:8, Mal_estado:0, Fecha_Ultimo_Conteo:old});
 
 function fixture() {
-  const files = new Map(), sheets = new Map(), gasCalls = [], closures = [];
+  const files = new Map(), sheets = new Map(), gasCalls = [], closures = [], batches = [];
+  const failures = {drive:false, batch:null};
   const clone = value => value === undefined ? undefined : structuredClone(value);
   const store = {
     getInventoriesDirectory:()=>'/inventories', getJustificationsDirectory:()=>'/justifications',
@@ -31,6 +32,21 @@ function fixture() {
       const updated=contract.update(item,p); sheets.set(contract.member(p),updated);
       return {item:updated};
     },
+    batchUpsertCountsToGAS:async(type,p)=>{
+      batches.push(p);
+      if(failures.batch==='network')throw new Error('Google no respondió');
+      const failedItems=[];
+      p.updates.forEach((update,index)=>{
+        try{
+          if(failures.batch===update.sku)throw new Error('Ítem no encontrado');
+          const item=sheets.get(contract.member(update));
+          gasContext.validateJustificationStage_(item,update);
+          sheets.set(contract.member(update),contract.update(item,update));
+        }catch(error){failedItems.push({index,sku:update.sku,error:error.message});}
+      });
+      if(failedItems.length)throw Object.assign(new Error('Lote incompleto'),{result:{success:false,failedItems}});
+      return {success:true};
+    },
     upsertCountToGAS:async(type,p)=>{
       const updated=contract.update(sheets.get(contract.member(p)),p);
       sheets.set(contract.member(p),updated); gasCalls.push(p); return {item:updated};
@@ -42,6 +58,7 @@ function fixture() {
     './storagePath':store,'./auditService':new Proxy({}, {get:()=>()=>{}}),
     './gasService':gas,'./metricsService':{},'./snapshotService':{},
     './driveService':{getPhotoAsDataUri:()=>'',createFinalDriveFile:async p=>{
+      if(failures.drive)throw new Error('Drive no disponible');
       closures.push(clone(p)); return {fileId:'drive-id',fileName:'final',spreadsheetUrl:'https://example.test/final'};
     }}
   };
@@ -58,7 +75,7 @@ function fixture() {
     inventoryId:invId,sku:item.SKU,itemId:item.id,almacen:item.Almacen,location:item.Ubicacion,
     round,corroboracion:decision,reasonType:'balanceo',justification:text,justifiedQuantity,user
   });
-  return {service,files,sheets,gasCalls,closures,put,save,gasContext};
+  return {service,files,sheets,gasCalls,closures,batches,failures,put,save,gasContext};
 }
 
 test('weekly physical verification uses signed author, checks role/center and never changes Sheets', async () => {
@@ -516,15 +533,19 @@ test('weekly second recount compensates against its own physical count',async()=
 });
 
 test('forced close records missing justifications in the final file and keeps the differences',async()=>{
-  const {service,put,save,closures,gasCalls}=fixture(),a=counted('A'),b=counted('B'),c=counted('C');
+  const {service,put,save,closures,sheets,batches}=fixture(),a=counted('A'),b=counted('B'),c=counted('C');
   put({id:'INV',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[a,b,c]});
   await save('INV',a,'CUADRA',1,'Justificación real.');
   assert.equal(service.getPendingJustifications(user)[0].canClose,false);
   assert.equal(service.getPendingJustifications(user)[0].canForceClose,true);
   await assert.rejects(service.finishReviewAndClose({inventoryId:'INV',user}),/No se puede cerrar/);
-  const calls=gasCalls.length;
   const result=await service.forceCloseInventory({inventoryId:'INV',user});
-  assert.equal(result.forcedItems.join(),'B,C');assert.equal(gasCalls.length,calls);
+  assert.equal(result.forcedItems.join(),'B,C');assert.equal(result.masterFailed.length,0);
+  assert.equal(batches.length,1);assert.equal(batches[0].updates.length,2);
+  const main=sheets.get(contract.member(b));
+  assert.equal(main.Estado,'NO CUADRA');assert.equal(main.Razon,'CIERRE FORZADO');
+  assert.match(main.Comentario_Justificacion,/^CIERRE FORZADO por Reviewer/);assert.equal(main.Diferencia,-2);
+  assert.equal(sheets.get(contract.member(a)).Comentario_Justificacion,'Justificación real.','a real review is not rewritten');
   assert.equal(closures.length,1);
   const rows=closures[0].inventory.items,[rowA,rowB]=['A','B'].map(sku=>rows.find(item=>item.SKU===sku));
   assert.equal(rowA.Comentario_Justificacion,'Justificación real.');assert.equal(rowA.Estado,'CUADRA');
@@ -539,7 +560,7 @@ test('forced close records missing justifications in the final file and keeps th
 });
 
 test('forced close after a recount writes the second review and keeps a replaced explanation as history',async()=>{
-  const context=fixture(),{service,put,save,closures}=context,a=counted('A');
+  const context=fixture(),{service,put,save,closures,sheets}=context,a=counted('A');
   put({id:'INV',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[a]});
   await save('INV',a,'NO CUADRA',1,'Primera explicación.');
   const rec=service.enableRecount({inventoryId:'INV',user}).recountInventory;
@@ -557,6 +578,9 @@ test('forced close after a recount writes the second review and keeps a replaced
   assert.equal(row.Razon_Justificacion_2,'CIERRE FORZADO');assert.equal(row.Estado_Justificacion_2,'NO CUADRA');
   assert.equal(row.Stock_Total_Reconteo,8);
   assert.equal(closures[0].justifications.find(j=>j.superseded).justification,'Explicación vieja.');
+  const main=sheets.get(contract.member(a));
+  assert.equal(main.Comentario_Justificacion,'Primera explicación.');
+  assert.equal(main.Razon_Justificacion_2,'CIERRE FORZADO');assert.equal(main.Stock_Total_Reconteo,8);
   assert.equal(service.getInventoryRaw(rec.id).status,'REVISADO');
 });
 
@@ -595,4 +619,45 @@ test('only the exact Alonso username passes the forced close guard',()=>{
     assert.equal(result.passed,false,JSON.stringify(user));assert.equal(result.status,403);
   }
   assert.equal(run(null).status,401);
+});
+
+test('forced close writes the main sheet only after the final file exists',async()=>{
+  const {service,put,sheets,batches,failures}=fixture(),a=counted('A');
+  put({id:'INV',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[a]});
+  failures.drive=true;
+  await assert.rejects(service.forceCloseInventory({inventoryId:'INV',user}),/Drive no disponible/);
+  assert.equal(batches.length,0);assert.equal(sheets.get(contract.member(a)).Razon,undefined);
+});
+
+test('forced close stays closed and reports what the main sheet did not take',async()=>{
+  for(const [failure,expected] of [['B','B'],['network','A,B,C']]){
+    const {service,put,sheets,failures}=fixture(),items=['A','B','C'].map(sku=>counted(sku));
+    put({id:'INV',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items});
+    failures.batch=failure;
+    const result=await service.forceCloseInventory({inventoryId:'INV',user});
+    assert.equal(result.masterFailed.map(entry=>entry.sku).join(),expected);
+    const stored=service.getInventoryRaw('INV');
+    assert.equal(stored.status,'REVISADO');assert.equal(stored.forcedClose.masterFailed.length,expected.split(',').length);
+    if(failure==='B')assert.equal(sheets.get(contract.member(items[0])).Razon,'CIERRE FORZADO');
+  }
+});
+
+test('forced close sends the main sheet in batches below the Apps Script limit',async()=>{
+  const {service,put,batches}=fixture(),items=Array.from({length:120},(_,index)=>counted(`S${index}`));
+  put({id:'INV',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items});
+  const result=await service.forceCloseInventory({inventoryId:'INV',user});
+  assert.equal(batches.map(batch=>batch.updates.length).join(),'50,50,20');
+  assert.equal(result.masterFailed.length,0);
+});
+
+test('weekly forced close writes its main sheet with the context its script validates',async()=>{
+  const {service,put,sheets,closures,gasContext}=fixture(),item={...counted(),Schema_Version:contract.weeklyVersion};
+  put({id:'WEEK',type:'SEMANAL',name:'Semanal',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[item]});
+  const script=fs.readFileSync(path.join(root,'integrations/apps-script/produccion/InventoryWebhookSemanales.gs'),'utf8');
+  const validate=script.slice(script.indexOf('function validateJustificationStage_'),script.indexOf('function upsertCount_'));
+  vm.runInContext(validate,gasContext);
+  const result=await service.forceCloseInventory({inventoryId:'WEEK',user});
+  assert.equal(result.masterFailed.length,0);assert.equal(closures.length,1);
+  const main=sheets.get(contract.member(item));
+  assert.equal(main.Razon,'CIERRE FORZADO');assert.equal(main.Cantidad_Justificada_1,0);assert.equal(main.Stock_Sistema,10);
 });

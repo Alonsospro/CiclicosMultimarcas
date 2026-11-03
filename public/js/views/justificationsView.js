@@ -2005,7 +2005,7 @@ window.JustificationsView = {
     }
 
     const missing = Number(task.pendingJustificationsCount || 0);
-    if (!confirm(`¿Forzar el cierre de este inventario?\n\nFaltan ${missing} justificación(es). Se registrarán en el archivo final como NO CUADRA, con razón "CIERRE FORZADO" y su nombre como responsable. Las diferencias se mantienen.\n\nEl inventario quedará cerrado y se creará el archivo oficial en Google Drive.`)) {
+    if (!confirm(`¿Forzar el cierre de este inventario?\n\nFaltan ${missing} justificación(es). Se registrarán en el archivo final y en la hoja principal como NO CUADRA, con razón "CIERRE FORZADO" y su nombre como responsable. Las diferencias se mantienen.\n\nEl inventario quedará cerrado y se creará el archivo oficial en Google Drive.`)) {
       return;
     }
 
@@ -2019,7 +2019,8 @@ window.JustificationsView = {
       window.Toast.info('Creando archivo final en Google Drive...');
       const res = await window.API.forceClose(inventoryId);
       window.Toast.success(res.message || 'Cierre forzado completado');
-      alert(`✅ Cierre Forzado\n\n${res.message}\nArchivo Drive: ${res.drive?.fileName || 'creado'}`);
+      const notWritten = (res.masterFailed || []).map(failure => failure.sku).join(', ');
+      alert(`✅ Cierre Forzado\n\n${res.message}\nArchivo Drive: ${res.drive?.fileName || 'creado'}${notWritten ? `\n\n⚠️ Quedaron en el archivo final, pero no se escribieron en la hoja principal: ${notWritten}` : ''}`);
     } catch (err) {
       window.Toast.danger(err.message || 'Error al forzar el cierre');
     }

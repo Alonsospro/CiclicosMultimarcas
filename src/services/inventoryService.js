@@ -12,6 +12,8 @@ const gasService = require('./gasService');
 const metricsService = require('./metricsService');
 const snapshotService = require('./snapshotService');
 
+const FORCED_MASTER_BATCH = 50;
+
 function mergeRecountIntoParent(parentItem, recountItem) {
   const normalized = contract.normalize(recountItem);
   const reviewHistory = Object.fromEntries([
@@ -1633,9 +1635,26 @@ class InventoryService {
     return {primaryInv: inv, childRecountInv: inv.hasRecount ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null};
   }
 
+  // Returns the reviews Google did not write. A batch reports item failures through its result;
+  // those writes are not retried because the rest of the batch is already applied.
+  async writeForcedToMaster(inv, updates) {
+    const failed = [];
+    for (let offset = 0; offset < updates.length; offset += FORCED_MASTER_BATCH) {
+      const chunk = updates.slice(offset, offset + FORCED_MASTER_BATCH);
+      try {
+        await gasService.batchUpsertCountsToGAS(inv.type, {center:inv.center, updates:chunk});
+      } catch (error) {
+        const items = error.result?.failedItems;
+        if (Array.isArray(items)) items.forEach(item => failed.push({sku:chunk[item.index]?.sku || item.sku, error:item.error}));
+        else chunk.forEach(update => failed.push({sku:update.sku, error:error.message}));
+      }
+    }
+    return failed;
+  }
+
   // Closes despite missing justifications; only the route exclusive to the Alonso user reaches it. The missing
-  // ones are recorded as NO CUADRA, so differences stay visible, and reach the final Sheet with the row.
-  // They stay registered if creating the final file fails, so the close can simply be retried.
+  // ones are recorded as NO CUADRA, so differences stay visible. A failed close is rolled back with its request,
+  // so the main sheet is written only after it succeeds; a failure there no longer undoes the close.
   async forceCloseInventory({ inventoryId, user }) {
     const inv = this.getInventoryRaw(inventoryId);
     if (!inv) throw new Error('Inventario no encontrado');
@@ -1651,6 +1670,7 @@ class InventoryService {
     const closedAt = new Date().toISOString();
     const records = [...this.getJustificationsForInventory(primaryInv.id),
       ...(childRecountInv ? this.getJustificationsForInventory(childRecountInv.id) : [])];
+    const masterUpdates = [];
     const forcedItems = closePlan.pending.map(entry => {
       const item = primaryInv.items.find(it => contract.member(it) === contract.member(entry));
       const round = entry.justificationRound;
@@ -1659,6 +1679,10 @@ class InventoryService {
       const payload = {action:'saveJustification', round, isJustification2:round === 2, corroboracion:'NO CUADRA',
         razon:'CIERRE FORZADO', comentarioJustificacion:`CIERRE FORZADO por ${reviewer}: sin justificación registrada al cerrar.`,
         reviewedBy:reviewer, originalStockSistema:contract.isWeekly(item) ? item.Stock_Sistema : (item.Stock_Sistema_Original ?? item.Stock_Sistema), fecha:closedAt};
+      // The script checks this context against the review of each round, whatever the inventory status is now.
+      masterUpdates.push({...payload, inventoryId:primaryInv.id, itemId:item.id, sku:item.SKU, almacen:item.Almacen, location:item.Ubicacion,
+        workflow:{version:1, status:round === 1 ? 'PENDIENTE_JUSTIFICACION' : 'RECONTEO_COMPLETADO', round,
+          countStage:round === 1 ? 0 : workflow.recountStageOf(primaryInv, item), reopenedPhase:null}});
       Object.assign(item, contract.update(item, payload), {Stock_Sistema_Original:payload.originalStockSistema, corroboracion:'NO CUADRA',
         corroborationStatus:'NO CUADRA', isCuadra:false, reviewedAt:closedAt, Revisado_Por:reviewer});
       const match = childRecountInv?.items?.find(it => contract.member(it) === contract.member(item));
@@ -1678,15 +1702,21 @@ class InventoryService {
     const result = await this.completeClose({primaryInv, childRecountInv, user,
       reviewNotes:`Cierre forzado por ${reviewer}: ${forcedItems.length} justificación(es) faltante(s).`});
 
+    const masterFailed = await this.writeForcedToMaster(primaryInv, masterUpdates);
+    if (masterFailed.length) {
+      primaryInv.forcedClose.masterFailed = masterFailed;
+      this.saveInventory(primaryInv);
+    }
+
     auditService.logAction({
       action: 'INVENTORY_FORCE_CLOSED',
-      details: `Cierre forzado por ${user.username} con ${forcedItems.length} justificación(es) faltante(s): ${forcedItems.join(', ') || 'ninguna'}`,
+      details: `Cierre forzado por ${user.username} con ${forcedItems.length} justificación(es) faltante(s): ${forcedItems.join(', ') || 'ninguna'}. No escritas en la hoja principal: ${masterFailed.map(failure => `${failure.sku} (${failure.error})`).join(', ') || 'ninguna'}`,
       user: user.username,
       center: primaryInv.center,
       targetId: primaryInv.id
     });
 
-    return {...result, forcedItems,
+    return {...result, forcedItems, masterFailed,
       message: `Cierre forzado completado: ${forcedItems.length} justificación(es) registrada(s) como cierre forzado.`};
   }
 
