@@ -202,18 +202,27 @@ test('consolidated report is its own document, compares centers and lists those 
   assert.equal(totalUnits, metrics.summary.totalAuditedSystemUnits);
 });
 
-test('each center shows its own share of the shortages, not a running total', async () => {
-  const short = (sku, cost) => line(sku, { Stock_Fisico: 9, Stock_Total: 9, Diferencia: -1, Costo_Unitario: cost });
+test('each center shows its own share of the shortages and of the surpluses, not a running total', async () => {
+  const differ = (sku, cost, change) => line(sku, { Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change, Costo_Unitario: cost });
   const metrics = await load([
-    inventory('INV-1160-1', '1160', [short('A', 600)]),
-    inventory('INV-1120-1', '1120', [short('B', 400)]),
-    inventory('INV-5100-1', '5100', [short('C', 1)])
+    inventory('INV-1160-1', '1160', [differ('A', 600, -1), differ('D', 1, 1)]),
+    inventory('INV-1120-1', '1120', [differ('B', 400, -1), differ('E', 300, 1)]),
+    inventory('INV-5100-1', '5100', [differ('C', 1, -1), differ('F', 700, 1)])
   ]);
   const html = report.render({ name: 'Corte' }, metrics);
-  const panel = html.slice(html.indexOf('Faltantes: '), html.indexOf('Sobrantes: '));
-  assert.deepEqual([...panel.matchAll(/<td class="num">([^<]*%)<\/td><\/tr>/g)].map(match => match[1]), ['60%', '40%', '&lt;1%']);
-  assert.match(panel, /3 centros concentran 100%/);
+  const shares = panel => [...panel.matchAll(/<td class="num">([^<]*%)<\/td><\/tr>/g)].map(match => match[1]);
+  const shortages = html.slice(html.indexOf('Faltantes: '), html.indexOf('Sobrantes: '));
+  const surpluses = html.slice(html.indexOf('Sobrantes: '), html.indexOf('Faltantes (Bs) por clase'));
+  assert.deepEqual(shares(shortages), ['60%', '40%', '&lt;1%']);
+  assert.deepEqual(shares(surpluses), ['70%', '30%', '&lt;1%']);
   assert.doesNotMatch(html, /Acum\./);
+});
+
+test('the consolidated location sheet comes right after the damage sheet', async () => {
+  const html = report.render({ name: 'Corte' }, await load([mixedCenter(), inventory('INV-1120-1', '1120', [line('OK-1')])]));
+  const titles = [...html.matchAll(/<header class="mr-band"><b>([^<]*)<\/b>/g)].map(match => match[1]);
+  assert.equal(titles[titles.indexOf('Averías y cobertura') + 1], 'Ubicación (ERU) y causas de la baja');
+  assert.ok(titles.indexOf('Mayores diferencias') < titles.indexOf('Averías y cobertura'));
 });
 
 test('a selected center reports no pending centers and history uses real quantities', async () => {

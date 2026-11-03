@@ -400,27 +400,26 @@
         ${panel('Sobrantes (Bs) por clase · 5 centros con más sobrante', heat(classRows('surplus'), 'surplus', 'blue', 'Centro'))}
       </div>`, 'Las líneas son registros de conteo. Ningún monto compensa a otro.');
 
+    const helpers = differences((metrics.discrepanciesList || []).filter(item => item && typeof item === 'object'));
+    const globalTable = (rows, color, sign, all) => `<table data-split class="mr-diff"><thead><tr><th>Centro</th><th>Código</th><th>Clase</th><th class="num">Unid.</th><th>Bs</th><th class="num">% del total</th><th>Motivo</th></tr></thead><tbody>${rows.map(item => `<tr><td>${esc(item.center)}</td><td>${esc(item.sku)}</td><td>${esc(item.abc)}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), Math.max(helpers.cost(rows[0]), 1), 90, color, qty(helpers.cost(item)))}</td><td class="num">${all ? pct(helpers.cost(item) / all * 100) : '—'}</td><td>${esc(justification(item))}</td></tr>`).join('') || '<tr><td colspan="7">Sin registros.</td></tr>'}</tbody></table>`;
+    const damageRows = centers.slice().sort((a, b) => b.damage.cost - a.damage.cost);
+    const page4 = sheet('Mayores diferencias', period, `
+      ${panel('Mayores faltantes de todos los centros', globalTable(helpers.shortages.slice(0, 8), RED, '−', total.shortage.cost), 'mr-plain')}
+      ${panel('Mayores sobrantes de todos los centros', globalTable(helpers.surpluses.slice(0, 8), BLUE, '+', total.surplus.cost), 'mr-plain')}`, 'Faltantes y sobrantes se muestran por separado; ninguno compensa al otro.');
+    const page5 = sheet('Averías y cobertura', period, `
+      <div class="mr-row mr-c2">
+        ${panel(`Averías por centro · ${bs(total.damage.cost)} · ${qty(total.damage.lines)} líneas`, `<table class="mr-flat"><tbody>${damageRows.slice(0, 6).map(c => `<tr><td>${esc(c.name)}</td><td>${hbar(c.damage.cost, Math.max(damageRows[0].damage.cost, 1), 110, AMBER, bs(c.damage.cost))}</td><td class="num">${qty(c.damage.lines)} lín.</td></tr>`).join('')}</tbody></table>${damageRows.length > 6 ? `<p class="mr-more">${damageRows.length - 6} centros más · ${bs(sum(damageRows.slice(6), c => c.damage.cost))}</p>` : ''}`)}
+        ${panel('Cobertura del corte', `<table class="mr-flat"><tbody><tr><td>Centros con cierre</td><td class="num mr-strong">${centers.length} de ${known}</td></tr><tr><td>Sin cierre</td><td class="num mr-strong mr-wrap">${pending.map(c => `${esc(c.code)} ${esc(c.name)}`).join(', ') || 'Ninguno'}</td></tr><tr><td>Inventarios incluidos</td><td class="num mr-strong">${qty(sum(centers, c => c.inventories.length))}</td></tr><tr><td>Centros con más de un inventario</td><td class="num mr-strong mr-wrap">${centers.filter(c => c.inventories.length > 1).map(c => `${esc(c.center)} (${c.inventories.length})`).join(', ') || 'Ninguno'}</td></tr><tr><td>Códigos revisados</td><td class="num mr-strong">${qty(total.skus)}</td></tr><tr><td>Valor revisado</td><td class="num mr-strong">${bs(total.value)}</td></tr></tbody></table>`)}
+      </div>`, 'El corte es el filtro elegido en el dashboard. Cada centro tiene su informe aparte.');
     const eruRows = centers.slice().sort((a, b) => num(a.i.eru) - num(b.i.eru));
     const lossOf = c => sum(CAUSE_KEYS, key => c.eru.causes[key]);
     const maxLoss = Math.max(...eruRows.map(lossOf), 1);
-    const page4 = sheet('Ubicación (ERU) y causas de la baja', 'Todos los centros', `
+    const page6 = sheet('Ubicación (ERU) y causas de la baja', 'Todos los centros', `
       <div class="mr-row mr-c13">
         ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(total.eru.exact)} de ${qty(total.eru.evaluated)} códigos por almacén`, cls: 'top-info' })}
         ${panel('Causas de la baja · todos los centros', causeTable(total.eru))}
       </div>
       ${panel('Por centro · peor ubicación primero', `<table data-split><thead><tr><th>Centro</th><th class="num">Correctos</th><th class="num">%</th><th class="num">Con baja</th><th>Causas</th>${CAUSE_KEYS.map(key => `<th class="num">${esc({ multiple: 'Varias ubic.', format: 'Formato', none: 'Sin ubic.', additional: 'Solo adic.' }[key])}</th>`).join('')}</tr></thead><tbody>${eruRows.map(c => `<tr><td class="mr-strong">${esc(c.name)}</td><td class="num">${qty(c.eru.exact)} / ${qty(c.eru.evaluated)}</td><td class="num">${pct(c.i.eru)}</td><td class="num">${qty(lossOf(c))}</td><td class="mr-wide">${stack(c.eru.causes, maxLoss, 230)}</td>${CAUSE_KEYS.map(key => `<td class="num">${qty(c.eru.causes[key])}</td>`).join('')}</tr>`).join('')}</tbody></table>${causeLegend}`, 'mr-plain')}`, 'Cada almacén se evalúa por separado y cada código por almacén entra en una sola causa. La lista está en el informe de cada centro.');
-
-    const helpers = differences((metrics.discrepanciesList || []).filter(item => item && typeof item === 'object'));
-    const globalTable = (rows, color, sign, all) => `<table data-split class="mr-diff"><thead><tr><th>Centro</th><th>Código</th><th>Clase</th><th class="num">Unid.</th><th>Bs</th><th class="num">% del total</th><th>Motivo</th></tr></thead><tbody>${rows.map(item => `<tr><td>${esc(item.center)}</td><td>${esc(item.sku)}</td><td>${esc(item.abc)}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), Math.max(helpers.cost(rows[0]), 1), 90, color, qty(helpers.cost(item)))}</td><td class="num">${all ? pct(helpers.cost(item) / all * 100) : '—'}</td><td>${esc(justification(item))}</td></tr>`).join('') || '<tr><td colspan="7">Sin registros.</td></tr>'}</tbody></table>`;
-    const damageRows = centers.slice().sort((a, b) => b.damage.cost - a.damage.cost);
-    const page5 = sheet('Mayores diferencias', period, `
-      ${panel('Mayores faltantes de todos los centros', globalTable(helpers.shortages.slice(0, 8), RED, '−', total.shortage.cost), 'mr-plain')}
-      ${panel('Mayores sobrantes de todos los centros', globalTable(helpers.surpluses.slice(0, 8), BLUE, '+', total.surplus.cost), 'mr-plain')}`, 'Faltantes y sobrantes se muestran por separado; ninguno compensa al otro.');
-    const page6 = sheet('Averías y cobertura', period, `
-      <div class="mr-row mr-c2">
-        ${panel(`Averías por centro · ${bs(total.damage.cost)} · ${qty(total.damage.lines)} líneas`, `<table class="mr-flat"><tbody>${damageRows.slice(0, 6).map(c => `<tr><td>${esc(c.name)}</td><td>${hbar(c.damage.cost, Math.max(damageRows[0].damage.cost, 1), 110, AMBER, bs(c.damage.cost))}</td><td class="num">${qty(c.damage.lines)} lín.</td></tr>`).join('')}</tbody></table>${damageRows.length > 6 ? `<p class="mr-more">${damageRows.length - 6} centros más · ${bs(sum(damageRows.slice(6), c => c.damage.cost))}</p>` : ''}`)}
-        ${panel('Cobertura del corte', `<table class="mr-flat"><tbody><tr><td>Centros con cierre</td><td class="num mr-strong">${centers.length} de ${known}</td></tr><tr><td>Sin cierre</td><td class="num mr-strong mr-wrap">${pending.map(c => `${esc(c.code)} ${esc(c.name)}`).join(', ') || 'Ninguno'}</td></tr><tr><td>Inventarios incluidos</td><td class="num mr-strong">${qty(sum(centers, c => c.inventories.length))}</td></tr><tr><td>Centros con más de un inventario</td><td class="num mr-strong mr-wrap">${centers.filter(c => c.inventories.length > 1).map(c => `${esc(c.center)} (${c.inventories.length})`).join(', ') || 'Ninguno'}</td></tr><tr><td>Códigos revisados</td><td class="num mr-strong">${qty(total.skus)}</td></tr><tr><td>Valor revisado</td><td class="num mr-strong">${bs(total.value)}</td></tr></tbody></table>`)}
-      </div>`, 'El corte es el filtro elegido en el dashboard. Cada centro tiene su informe aparte.');
     const overall = worst([i.units, i.codes, i.money]);
     const belowMinimum = centers.filter(c => c.lvl.key === 'no').map(c => esc(c.name));
     const differing = total.shortage.lines + total.surplus.lines;
