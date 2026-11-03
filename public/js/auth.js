@@ -198,6 +198,11 @@ window.Auth = {
     return u === 'alonso' || d.includes('alonso') || email === 'alonsospro@gmail.com' || (this.currentUser.isSuperadmin && (u === 'alonso' || d.includes('alonso'))) || this.currentUser.clave === 'ADM';
   },
 
+  // Only the account whose username is Alonso; the server applies the same rule.
+  isExactAlonso() {
+    return String(this.currentUser?.username || '').trim().toLowerCase() === 'alonso';
+  },
+
   isSuperadminAlonso() {
     if (!this.currentUser) return false;
     return this.isAlonso() || this.currentUser.isSuperadmin === true;

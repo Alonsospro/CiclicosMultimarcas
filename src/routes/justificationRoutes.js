@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const inventoryService = require('../services/inventoryService');
-const { authenticate, requireRole, requireSuperadminAlonso } = require('../middlewares/authMiddleware');
+const { authenticate, requireRole, requireExactAlonso } = require('../middlewares/authMiddleware');
 
 // GET /api/justifications
 router.get('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
@@ -106,8 +106,8 @@ router.post('/:id/enable-recount-2', authenticate, requireRole(['ADMIN', 'ENCARG
   }
 });
 
-// POST /api/justifications/:id/force-close (Exclusivo Superadmin Alonso: closes despite missing justifications)
-router.post('/:id/force-close', authenticate, requireSuperadminAlonso, async (req, res) => {
+// POST /api/justifications/:id/force-close (Exclusive to the Alonso user: closes despite missing justifications)
+router.post('/:id/force-close', authenticate, requireExactAlonso, async (req, res) => {
   try {
     res.json(await inventoryService.forceCloseInventory({ inventoryId: req.params.id, user: req.user }));
   } catch (err) {

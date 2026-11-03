@@ -17,7 +17,7 @@ La habilitación depende del estado guardado del inventario. El servidor calcula
 - Al firmar el segundo reconteo, sus ítems deben revisarse de nuevo. Sheets no tiene columnas para una tercera revisión: la nueva reemplaza AD-AH y la anterior se conserva en la app como registro `superseded` (historial y `__JUSTIFICATIONS` del cierre). Los demás ítems conservan su revisión.
 - La segunda revisión tiene su propia decisión, texto, fecha y responsable. La primera explicación, una foto o una diferencia cero no la completan.
 - El cierre exige completar las revisiones correspondientes. Admite NO CUADRA como resultado final documentado, manteniendo sus diferencias.
-- El superadministrador puede forzar el cierre si faltan justificaciones, con el conteo y el reconteo firmados. Cada una que falta se registra como NO CUADRA con razón `CIERRE FORZADO` en el archivo final y se conservan las diferencias. No escribe en la hoja maestra.
+- Solo el usuario `Alonso` puede forzar el cierre si faltan justificaciones, con el conteo y el reconteo firmados. Cada una que falta se registra como NO CUADRA con razón `CIERRE FORZADO` en el archivo final y se conservan las diferencias. No escribe en la hoja maestra.
 - Consultar la bandeja no cambia estados ni guarda inventarios.
 - Reabrir cantidades vuelve a bloquear la revisión hasta firmar la etapa y exige una explicación posterior. Las explicaciones anteriores siguen visibles como historial.
 - Después de generar un reconteo, las correcciones de cantidades se reabren en el reconteo vigente. Se bloquea volver al primer conteo para evitar mezclar una nueva secuencia con resultados posteriores ya registrados.

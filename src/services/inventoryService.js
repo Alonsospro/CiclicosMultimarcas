@@ -1633,7 +1633,7 @@ class InventoryService {
     return {primaryInv: inv, childRecountInv: inv.hasRecount ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null};
   }
 
-  // Closes despite missing justifications; only the superadministrator route reaches it. The missing
+  // Closes despite missing justifications; only the route exclusive to the Alonso user reaches it. The missing
   // ones are recorded as NO CUADRA, so differences stay visible, and reach the final Sheet with the row.
   // They stay registered if creating the final file fails, so the close can simply be retried.
   async forceCloseInventory({ inventoryId, user }) {

@@ -156,6 +156,26 @@ function requireBulkInventoryCreator(req, res, next) {
   });
 }
 
+// Only the account whose username is Alonso: display name, key or superadmin flag do not count.
+function isExactAlonso(user) {
+  return String(user?.username || '').trim().toLowerCase() === 'alonso';
+}
+
+function requireExactAlonso(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'No autenticado.' });
+  }
+
+  if (isExactAlonso(req.user)) {
+    return next();
+  }
+
+  return res.status(403).json({
+    success: false,
+    message: 'Acceso denegado: Esta acción es exclusiva del usuario Alonso.'
+  });
+}
+
 function isAlonsoSuperadmin(user) {
   if (!user) return false;
   return isAlonso(user) || user.isSuperadmin === true;
@@ -181,6 +201,8 @@ module.exports = {
   requireRole,
   requireAlonso,
   requireSuperadminAlonso,
+  isExactAlonso,
+  requireExactAlonso,
   isAlonsoSuperadmin,
   requireInventoryCreator,
   requireBulkInventoryCreator,

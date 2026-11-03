@@ -574,8 +574,25 @@ test('forced close is refused while a count or recount is unsigned, and the rout
   await assert.rejects(service.forceCloseInventory({inventoryId:'REC',user}),/solo omite justificaciones/);
   assert.equal(closures.length,0);
   const routes=fs.readFileSync(path.join(root,'src/routes/justificationRoutes.js'),'utf8');
-  assert.match(routes,/const \{[^}]*requireSuperadminAlonso[^}]*\} = require\('\.\.\/middlewares\/authMiddleware'\)/);
-  assert.match(routes,/router\.post\('\/:id\/force-close', authenticate, requireSuperadminAlonso,/);
+  assert.match(routes,/const \{[^}]*requireExactAlonso[^}]*\} = require\('\.\.\/middlewares\/authMiddleware'\)/);
+  assert.match(routes,/router\.post\('\/:id\/force-close', authenticate, requireExactAlonso,/);
   const view=fs.readFileSync(path.join(root,'public/js/views/justificationsView.js'),'utf8');
-  assert.match(view,/task\.canForceClose && !task\.canClose && window\.Auth\?\.isSuperadminAlonso\?\.\(\)/);
+  assert.match(view,/task\.canForceClose && !task\.canClose && window\.Auth\?\.isExactAlonso\?\.\(\)/);
+});
+
+test('only the exact Alonso username passes the forced close guard',()=>{
+  const {requireExactAlonso}=require('../src/middlewares/authMiddleware');
+  const run=user=>{
+    let passed=false,status=null;
+    requireExactAlonso({user},{status(code){status=code;return this;},json(){return this;}},()=>{passed=true;});
+    return {passed,status};
+  };
+  assert.equal(run({username:'Alonso',displayName:'Alonso Rios',isSuperadmin:true}).passed,true);
+  assert.equal(run({username:'alonso'}).passed,true);
+  for(const user of [{username:'admin',isSuperadmin:true,role:'ADMIN'},{username:'jperez',displayName:'Juan Alonso'},
+    {username:'otro',clave:'ADM'},{username:'otro',email:'alonsospro@gmail.com'},{username:'alonso2'}]){
+    const result=run(user);
+    assert.equal(result.passed,false,JSON.stringify(user));assert.equal(result.status,403);
+  }
+  assert.equal(run(null).status,401);
 });

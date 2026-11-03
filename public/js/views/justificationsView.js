@@ -317,7 +317,7 @@ window.JustificationsView = {
   reviewAction(task) {
     if (task.isFinalized || task.status === 'REVISADO') return '<span class="badge badge-success">Finalizado en Drive · Solo lectura</span>';
     if (task.status === 'EN_RECONTEO') return '<span class="badge badge-info">Reconteo en curso · Justificación bloqueada</span>';
-    const forceClose = task.canForceClose && !task.canClose && window.Auth?.isSuperadminAlonso?.() ? ` <button type="button" id="btn-force-close-${task.inventoryId}" class="btn btn-danger" onclick="window.JustificationsView.forceClose('${task.inventoryId}')"><i class="fa-solid fa-lock"></i> Cierre forzado</button>` : '';
+    const forceClose = task.canForceClose && !task.canClose && window.Auth?.isExactAlonso?.() ? ` <button type="button" id="btn-force-close-${task.inventoryId}" class="btn btn-danger" onclick="window.JustificationsView.forceClose('${task.inventoryId}')"><i class="fa-solid fa-lock"></i> Cierre forzado</button>` : '';
     if (task.canEnableRecount) return `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableRecount('${task.inventoryId}')">Habilitar Reconteo</button>${forceClose}`;
     const secondRecount = task.canEnableRecount2 ? `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableSecondRecount('${task.inventoryId}')">Habilitar 2do Reconteo</button> ` : '';
     if (task.canClose) return `${secondRecount}<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>`;
