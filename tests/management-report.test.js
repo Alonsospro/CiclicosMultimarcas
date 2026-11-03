@@ -332,16 +332,17 @@ test('consolidated differences read one below the other under a single title, an
   assert.equal(differences.match(/table data-split class="mr-diff"/g).length, 2, 'long lists continue on another sheet');
 });
 
-test('the consolidated report ends with diagnosis, conclusion and signatures with titles only', async () => {
+test('the consolidated report ends with diagnosis, conclusion and only the inventory control signature', async () => {
   const metrics = await load([differing('1160', 'A'), differing('1120', 'B')], {}, [{ username: 'jefe', displayName: 'Encargado Real', role: 'ENCARGADO', center: '1160' }]);
   const html = report.render({ name: 'Consolidado Semana 1' }, metrics);
   const closing = html.slice(html.lastIndexOf('<section class="mr-sheet"'));
   assert.ok(closing.includes('<b>Diagnóstico y recomendación</b>'));
   for (const text of ['Qué hacer, en orden', 'Regularización contable', 'Conclusión global', 'Aclarar los faltantes', 'Aclarar los sobrantes']) assert.ok(closing.includes(text), text);
   assert.doesNotMatch(closing, /[Nn]eto\b|impacto absoluto/, 'shortages and surpluses are not netted nor added');
-  for (const role of ['Responsable de conteo', 'Responsable de almacén', 'Auditoría · Control de Gestión']) assert.ok(closing.includes(`<h4>${role}</h4>`), role);
-  assert.equal(closing.includes('Encargado Real'), false, 'the consolidated signatures carry no names');
-  assert.equal(closing.match(/class="mr-sign-line"/g).length, 3);
+  assert.deepEqual([...closing.matchAll(/<h4>([^<]*)<\/h4>/g)].map(match => match[1]), ['Responsable de Control de Inventarios']);
+  assert.ok(closing.includes('Humberto Alonso Rios Lino'));
+  assert.equal(closing.includes('Encargado Real'), false, 'center managers sign their own report, not the consolidated one');
+  assert.equal(closing.match(/class="mr-sign-line"/g).length, 1);
   assert.equal(closing.includes('Gerencia'), false);
 });
 

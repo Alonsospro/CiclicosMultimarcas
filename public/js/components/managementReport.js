@@ -430,7 +430,7 @@
         belowMinimum.length && ['Atender los centros que no cumplen', `Priorizar el seguimiento en ${belowMinimum.join(', ')}.`, `${belowMinimum.length} ${belowMinimum.length === 1 ? 'centro' : 'centros'}`, '—'],
         pending.length && ['Completar los cierres pendientes', `Falta el cierre de ${pending.map(c => `${esc(c.code)} ${esc(c.name)}`).join(', ')}.`, `${pending.length} ${pending.length === 1 ? 'centro' : 'centros'}`, '—']
       ],
-      roles: [['Responsable de conteo', []], ['Responsable de almacén', []], ['Auditoría · Control de Gestión', []]] });
+      roles: [['Responsable de Control de Inventarios', ['Humberto Alonso Rios Lino']]] });
     return [page1, page2, page3, page4, page5, page6, closing].join('');
   }
 
