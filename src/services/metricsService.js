@@ -561,7 +561,9 @@ class MetricsService {
         };
       }
 
-      reportCollector.addInventory({ center: invCenter, centerName: centerDisplayName, id: inv.id, closedAt: inv.closedAt || inv.createdAt });
+      reportCollector.addInventory({ center: invCenter, centerName: centerDisplayName, id: inv.id, closedAt: inv.closedAt || inv.createdAt,
+        duration: reportBreakdown.inventoryDuration(inv, { centerName: centerDisplayName,
+          finished: !!inv.isHistory || !!inv.isFinalized || ['REVISADO', 'FINALIZADO', 'COMPLETO', 'CERRADO', 'ARCHIVADO'].includes(String(inv.status || '').toUpperCase()) }) });
 
       // Track multi-locations per inventory & SKU
       const invSkuMap = {};

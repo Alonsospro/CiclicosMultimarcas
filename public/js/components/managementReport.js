@@ -154,6 +154,10 @@
     const row = (name, g, cls = '') => `<tr class="${cls}"><td class="mr-strong">${esc(name)}</td><td class="num">${qty(g.skus)}</td><td class="num">${qty(g.units)}</td><td class="num">${qty(g.value)}</td><td class="num">${qty(g.shortage.units)}</td><td class="num">${qty(g.shortage.cost)}</td><td class="num">${qty(g.surplus.units)}</td><td class="num">${qty(g.surplus.cost)}</td><td class="num">${qty(closingUnits(g))}</td><td class="num">${qty(closingValue(g))}</td></tr>`;
     return `<table data-split><thead><tr><th></th><th class="mr-group" colspan="3">Inicio según sistema</th><th class="mr-group" colspan="2">Faltantes</th><th class="mr-group" colspan="2">Sobrantes</th><th class="mr-group" colspan="2">Cierre</th></tr><tr><th>${esc(first)}</th><th class="num">Códigos</th><th class="num">Unid.</th><th class="num">Bs</th><th class="num">Unid.</th><th class="num">Bs</th><th class="num">Unid.</th><th class="num">Bs</th><th class="num">Unid.</th><th class="num">Bs</th></tr></thead><tbody>${groups.map(g => row(g.name, g)).join('')}${row('Total', total, 'mr-strong')}</tbody></table>`;
   }
+  const DURATION_NOTE = 'Tiempo desde el primer registro hasta el último ingresado: conteo, reconteo o justificación. Los días son de calendario, en hora de Bolivia.';
+  function durationTable(rows, showCenter) {
+    return `<table data-split><thead><tr>${showCenter ? '<th>Centro</th>' : ''}<th>Inventario</th><th>Primer registro</th><th>Último registro</th><th>Tiempo</th><th>Días</th></tr></thead><tbody>${rows.map(row => `<tr>${showCenter ? `<td class="mr-strong">${esc(row.centerName || row.center)}</td>` : ''}<td>${esc(row.inventoryName)}</td><td>${esc(row.startLabel)}</td><td>${esc(row.endLabel)}${row.lastEntry ? ` · ${esc(row.lastEntry)}` : ''}</td><td class="mr-strong">${esc(row.timeLabel)}</td><td>${esc(row.dayLabel)}</td></tr>`).join('') || `<tr><td colspan="${showCenter ? 6 : 5}">No disponible</td></tr>`}</tbody></table>`;
+  }
   function eruGroups(first, groups) {
     const lossOf = g => sum(CAUSE_KEYS, key => g.eru.causes[key]);
     const max = Math.max(...groups.map(lossOf), 1);
@@ -240,6 +244,7 @@
         ${kpi({ label: 'Valor correcto', value: pct(i.money), status: level(i.money), pair: [i.money1, i.money], line: `${bs(i.valueExact)} de ${bs(c.value)}`, sub: `Primer conteo: ${bs(i.valueExact1)} (${pct(i.money1)})` })}
         ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(c.eru.exact)} de ${qty(c.eru.evaluated)} códigos por almacén`, cls: 'top-info' })}
       </div>
+      ${panel('Tiempo para terminar el inventario', durationTable(c.durations || [], false), 'mr-plain')}
       <div class="mr-row mr-c3">
         ${moneyPanel('Faltantes · del primer conteo al cierre', c.firstCount.shortage, c.shortage, 'líneas', c.value, RED)}
         ${moneyPanel('Sobrantes · del primer conteo al cierre', c.firstCount.surplus, c.surplus, 'líneas', c.value, BLUE)}
@@ -252,7 +257,7 @@
       <div class="mr-row mr-c2">
         ${panel('Faltantes por código · cada bloque es su peso en Bs', treemap(codeBlocks(helpers.shortages, helpers.cost, c.shortage.cost, RED), 500, 104))}
         ${panel('Sobrantes por código · cada bloque es su peso en Bs', treemap(codeBlocks(helpers.surpluses, helpers.cost, c.surplus.cost, BLUE), 500, 104))}
-      </div>`, 'Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%. Para alcanzar un nivel, unidades, códigos y valor deben cumplirlo los tres.', 'Resumen del centro');
+      </div>`, 'Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%. Para alcanzar un nivel, unidades, códigos y valor deben cumplirlo los tres. ' + DURATION_NOTE, 'Resumen del centro');
 
     const page2 = sheet('Dónde está el problema', small, `
       ${panel('Por almacén', breakdownTable('Almacén', c.byWarehouse, c), 'mr-plain')}
@@ -444,7 +449,10 @@
         pending.length && ['Completar los cierres pendientes', `Falta el cierre de ${pending.map(c => `${esc(c.code)} ${esc(c.name)}`).join(', ')}.`, `${pending.length} ${pending.length === 1 ? 'centro' : 'centros'}`, '—']
       ],
       roles: [['Responsable de Control de Inventarios', ['Humberto Alonso Rios Lino']]] });
-    return [page1, page2, page3, page4, page5, page6, closing].join('');
+    const durations = centers.flatMap(c => c.durations || []);
+    const pageTime = sheet('Tiempo para terminar cada inventario', period,
+      panel(`${qty(durations.filter(row => row.finished && row.sameDay).length)} en un solo día · ${qty(durations.filter(row => row.finished && row.available && !row.sameDay).length)} en más de un día`, durationTable(durations, true), 'mr-plain'), DURATION_NOTE);
+    return [page1, page2, page3, page4, page5, page6, pageTime, closing].join('');
   }
 
   window.ManagementReport = {

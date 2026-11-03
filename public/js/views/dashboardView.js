@@ -282,6 +282,7 @@ window.DashboardView = {
       this.renderSourceValidation(this.currentData);
       if (recalcRes.metricsValid !== false) {
         this.renderWeeklyGroups(recalcRes);
+        this.renderDuration(recalcRes);
         this.renderKPIs(recalcRes.summary, recalcRes.workerStats || []);
         this.renderCharts(recalcRes);
         this.renderWorkersRanking(recalcRes.workerStats || []);
@@ -379,6 +380,7 @@ window.DashboardView = {
       this.renderSourceValidation(this.currentData);
       if (metricsRes.metricsValid !== false) {
         this.renderWeeklyGroups(metricsRes);
+        this.renderDuration(metricsRes);
         this.renderKPIs(metricsRes.summary, metricsRes.workerStats || []);
         this.renderCharts(metricsRes);
         this.renderWorkersRanking(metricsRes.workerStats || []);
@@ -651,6 +653,24 @@ window.DashboardView = {
     }, {passive: false});
 
     card.appendChild(grid);
+  },
+
+  // Same rows and labels as the PDF report; the server words them.
+  renderDuration(data) {
+    const card = document.getElementById('dash-duration-card');
+    if (!card) return;
+    const rows = (data?.reportData?.centers || []).flatMap(center => center.durations || []);
+    card.style.display = rows.length ? '' : 'none';
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+    card.innerHTML = `
+      <h3 style="margin: 0 0 0.25rem; font-size: 1rem;"><i class="fa-solid fa-stopwatch"></i> Tiempo para terminar el inventario</h3>
+      <p style="margin: 0 0 0.6rem; font-size: 0.8rem; color: var(--text-muted);">Tiempo desde el primer registro hasta el último ingresado: conteo, reconteo o justificación. Los días son de calendario, en hora de Bolivia.</p>
+      <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
+        <table class="data-table">
+          <thead><tr><th>Centro</th><th>Inventario</th><th>Primer registro</th><th>Último registro</th><th>Tiempo</th><th>Días</th></tr></thead>
+          <tbody>${rows.map(row => `<tr><td>${esc(row.centerName || row.center)}</td><td>${esc(row.inventoryName)}</td><td>${esc(row.startLabel)}</td><td>${esc(row.endLabel)}${row.lastEntry ? ` · ${esc(row.lastEntry)}` : ''}</td><td><strong>${esc(row.timeLabel)}</strong></td><td>${esc(row.dayLabel)}</td></tr>`).join('')}</tbody>
+        </table>
+      </div>`;
   },
 
   renderSourceValidation(data) {

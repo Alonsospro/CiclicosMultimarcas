@@ -38,6 +38,50 @@ function eruCause(locations, isValidLocation) {
   return isValidLocation(only.ubicacion) ? null : 'format';
 }
 
+// Bolivia has one fixed offset and no daylight saving time.
+const LA_PAZ_OFFSET = 4 * 3600000;
+const ENTRIES = [['Fecha_Ultimo_Conteo', 'Conteo'], ['Fecha_Primera_Justificacion', '1ª justificación'], ['Fecha_Reconteo', 'Reconteo 1'],
+  ['Fecha_Justificacion_2', '2ª justificación'], ['Fecha_Reconteo_2', 'Reconteo 2']];
+const pad = value => String(value).padStart(2, '0');
+
+// A moment needs its time of day: a bare date cannot give hours, minutes or seconds.
+function entryTime(value) {
+  if (typeof value?.getTime === 'function') return Number.isFinite(value.getTime()) ? value.getTime() : 0;
+  const text = String(value ?? '').trim();
+  // Sheets in es_BO emits d/M/yyyy HH:mm in local time.
+  const local = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (local) return Date.UTC(+local[3], local[2] - 1, +local[1], +local[4], +local[5], +(local[6] || 0)) + LA_PAZ_OFFSET;
+  if (!/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(text)) return 0;
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+const localDate = time => new Date(time - LA_PAZ_OFFSET);
+const localLabel = time => {
+  const d = localDate(time);
+  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+};
+const localDay = time => Math.floor((time - LA_PAZ_OFFSET) / 86400000);
+
+// From the first entry to the last one: counts, recounts and justifications. The labels live here
+// so the dashboard and the PDF report say exactly the same thing.
+function inventoryDuration(inventory, { centerName = '', finished = true } = {}) {
+  const base = { inventoryId: inventory.id, inventoryName: inventory.name || inventory.id, center: inventory.center, centerName, finished };
+  let first = 0, last = 0, lastEntry = '';
+  (inventory.items || []).forEach(item => ENTRIES.forEach(([field, label]) => {
+    const time = entryTime(item[field]);
+    if (!time) return;
+    if (!first || time < first) first = time;
+    if (time > last) { last = time; lastEntry = label; }
+  }));
+  if (!first) return { ...base, available: false, startLabel: 'No disponible', endLabel: 'No disponible', lastEntry: '', timeLabel: 'No disponible', dayLabel: 'No disponible' };
+  const seconds = Math.round((last - first) / 1000), days = localDay(last) - localDay(first) + 1;
+  const span = days === 1 ? 'un solo día' : `${days} días`;
+  return { ...base, available: true, startedAt: new Date(first).toISOString(), finishedAt: new Date(last).toISOString(),
+    startLabel: localLabel(first), endLabel: localLabel(last), lastEntry, seconds, days, sameDay: days === 1,
+    timeLabel: `${Math.floor(seconds / 3600)} h ${Math.floor(seconds % 3600 / 60)} min ${seconds % 60} s`,
+    dayLabel: finished ? `En ${span}` : `Sin terminar · ${span} hasta ahora` };
+}
+
 function createCollector() {
   const centers = new Map();
   const centerOf = (code, name) => {
@@ -52,6 +96,7 @@ function createCollector() {
         firstCount: { shortage: amount(), surplus: amount() },
         flow: { firstDifferences: 0, resolved: 0, stillShort: 0, stillSurplus: 0, appeared: 0 },
         inventories: new Set(),
+        durations: new Map(),
         lastClosedAt: null,
         issues: []
       });
@@ -72,9 +117,10 @@ function createCollector() {
   };
 
   return {
-    addInventory({ center, centerName, id, closedAt }) {
+    addInventory({ center, centerName, id, closedAt, duration }) {
       const entry = centerOf(center, centerName);
       entry.inventories.add(id);
+      if (duration) entry.durations.set(id, duration);
       if (closedAt && (!entry.lastClosedAt || new Date(closedAt) > new Date(entry.lastClosedAt))) entry.lastClosedAt = closedAt;
     },
 
@@ -156,6 +202,7 @@ function createCollector() {
           crossClass: cross(entry.crossClass),
           firstCount: { shortage: finishAmount(entry.firstCount.shortage), surplus: finishAmount(entry.firstCount.surplus) },
           inventories: [...entry.inventories],
+          durations: [...entry.durations.values()].sort((a, b) => String(a.startedAt || '').localeCompare(String(b.startedAt || ''))),
           history: history[entry.center] || [],
           issues: includeIssues ? entry.issues.sort((a, b) => b.value - a.value) : []
         };
@@ -169,4 +216,4 @@ function createCollector() {
   };
 }
 
-module.exports = { ERU_CAUSES, eruCause, createCollector };
+module.exports = { ERU_CAUSES, eruCause, createCollector, inventoryDuration };

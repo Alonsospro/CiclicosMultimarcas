@@ -240,6 +240,83 @@ test('the center report shows how each warehouse started per system and how it c
   assert.doesNotMatch(html, /[Nn]eto\b|NETO/);
 });
 
+const breakdown = require('../src/services/reportBreakdown');
+
+test('inventory duration runs from the first entry to the last one, in hours, minutes and seconds', () => {
+  const row = breakdown.inventoryDuration({ id: 'INV', name: 'Cíclico', center: '1160', items: [
+    { Fecha_Ultimo_Conteo: '2026-10-20T12:00:00.000Z', Fecha_Primera_Justificacion: '2026-10-20T14:15:30.000Z' },
+    { Fecha_Ultimo_Conteo: '2026-10-20T13:00:00.000Z', Fecha_Primera_Justificacion: '' }
+  ] }, { centerName: 'Centro 1160' });
+  assert.equal(row.seconds, 8130);
+  assert.equal(row.timeLabel, '2 h 15 min 30 s');
+  assert.equal(row.dayLabel, 'En un solo día');
+  assert.equal(row.sameDay, true);
+  assert.equal(row.startLabel, '20/10/2026 08:00:00');
+  assert.equal(row.endLabel, '20/10/2026 10:15:30');
+  assert.equal(row.lastEntry, '1ª justificación');
+});
+
+test('inventory duration counts calendar days in Bolivia, not periods of 24 hours or UTC days', () => {
+  const span = (from, to) => breakdown.inventoryDuration({ id: 'I', items: [{ Fecha_Ultimo_Conteo: from, Fecha_Justificacion_2: to }] });
+  const overnight = span('2026-10-21T02:00:00.000Z', '2026-10-21T03:30:00.000Z');
+  assert.equal(overnight.dayLabel, 'En un solo día', 'Both are the evening of October 20 in La Paz, across a UTC midnight only');
+  const twoDays = span('2026-10-21T03:30:00.000Z', '2026-10-21T04:30:00.000Z');
+  assert.equal(twoDays.timeLabel, '1 h 0 min 0 s');
+  assert.equal(twoDays.dayLabel, 'En 2 días', 'Crosses midnight in La Paz after only one hour');
+  const long = span('2026-10-20T12:00:00.000Z', '2026-10-22T13:01:01.000Z');
+  assert.equal(long.timeLabel, '49 h 1 min 1 s');
+  assert.equal(long.dayLabel, 'En 3 días');
+  assert.equal(long.lastEntry, '2ª justificación');
+});
+
+test('inventory duration covers recounts, reads Sheets local dates and never invents a time', () => {
+  const recounted = breakdown.inventoryDuration({ id: 'I', items: [{ Fecha_Ultimo_Conteo: '20/10/2026 08:00:00', Fecha_Reconteo: '2026-10-20T13:00:00.000Z', Fecha_Reconteo_2: '20/10/2026 10:30' }] });
+  assert.equal(recounted.timeLabel, '2 h 30 min 0 s');
+  assert.equal(recounted.lastEntry, 'Reconteo 2');
+  const one = breakdown.inventoryDuration({ id: 'I', items: [{ Fecha_Ultimo_Conteo: '2026-10-20T12:00:00.000Z' }] });
+  assert.equal(one.timeLabel, '0 h 0 min 0 s');
+  assert.equal(one.dayLabel, 'En un solo día');
+  for (const value of ['', null, 'Contado', '20/10/2026', '2026-10-20']) {
+    const missing = breakdown.inventoryDuration({ id: 'I', items: [{ Fecha_Ultimo_Conteo: value }] });
+    assert.equal(missing.available, false, String(value));
+    assert.equal(missing.timeLabel, 'No disponible');
+    assert.equal(missing.dayLabel, 'No disponible');
+  }
+  const open = breakdown.inventoryDuration({ id: 'I', items: [{ Fecha_Ultimo_Conteo: '2026-10-20T12:00:00.000Z' }] }, { finished: false });
+  assert.equal(open.dayLabel, 'Sin terminar · un solo día hasta ahora');
+});
+
+test('the dashboard and both PDF reports show the same duration', async () => {
+  const dated = (sku, extra) => line(sku, { Fecha_Ultimo_Conteo: '2026-10-20T12:00:00.000Z', Fecha_Primera_Justificacion: '2026-10-21T13:00:05.000Z', ...extra });
+  const single = await load([inventory('INV-1160-1', '1160', [dated('A')])]);
+  const center = report.render({ name: 'Corte' }, single);
+  assert.match(center, /Tiempo para terminar el inventario/);
+  assert.match(center, /25 h 0 min 5 s/);
+  assert.match(center, /En 2 días/);
+
+  const both = await load([inventory('INV-1160-1', '1160', [dated('A')]),
+    inventory('INV-1120-1', '1120', [line('B', { Fecha_Ultimo_Conteo: '2026-10-20T12:00:00.000Z', Fecha_Primera_Justificacion: '2026-10-20T12:30:00.000Z' })]),
+    inventory('INV-5100-1', '5100', [line('C')])]);
+  const consolidated = report.render({ name: 'Corte' }, both);
+  const sheet = consolidated.slice(consolidated.indexOf('Tiempo para terminar cada inventario'));
+  assert.match(sheet, /1 en un solo día · 1 en más de un día/);
+  assert.match(sheet, /25 h 0 min 5 s/);
+  assert.match(sheet, /0 h 30 min 0 s/);
+  assert.match(sheet, /No disponible/);
+
+  const card = { style: {}, innerHTML: '' };
+  const context = vm.createContext({ console, setTimeout: () => {}, document: { getElementById: id => id === 'dash-duration-card' ? card : null, querySelectorAll: () => [], addEventListener() {} }, window: {} });
+  vm.runInContext(fs.readFileSync(path.join(root, 'public/js/views/dashboardView.js'), 'utf8'), context);
+  context.window.DashboardView.renderDuration(both);
+  assert.equal(card.style.display, '');
+  assert.match(card.innerHTML, /25 h 0 min 5 s/);
+  assert.match(card.innerHTML, /En 2 días/);
+  assert.match(card.innerHTML, /0 h 30 min 0 s/);
+  assert.match(card.innerHTML, /En un solo día/);
+  context.window.DashboardView.renderDuration({ reportData: { centers: [] } });
+  assert.equal(card.style.display, 'none');
+});
+
 test('a partly justified shortage closes with the units explained and only the remainder as shortage', async () => {
   const metrics = await load([
     inventory('INV-1160-1', '1160', [line('A', { Stock_Fisico: 3, Stock_Total: 3, Estado: 'NO CUADRA', Diferencia: -1 })]),
