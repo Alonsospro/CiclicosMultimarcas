@@ -317,6 +317,32 @@ test('the dashboard and both PDF reports show the same duration', async () => {
   assert.equal(card.style.display, 'none');
 });
 
+test('the state of all centers is one chart: lowest indicator at the close, marked with its first count', async () => {
+  const differ = (sku, change, extra = {}) => line(sku, { Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change, ...extra });
+  const metrics = await load([
+    inventory('INV-1160-1', '1160', [line('A'), differ('B', -2, { Reconteo: 10, Stock_Total_Reconteo: 10, Diferencia_Final: 0 })]),
+    inventory('INV-1120-1', '1120', [line('C'), differ('D', -5)])
+  ]);
+  const html = report.render({ name: 'Corte' }, metrics);
+  assert.equal(html.includes('mr-tile'), false, 'The tiles are gone');
+  const columns = html.split('<div class="mr-vcol"').slice(1);
+  assert.equal(columns.length, 3, 'Two centers with a close and one without');
+  const worst = columns[0], best = columns[1], pending = columns[2];
+  assert.match(worst, /1120/);
+  assert.match(worst, /mr-vbar lvl-no" style="height:50%/);
+  assert.match(worst, /mr-vfirst" style="bottom:50%/);
+  assert.match(worst, /Códigos: 1 de 2/);
+  assert.match(best, /1160/);
+  assert.match(best, /mr-vbar lvl-perfect" style="height:100%/);
+  assert.match(best, /mr-vfirst" style="bottom:90%/, 'The recount took it from the first count to the close');
+  assert.match(pending, /5100/);
+  assert.match(pending, /Sin cierre en este corte/);
+  assert.equal(pending.split('mr-legend')[0].includes('mr-vbar'), false);
+  assert.match(html, /Marca: primer conteo del mismo indicador/);
+  assert.match(html, /Menos de 95%: no cumple/);
+  assert.match(html, /grid-template-columns:repeat\(3,/);
+});
+
 test('a partly justified shortage closes with the units explained and only the remainder as shortage', async () => {
   const metrics = await load([
     inventory('INV-1160-1', '1160', [line('A', { Stock_Fisico: 3, Stock_Total: 3, Estado: 'NO CUADRA', Diferencia: -1 })]),

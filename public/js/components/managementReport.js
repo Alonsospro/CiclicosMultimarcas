@@ -158,6 +158,14 @@
   function durationTable(rows, showCenter) {
     return `<table data-split><thead><tr>${showCenter ? '<th>Centro</th>' : ''}<th>Inventario</th><th>Primer registro</th><th>Último registro</th><th>Tiempo</th><th>Días</th></tr></thead><tbody>${rows.map(row => `<tr>${showCenter ? `<td class="mr-strong">${esc(row.centerName || row.center)}</td>` : ''}<td>${esc(row.inventoryName)}</td><td>${esc(row.startLabel)}</td><td>${esc(row.endLabel)}${row.lastEntry ? ` · ${esc(row.lastEntry)}` : ''}</td><td class="mr-strong">${esc(row.timeLabel)}</td><td>${esc(row.dayLabel)}</td></tr>`).join('') || `<tr><td colspan="${showCenter ? 6 : 5}">No disponible</td></tr>`}</tbody></table>`;
   }
+  // One column per center, 0 to 100%: its lowest indicator at the close, marked with the same
+  // indicator at the first count. Plain boxes, because the PDF is captured with html2canvas.
+  function statusChart(rows, pending) {
+    const limit = value => Math.min(100, Math.max(0, num(value)));
+    const column = row => `<div class="mr-vcol" title="${esc(row.name)} · ${esc(row.detail)}"><div class="mr-vplot"><div class="mr-vbar lvl-${row.lvl.key}" style="height:${limit(row.value)}%"></div>${row.first === null || row.first === undefined ? '' : `<i class="mr-vfirst" style="bottom:${limit(row.first)}%"></i>`}<b class="mr-vvalue" style="bottom:${limit(row.value)}%">${row.lvl.icon} ${pct(row.value)}</b></div><div class="mr-vname">${esc(row.name)}</div><small>${esc(row.detail)}</small></div>`;
+    const missing = c => `<div class="mr-vcol"><div class="mr-vplot"><b class="mr-vvalue" style="bottom:0">–</b></div><div class="mr-vname">${esc(c.code)} - ${esc(c.name)}</div><small>Sin cierre en este corte</small></div>`;
+    return `<div class="mr-vchart"><div class="mr-vlines"><span style="bottom:98%"><u>98%</u></span><span style="bottom:95%"><u class="mr-vlow">95%</u></span></div><div class="mr-vcols" style="grid-template-columns:repeat(${rows.length + pending.length},minmax(0,1fr))">${rows.map(column).join('')}${pending.map(missing).join('')}</div></div><div class="mr-legend">${scaleLegend.replace(/^<div class="mr-legend">|<\/div>$/g, '')}<span><i class="mr-vkey"></i>Marca: primer conteo del mismo indicador</span><span>Cada columna es el indicador más bajo del centro al cierre</span></div>`;
+  }
   function eruGroups(first, groups) {
     const lossOf = g => sum(CAUSE_KEYS, key => g.eru.causes[key]);
     const max = Math.max(...groups.map(lossOf), 1);
@@ -367,7 +375,7 @@
     };
     const i = indicators(total);
     const count = key => centers.filter(c => c.lvl.key === key).length;
-    const lowest = c => [['Unidades', c.i.units, `${qty(c.unitsExact)} de ${qty(c.units)}`], ['Códigos', c.i.codes, `${qty(c.skusExact)} de ${qty(c.skus)}`], ['Valor', c.i.money, `Bs ${qty(c.i.valueExact)} de ${qty(c.value)}`]].sort((a, b) => num(a[1]) - num(b[1]))[0];
+    const lowest = c => [['Unidades', c.i.units, `${qty(c.unitsExact)} de ${qty(c.units)}`, c.i.units1], ['Códigos', c.i.codes, `${qty(c.skusExact)} de ${qty(c.skus)}`, c.i.codes1], ['Valor', c.i.money, `Bs ${qty(c.i.valueExact)} de ${qty(c.value)}`, c.i.money1]].sort((a, b) => num(a[1]) - num(b[1]))[0];
     const byWorst = centers.slice().sort((a, b) => num(lowest(a)[1]) - num(lowest(b)[1]));
     const met = count('perfect') + count('ok') + count('min');
     const known = centers.length + pending.length;
@@ -389,7 +397,7 @@
         ${kpi({ label: 'Averías', value: bs(total.damage.cost), line: `${qty(total.damage.lines)} líneas · ${qty(total.damage.units)} unidades`, cls: 'top-damage' })}
         ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(total.eru.exact)} de ${qty(total.eru.evaluated)} códigos por almacén`, cls: 'top-info' })}
       </div>
-      ${panel(`Estado por centro · ${levelsLine}`, `<div class="mr-tiles">${byWorst.map(c => { const low = lowest(c); return `<div class="mr-tile lvl-${c.lvl.key}"><b>${esc(c.name)}</b><strong>${c.lvl.icon} ${pct(low[1])}</strong><small>${esc(c.lvl.label)}<br>${low[0]}: ${low[2]}</small></div>`; }).join('')}${pending.map(c => `<div class="mr-tile lvl-nil"><b>${esc(c.code)} - ${esc(c.name)}</b><strong>–</strong><small>Sin cierre en este corte</small></div>`).join('')}</div>${scaleLegend}`)}`, 'Totales calculados sumando las bases de cada centro. Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%.', 'Resumen consolidado');
+      ${panel(`Estado por centro · ${levelsLine}`, statusChart(byWorst.map(c => { const low = lowest(c); return { name: c.name, lvl: c.lvl, value: low[1], first: low[3], detail: `${low[0]}: ${low[2]}` }; }), pending))}`, 'Totales calculados sumando las bases de cada centro. Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%.', 'Resumen consolidado');
 
     const kMoney = value => value >= 1e6 ? `${(value / 1e6).toLocaleString('es-BO', { maximumFractionDigits: 2 })} M` : qty(value);
     const cell = (value, quantity) => `<td class="mr-cell lvl-${level(value).key}">${pct(value)}<small>${quantity}</small></td>`;
