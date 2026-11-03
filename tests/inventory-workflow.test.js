@@ -514,3 +514,68 @@ test('weekly second recount compensates against its own physical count',async()=
   await service.finishReviewAndClose({inventoryId:'WEEK',user});
   assert.equal(closures.length,1);
 });
+
+test('forced close records missing justifications in the final file and keeps the differences',async()=>{
+  const {service,put,save,closures,gasCalls}=fixture(),a=counted('A'),b=counted('B'),c=counted('C');
+  put({id:'INV',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[a,b,c]});
+  await save('INV',a,'CUADRA',1,'Justificación real.');
+  assert.equal(service.getPendingJustifications(user)[0].canClose,false);
+  assert.equal(service.getPendingJustifications(user)[0].canForceClose,true);
+  await assert.rejects(service.finishReviewAndClose({inventoryId:'INV',user}),/No se puede cerrar/);
+  const calls=gasCalls.length;
+  const result=await service.forceCloseInventory({inventoryId:'INV',user});
+  assert.equal(result.forcedItems.join(),'B,C');assert.equal(gasCalls.length,calls);
+  assert.equal(closures.length,1);
+  const rows=closures[0].inventory.items,[rowA,rowB]=['A','B'].map(sku=>rows.find(item=>item.SKU===sku));
+  assert.equal(rowA.Comentario_Justificacion,'Justificación real.');assert.equal(rowA.Estado,'CUADRA');
+  assert.equal(rowB.Estado,'NO CUADRA');assert.equal(rowB.Razon,'CIERRE FORZADO');
+  assert.match(rowB.Comentario_Justificacion,/^CIERRE FORZADO por Reviewer/);
+  assert.equal(rowB.Responsable_Justificacion,'Reviewer');assert.equal(rowB.Diferencia,-2);
+  assert.equal(contract.finalItem(rowB).Razon,'CIERRE FORZADO');
+  assert.equal(closures[0].justifications.filter(j=>j.forced).length,2);
+  const stored=service.getInventoryRaw('INV');
+  assert.equal(stored.status,'REVISADO');assert.equal(stored.forcedClose.items.join(),'B,C');
+  await assert.rejects(service.forceCloseInventory({inventoryId:'INV',user}),/solo omite justificaciones/);
+});
+
+test('forced close after a recount writes the second review and keeps a replaced explanation as history',async()=>{
+  const context=fixture(),{service,put,save,closures}=context,a=counted('A');
+  put({id:'INV',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[a]});
+  await save('INV',a,'NO CUADRA',1,'Primera explicación.');
+  const rec=service.enableRecount({inventoryId:'INV',user}).recountInventory;
+  await service.updateCount({inventoryId:rec.id,itemId:rec.items[0].id,stockFisico:9,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:rec.id,user});
+  await save('INV',a,'NO CUADRA',2,'Explicación vieja.');
+  await service.reopenInventory({inventoryId:'INV',user,targetPhase:'RECONTEO_1',syncFromGAS:false});
+  const recItem=service.getInventoryRaw(rec.id).items[0];
+  await new Promise(resolve=>setTimeout(resolve,5));
+  await service.updateCount({inventoryId:rec.id,itemId:recItem.id,stockFisico:8,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:rec.id,user});
+  await service.forceCloseInventory({inventoryId:rec.id,user});
+  const row=closures[0].inventory.items[0];
+  assert.equal(row.Comentario_Justificacion,'Primera explicación.');
+  assert.equal(row.Razon_Justificacion_2,'CIERRE FORZADO');assert.equal(row.Estado_Justificacion_2,'NO CUADRA');
+  assert.equal(row.Stock_Total_Reconteo,8);
+  assert.equal(closures[0].justifications.find(j=>j.superseded).justification,'Explicación vieja.');
+  assert.equal(service.getInventoryRaw(rec.id).status,'REVISADO');
+});
+
+test('forced close is refused while a count or recount is unsigned, and the route is exclusive',async()=>{
+  const {service,put,save,closures}=fixture(),a=counted('A');
+  put({id:'OPEN',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a]});
+  await assert.rejects(service.forceCloseInventory({inventoryId:'OPEN',user}),/solo omite justificaciones/);
+  put({id:'BLANK',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',
+    items:[{...counted('D'),Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null}]});
+  await assert.rejects(service.forceCloseInventory({inventoryId:'BLANK',user}),/solo omite justificaciones/);
+  const b=counted('B');
+  put({id:'REC',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[b]});
+  await save('REC',b,'NO CUADRA');
+  service.enableRecount({inventoryId:'REC',user});
+  await assert.rejects(service.forceCloseInventory({inventoryId:'REC',user}),/solo omite justificaciones/);
+  assert.equal(closures.length,0);
+  const routes=fs.readFileSync(path.join(root,'src/routes/justificationRoutes.js'),'utf8');
+  assert.match(routes,/const \{[^}]*requireSuperadminAlonso[^}]*\} = require\('\.\.\/middlewares\/authMiddleware'\)/);
+  assert.match(routes,/router\.post\('\/:id\/force-close', authenticate, requireSuperadminAlonso,/);
+  const view=fs.readFileSync(path.join(root,'public/js/views/justificationsView.js'),'utf8');
+  assert.match(view,/task\.canForceClose && !task\.canClose && window\.Auth\?\.isSuperadminAlonso\?\.\(\)/);
+});

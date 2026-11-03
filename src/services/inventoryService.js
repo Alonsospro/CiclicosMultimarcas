@@ -1458,6 +1458,16 @@ class InventoryService {
     };
   }
 
+  // Sheets has one set of columns per review: keep in the app what a new review will replace.
+  archiveReview(inv, item, round, review, supersededAt, cause) {
+    const id = 'JUST-' + createHash('sha256').update(JSON.stringify([inv.id, contract.member(item), round, cause])).digest('hex');
+    storagePath.writeJson(path.join(this.justDir, id + '.json'), {id, inventoryId:inv.id, itemId:item.id, sku:item.SKU,
+      almacen:item.Almacen, ubicacion:item.Ubicacion, round, superseded:true, supersededAt,
+      corroboracion:review.corroboracion, isCuadra:review.corroboracion === 'CUADRA', reasonType:review.reasonType, justification:review.justification,
+      reviewedBy:review.reviewedBy, reviewedAt:review.reviewedAt, photoUrl:review.photoUrl || null,
+      photoUrls:review.photoUrls || [], center:inv.center, type:inv.type, status:'REVISADO'});
+  }
+
   // Optional step after the review of the first recount: only its NO CUADRA items are counted again.
   enableSecondRecount({ inventoryId, user }) {
     if (user.role !== 'ADMIN' && user.role !== 'ENCARGADO' && !user.isSuperadmin) {
@@ -1480,15 +1490,8 @@ class InventoryService {
     const child = this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`);
     const records = [...this.getJustificationsForInventory(inv.id), ...(child ? this.getJustificationsForInventory(child.id) : [])];
 
-    // Sheets has one set of second-review columns: keep what the new review will replace.
     itemsToRecount.forEach(it => {
-      const previous = workflow.review(it, 2, records);
-      const id = 'JUST-' + createHash('sha256').update(JSON.stringify([inv.id, contract.member(it), 2, 'reconteo-1'])).digest('hex');
-      storagePath.writeJson(path.join(this.justDir, id + '.json'), {id, inventoryId:inv.id, itemId:it.id, sku:it.SKU,
-        almacen:it.Almacen, ubicacion:it.Ubicacion, round:2, countStage:1, superseded:true, supersededAt:enabledAt,
-        corroboracion:previous.corroboracion, isCuadra:false, reasonType:previous.reasonType, justification:previous.justification,
-        reviewedBy:previous.reviewedBy, reviewedAt:previous.reviewedAt, photoUrl:previous.photoUrl || null,
-        photoUrls:previous.photoUrls || [], center:inv.center, type:inv.type, status:'REVISADO'});
+      this.archiveReview(inv, it, 2, workflow.review(it, 2, records), enabledAt, 'reconteo-1');
       it.Revisado_Por = reviewerName;
       it.requiereReconteo = true;
     });
@@ -1616,11 +1619,75 @@ class InventoryService {
         reopenedPhase: inv.reopenedPhase || null, assignedTo: inv.assignedTo || [], totalItems: inv.items.length,
         totalDiscrepancies: plan.items.length, pendingJustificationsCount: plan.pending.length,
         justifiedItemsCount: plan.items.length - plan.pending.length,
-        canClose: plan.canClose, canEnableRecount: plan.canEnableRecount, canEnableRecount2: plan.canEnableRecount2, closeBlockers: plan.closeBlockers,
+        canClose: plan.canClose, canEnableRecount: plan.canEnableRecount, canEnableRecount2: plan.canEnableRecount2, canForceClose: plan.canForceClose, closeBlockers: plan.closeBlockers,
         items: plan.items
       });
     }
     return tasks;
+  }
+
+  closeTargets(inv) {
+    if (inv.isReconteo && inv.parentInventoryId) {
+      return {primaryInv: this.getInventoryRaw(inv.parentInventoryId) || inv, childRecountInv: inv};
+    }
+    return {primaryInv: inv, childRecountInv: inv.hasRecount ? this.getInventoryRaw(inv.recountInventoryId || `REC-${inv.id}`) : null};
+  }
+
+  // Closes despite missing justifications; only the superadministrator route reaches it. The missing
+  // ones are recorded as NO CUADRA, so differences stay visible, and reach the final Sheet with the row.
+  // They stay registered if creating the final file fails, so the close can simply be retried.
+  async forceCloseInventory({ inventoryId, user }) {
+    const inv = this.getInventoryRaw(inventoryId);
+    if (!inv) throw new Error('Inventario no encontrado');
+
+    const { primaryInv, childRecountInv } = this.closeTargets(inv);
+    if (!this.canModifyInventory(primaryInv, user)) throw new Error('Inventario fuera de su centro');
+    const closePlan = this.getReviewPlan(primaryInv);
+    if (!closePlan.canForceClose) {
+      throw new Error('El cierre forzado solo omite justificaciones: el conteo y el reconteo deben estar completos y firmados.');
+    }
+
+    const reviewer = user.displayName || user.username;
+    const closedAt = new Date().toISOString();
+    const records = [...this.getJustificationsForInventory(primaryInv.id),
+      ...(childRecountInv ? this.getJustificationsForInventory(childRecountInv.id) : [])];
+    const forcedItems = closePlan.pending.map(entry => {
+      const item = primaryInv.items.find(it => contract.member(it) === contract.member(entry));
+      const round = entry.justificationRound;
+      const previous = workflow.review(item, round, records);
+      if (String(previous.justification || '').trim()) this.archiveReview(primaryInv, item, round, previous, closedAt, 'cierre-forzado');
+      const payload = {action:'saveJustification', round, isJustification2:round === 2, corroboracion:'NO CUADRA',
+        razon:'CIERRE FORZADO', comentarioJustificacion:`CIERRE FORZADO por ${reviewer}: sin justificación registrada al cerrar.`,
+        reviewedBy:reviewer, originalStockSistema:contract.isWeekly(item) ? item.Stock_Sistema : (item.Stock_Sistema_Original ?? item.Stock_Sistema), fecha:closedAt};
+      Object.assign(item, contract.update(item, payload), {Stock_Sistema_Original:payload.originalStockSistema, corroboracion:'NO CUADRA',
+        corroborationStatus:'NO CUADRA', isCuadra:false, reviewedAt:closedAt, Revisado_Por:reviewer});
+      const match = childRecountInv?.items?.find(it => contract.member(it) === contract.member(item));
+      if (match) Object.assign(match, contract.update(match, payload));
+      const id = 'JUST-' + createHash('sha256').update(JSON.stringify([primaryInv.id, contract.member(item), round])).digest('hex');
+      storagePath.writeJson(path.join(this.justDir, id + '.json'), {id, inventoryId:primaryInv.id, itemId:item.id, sku:item.SKU,
+        almacen:item.Almacen, ubicacion:item.Ubicacion, round, forced:true, corroboracion:'NO CUADRA', isCuadra:false,
+        reasonType:payload.razon, justification:payload.comentarioJustificacion, reviewedBy:reviewer, reviewedAt:closedAt,
+        photoUrl:null, photoUrls:[], center:primaryInv.center, type:primaryInv.type, status:'REVISADO'});
+      return item.SKU;
+    });
+
+    primaryInv.forcedClose = {by:reviewer, at:closedAt, items:forcedItems};
+    delete primaryInv.closeOperationId;
+    this.saveInventory(primaryInv);
+    if (childRecountInv && childRecountInv.id !== primaryInv.id) this.saveInventory(childRecountInv);
+    const result = await this.completeClose({primaryInv, childRecountInv, user,
+      reviewNotes:`Cierre forzado por ${reviewer}: ${forcedItems.length} justificación(es) faltante(s).`});
+
+    auditService.logAction({
+      action: 'INVENTORY_FORCE_CLOSED',
+      details: `Cierre forzado por ${user.username} con ${forcedItems.length} justificación(es) faltante(s): ${forcedItems.join(', ') || 'ninguna'}`,
+      user: user.username,
+      center: primaryInv.center,
+      targetId: primaryInv.id
+    });
+
+    return {...result, forcedItems,
+      message: `Cierre forzado completado: ${forcedItems.length} justificación(es) registrada(s) como cierre forzado.`};
   }
 
   async finishReviewAndClose({ inventoryId, user, reviewNotes }) {
@@ -1631,21 +1698,7 @@ class InventoryService {
     const inv = this.getInventoryRaw(inventoryId);
     if (!inv) throw new Error('Inventario no encontrado');
 
-    let primaryInv = inv;
-    let parentInv = null;
-    let childRecountInv = null;
-
-    if (inv.isReconteo && inv.parentInventoryId) {
-      childRecountInv = inv;
-      parentInv = this.getInventoryRaw(inv.parentInventoryId);
-      if (parentInv) {
-        primaryInv = parentInv;
-      }
-    } else if (inv.hasRecount) {
-      parentInv = inv;
-      const recId = inv.recountInventoryId || `REC-${inv.id}`;
-      childRecountInv = this.getInventoryRaw(recId);
-    }
+    const { primaryInv, childRecountInv } = this.closeTargets(inv);
 
     if (!this.canModifyInventory(primaryInv, user)) throw new Error('Inventario fuera de su centro');
     const closePlan = this.getReviewPlan(primaryInv);
@@ -1653,6 +1706,10 @@ class InventoryService {
       throw new Error(`No se puede cerrar: ${closePlan.closeBlockers.join(' ')}`);
     }
 
+    return this.completeClose({primaryInv, childRecountInv, user, reviewNotes});
+  }
+
+  async completeClose({ primaryInv, childRecountInv, user, reviewNotes }) {
     // If recount exists, merge recount values into primary inventory
     if (childRecountInv && Array.isArray(childRecountInv.items) && Array.isArray(primaryInv.items)) {
       primaryInv.items.forEach(pItem => {

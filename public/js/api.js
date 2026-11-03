@@ -358,6 +358,13 @@ window.API = {
     });
   },
 
+  forceClose(inventoryId) {
+    return this.request(`/justifications/${inventoryId}/force-close`, {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+  },
+
   finishReview(inventoryId, payload = {}) {
     return this.request(`/justifications/${inventoryId}/finish-review`, {
       method: 'POST',

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const inventoryService = require('../services/inventoryService');
-const { authenticate, requireRole } = require('../middlewares/authMiddleware');
+const { authenticate, requireRole, requireSuperadminAlonso } = require('../middlewares/authMiddleware');
 
 // GET /api/justifications
 router.get('/', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
@@ -101,6 +101,15 @@ router.post('/:id/enable-recount', authenticate, requireRole(['ADMIN', 'ENCARGAD
 router.post('/:id/enable-recount-2', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
     res.json(inventoryService.enableSecondRecount({ inventoryId: req.params.id, user: req.user }));
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/justifications/:id/force-close (Exclusivo Superadmin Alonso: closes despite missing justifications)
+router.post('/:id/force-close', authenticate, requireSuperadminAlonso, async (req, res) => {
+  try {
+    res.json(await inventoryService.forceCloseInventory({ inventoryId: req.params.id, user: req.user }));
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }

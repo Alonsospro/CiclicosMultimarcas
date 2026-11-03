@@ -317,17 +317,18 @@ window.JustificationsView = {
   reviewAction(task) {
     if (task.isFinalized || task.status === 'REVISADO') return '<span class="badge badge-success">Finalizado en Drive · Solo lectura</span>';
     if (task.status === 'EN_RECONTEO') return '<span class="badge badge-info">Reconteo en curso · Justificación bloqueada</span>';
-    if (task.canEnableRecount) return `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableRecount('${task.inventoryId}')">Habilitar Reconteo</button>`;
+    const forceClose = task.canForceClose && !task.canClose && window.Auth?.isSuperadminAlonso?.() ? ` <button type="button" id="btn-force-close-${task.inventoryId}" class="btn btn-danger" onclick="window.JustificationsView.forceClose('${task.inventoryId}')"><i class="fa-solid fa-lock"></i> Cierre forzado</button>` : '';
+    if (task.canEnableRecount) return `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableRecount('${task.inventoryId}')">Habilitar Reconteo</button>${forceClose}`;
     const secondRecount = task.canEnableRecount2 ? `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableSecondRecount('${task.inventoryId}')">Habilitar 2do Reconteo</button> ` : '';
     if (task.canClose) return `${secondRecount}<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>`;
     const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
     const blockers = Array.isArray(task.closeBlockers) && task.closeBlockers.length ? task.closeBlockers : ['Complete las justificaciones pendientes para continuar'];
-    return `<div class="badge badge-warning" style="display:block; white-space:normal; text-align:left; line-height:1.4;"><strong>No se puede finalizar todavía:</strong>${blockers.map(b => `<br>• ${escape(b)}`).join('')}</div>`;
+    return `<div class="badge badge-warning" style="display:block; white-space:normal; text-align:left; line-height:1.4;"><strong>No se puede finalizar todavía:</strong>${blockers.map(b => `<br>• ${escape(b)}`).join('')}</div>${forceClose}`;
   },
 
   reviewHistory(item) {
     const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
-    return (item.justificationHistory || []).map(entry => `<div style="margin-bottom:6px; white-space:normal; overflow-wrap:anywhere;"><strong>${entry.round}ª justificación${entry.superseded ? ' (del 1er reconteo)' : ''} · ${escape(entry.corroboracion)}</strong><br>${escape(entry.justification)}${window.InventoryContract?.isWeekly(item) && window.InventoryContract.has(entry.justifiedQuantity) ? `<br>Compensación: ${Number(entry.justifiedQuantity) > 0 ? '+' : ''}${escape(entry.justifiedQuantity)}` : ''}<br><small>${escape(entry.reviewedBy)} · ${escape(entry.reviewedAt)}</small></div>`).join('') || '-';
+    return (item.justificationHistory || []).map(entry => `<div style="margin-bottom:6px; white-space:normal; overflow-wrap:anywhere;"><strong>${entry.round}ª justificación${entry.superseded ? ' (reemplazada)' : ''} · ${escape(entry.corroboracion)}</strong><br>${escape(entry.justification)}${window.InventoryContract?.isWeekly(item) && window.InventoryContract.has(entry.justifiedQuantity) ? `<br>Compensación: ${Number(entry.justifiedQuantity) > 0 ? '+' : ''}${escape(entry.justifiedQuantity)}` : ''}<br><small>${escape(entry.reviewedBy)} · ${escape(entry.reviewedAt)}</small></div>`).join('') || '-';
   },
 
   async loadJustifications() {
@@ -1994,6 +1995,35 @@ window.JustificationsView = {
     } catch (err) {
       window.Toast.danger(err.message || 'Error al habilitar el 2do reconteo');
     }
+  },
+
+  async forceClose(inventoryId) {
+    const task = this.tasks.find(t => t.inventoryId === inventoryId);
+    if (!task?.canForceClose) {
+      window.Toast.warning('El cierre forzado requiere el conteo y el reconteo firmados. Actualice la lista para ver el estado vigente.');
+      return;
+    }
+
+    const missing = Number(task.pendingJustificationsCount || 0);
+    if (!confirm(`¿Forzar el cierre de este inventario?\n\nFaltan ${missing} justificación(es). Se registrarán en el archivo final como NO CUADRA, con razón "CIERRE FORZADO" y su nombre como responsable. Las diferencias se mantienen.\n\nEl inventario quedará cerrado y se creará el archivo oficial en Google Drive.`)) {
+      return;
+    }
+
+    const btn = document.getElementById(`btn-force-close-${inventoryId}`);
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Cerrando...';
+    }
+
+    try {
+      window.Toast.info('Creando archivo final en Google Drive...');
+      const res = await window.API.forceClose(inventoryId);
+      window.Toast.success(res.message || 'Cierre forzado completado');
+      alert(`✅ Cierre Forzado\n\n${res.message}\nArchivo Drive: ${res.drive?.fileName || 'creado'}`);
+    } catch (err) {
+      window.Toast.danger(err.message || 'Error al forzar el cierre');
+    }
+    await this.loadJustifications();
   },
 
   async finishReview(inventoryId) {
