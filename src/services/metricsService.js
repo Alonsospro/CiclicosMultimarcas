@@ -34,6 +34,25 @@ function isValidDate(d) {
   return d instanceof Date && !isNaN(d.getTime());
 }
 
+// Sheets returns dates in the spreadsheet locale (d/M/yyyy), which Date.parse reads as month/day.
+function reviewTime(value) {
+  const local = String(value ?? '').trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (local) return Date.UTC(+local[3], local[2] - 1, +local[1], +(local[4] || 0), +(local[5] || 0), +(local[6] || 0));
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+// The latest explanation actually written, whichever round it belongs to: a recounted
+// item can have only its first or only its second justification.
+function latestJustification(item) {
+  const latest = [
+    { text: item.Comentario_Justificacion, at: reviewTime(item.Fecha_Primera_Justificacion) },
+    { text: item.Comentario_Justificacion_2, at: reviewTime(item.Fecha_Justificacion_2) }
+  ].filter(review => String(review.text ?? '').trim())
+    .reduce((current, review) => !current || review.at >= current.at ? review : current, null);
+  return latest ? latest.text : (item.Razon_Justificacion_2 || item.Razon || item.Comentario || item.Justificacion || '');
+}
+
 function parseCurrencyOrNumber(val, fallback = 0) {
   if (val === null || val === undefined || val === '') return fallback;
   if (typeof val === 'number') return isNaN(val) ? fallback : val;
@@ -964,7 +983,7 @@ class MetricsService {
             responsable: item.Responsable || 'Sin Asignar',
             fechaConteo: item.Fecha_Ultimo_Conteo,
             almacen: item.Almacen || '',
-            justificacion: item.Comentario_Justificacion || item.Razon || item.Comentario || item.Justificacion || ''
+            justificacion: latestJustification(item)
           });
         }
 

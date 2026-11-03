@@ -91,3 +91,34 @@ test('report exposes damage identified only in a recount and preserves the initi
   assert.equal(metrics.summary.totalDamagedCost, 15);
   assert.equal(before, JSON.stringify(item));
 });
+
+test('report motive is the latest justification written, in whichever round it exists', async () => {
+  const shortage = (SKU, fields) => ({ SKU, Stock_Sistema: 2, Stock_Fisico: 1, Stock_Total: 1, Mal_estado: 0, Diferencia: -1, Costo_Unitario: 5, Ubicacion: 'A1', Almacen: 'RVO0', ...fields });
+  const service = loadMetricsService();
+  service.getAllInventoriesData = async () => [{ id: 'INV-1120-1', isHistory: true, status: 'REVISADO', center: '1120', type: 'CICLICO', createdAt: '2026-10-14', items: [
+    shortage('ONLY-SECOND', { Razon_Justificacion_2: 'otro', Comentario_Justificacion_2: 'Texto de la segunda', Fecha_Justificacion_2: '31/10/2026 9:34:53' }),
+    shortage('ONLY-FIRST', { Razon: 'otro', Comentario_Justificacion: 'Texto de la primera', Fecha_Primera_Justificacion: '14/10/2026 12:00:00', Razon_Justificacion_2: 'balanceo' }),
+    shortage('BOTH', { Comentario_Justificacion: 'Primera', Fecha_Primera_Justificacion: '13/10/2026 12:00:00', Comentario_Justificacion_2: 'Segunda', Fecha_Justificacion_2: '02/11/2026 8:00:00' }),
+    shortage('FIRST-IS-NEWER', { Comentario_Justificacion: 'Reabierta', Fecha_Primera_Justificacion: '13/11/2026 12:00:00', Comentario_Justificacion_2: 'Anterior', Fecha_Justificacion_2: '02/11/2026 8:00:00' }),
+    shortage('BLANK-SECOND', { Comentario_Justificacion: 'Primera válida', Fecha_Primera_Justificacion: '13/10/2026 12:00:00', Comentario_Justificacion_2: '   ', Fecha_Justificacion_2: '14/10/2026 8:00:00' }),
+    shortage('ONLY-REASON', { Razon_Justificacion_2: 'balanceo' }),
+    shortage('NOTHING', {})
+  ] }];
+  const { discrepanciesList: list } = await service.getDashboardMetrics({});
+  const motive = sku => list.find(row => row.sku === sku).justificacion;
+  assert.equal(motive('ONLY-SECOND'), 'Texto de la segunda');
+  assert.equal(motive('ONLY-FIRST'), 'Texto de la primera');
+  assert.equal(motive('BOTH'), 'Segunda');
+  assert.equal(motive('FIRST-IS-NEWER'), 'Reabierta');
+  assert.equal(motive('BLANK-SECOND'), 'Primera válida');
+  assert.equal(motive('ONLY-REASON'), 'balanceo');
+  assert.equal(motive('NOTHING'), '');
+});
+
+test('the second justification headers of a closed sheet reach the report fields', () => {
+  const { normalizeItem } = require('../src/services/inventorySheetModel');
+  const item = normalizeItem({ SKU: 'VO_85022358', Almacen: 'RVO0', Ubicacion: '2A05043A00', Stock_Sistema: '2', Costo_Unitario: '5', 'STOCK TOTAL': '1', 'stock B/E': '1', 'stock M/E': '0', 'RazónJUSTIFICACION 2': 'otro', 'Comentario JustificaciON 2': 'Texto real', 'FECHA JUSTIFICACION 2': '31/10/2026 9:34:53' });
+  assert.equal(item.Comentario_Justificacion_2, 'Texto real');
+  assert.equal(item.Razon_Justificacion_2, 'otro');
+  assert.equal(item.Fecha_Justificacion_2, '31/10/2026 9:34:53');
+});
