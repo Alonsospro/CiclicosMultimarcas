@@ -219,9 +219,9 @@ test('the coverage sheet shows how each center started per system and how it clo
   assert.match(units('Sobrantes al cierre'), /^2 unid\. · Bs 200/);
   assert.match(units('Cierre'), /^38 unid\. · Bs 3\.800/);
   const table = html.slice(html.indexOf('Del inicio según sistema al cierre'));
-  assert.deepEqual(rowOf(table, 'Centro 1160').slice(1), ['3', '30', '3.000', '3', '300', '2', '200', '29', '2.900']);
-  assert.deepEqual(rowOf(table, 'Centro 1120').slice(1), ['1', '10', '1.000', '1', '100', '0', '0', '9', '900']);
-  assert.deepEqual(rowOf(table, 'Total'), ['Total', '4', '40', '4.000', '4', '400', '2', '200', '38', '3.800']);
+  assert.deepEqual(rowOf(table, 'Centro 1160').slice(1), ['3', '30', '3.000,00', '3', '300,00', '2', '200,00', '29', '2.900,00']);
+  assert.deepEqual(rowOf(table, 'Centro 1120').slice(1), ['1', '10', '1.000,00', '1', '100,00', '0', '0,00', '9', '900,00']);
+  assert.deepEqual(rowOf(table, 'Total'), ['Total', '4', '40', '4.000,00', '4', '400,00', '2', '200,00', '38', '3.800,00']);
   assert.doesNotMatch(html, /[Nn]eto\b|NETO/);
 });
 
@@ -234,9 +234,9 @@ test('the center report shows how each warehouse started per system and how it c
   assert.ok(start > 0);
   const table = html.slice(start, html.indexOf('</table>', start));
   const row = label => cellsOf(table.split('<tr').find(text => text.includes(`>${label}<`)));
-  assert.deepEqual(row('RFO7'), ['RFO7', '2', '20', '2.000', '3', '300', '2', '200', '19', '1.900']);
-  assert.deepEqual(row('RFO8'), ['RFO8', '1', '10', '1.000', '1', '100', '0', '0', '9', '900']);
-  assert.deepEqual(row('Total'), ['Total', '3', '30', '3.000', '4', '400', '2', '200', '28', '2.800']);
+  assert.deepEqual(row('RFO7'), ['RFO7', '2', '20', '2.000,00', '3', '300,00', '2', '200,00', '19', '1.900,00']);
+  assert.deepEqual(row('RFO8'), ['RFO8', '1', '10', '1.000,00', '1', '100,00', '0', '0,00', '9', '900,00']);
+  assert.deepEqual(row('Total'), ['Total', '3', '30', '3.000,00', '4', '400,00', '2', '200,00', '28', '2.800,00']);
   assert.doesNotMatch(html, /[Nn]eto\b|NETO/);
 });
 
@@ -438,7 +438,7 @@ test('a partly justified shortage closes with the units explained and only the r
   ]);
   const table = report.render({ name: 'Corte' }, metrics);
   const row = table.slice(table.indexOf('Del inicio según sistema al cierre')).split('<tr').find(text => text.includes('Centro 1160<'));
-  assert.deepEqual(cellsOf(row).slice(1), ['1', '10', '1.000', '1', '100', '0', '0', '9', '900']);
+  assert.deepEqual(cellsOf(row).slice(1), ['1', '10', '1.000,00', '1', '100,00', '0', '0,00', '9', '900,00']);
 });
 
 test('a single signature is centered and several keep their columns', async () => {

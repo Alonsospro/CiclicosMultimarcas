@@ -34,10 +34,6 @@
   const hbar = (value, max, size, color, label) => `<div class="mr-ibar"><i style="width:${width(value, max, size)}px;background:${color}"></i>${label}</div>`;
   const RED = '#c9373f', BLUE = '#2a78d6', AMBER = '#eda100', GRAY = '#b7c0ce', NAVY = '#17305f';
   const sum = (list, getter) => list.reduce((total, item) => total + num(getter(item)), 0);
-  const share = (value, total) => {
-    const part = total ? num(value) / total * 100 : 0;
-    return part > 0 && part < 1 ? '<1%' : `${Math.round(part)}%`;
-  };
 
   // A center's numbers, always derived from its quantities.
   function indicators(group) {
@@ -94,7 +90,7 @@
       left -= rowSum;
       rest = rest.slice(row.length);
     }
-    return `<div class="mr-tree" style="height:${H}px">${out.map(b => `<div style="left:${b.x / W * 100}%;top:${b.y}px;width:calc(${b.w / W * 100}% - 2px);height:${Math.max(b.h - 2, 1)}px;background:${b.color}">${b.w > 62 && b.h > 30 ? `<b>${esc(b.label)}</b><br>${qty(b.value)}` : ''}</div>`).join('')}</div>`;
+    return `<div class="mr-tree" style="height:${H}px">${out.map(b => `<div style="left:${b.x / W * 100}%;top:${b.y}px;width:calc(${b.w / W * 100}% - 2px);height:${Math.max(b.h - 2, 1)}px;background:${b.color}">${b.w > 62 && b.h > 30 ? `<b>${esc(b.label)}</b><br>${decimal(b.value)}` : ''}</div>`).join('')}</div>`;
   }
 
   const shade = (value, max, hue) => {
@@ -108,7 +104,7 @@
     if (!classes.length) return '<p class="mr-more">Sin montos para mostrar.</p>';
     const cell = (row, name) => num(row.cells[name]?.[side]);
     const max = Math.max(...rows.flatMap(row => classes.map(name => cell(row, name))));
-    return `<table class="mr-heat"><thead><tr><th>${esc(firstHeader)}</th>${classes.map(name => `<th>Clase ${esc(name)}</th>`).join('')}<th class="num">Total</th></tr></thead><tbody>${rows.map(row => `<tr><th>${esc(row.name)}</th>${classes.map(name => `<td style="${shade(cell(row, name), max, hue)}">${qty(cell(row, name))}</td>`).join('')}<td class="num mr-strong">${qty(sum(classes, name => cell(row, name)))}</td></tr>`).join('')}</tbody><tfoot><tr><th>Total</th>${classes.map(name => `<td class="mr-center">${qty(sum(rows, row => cell(row, name)))}</td>`).join('')}<td class="num">${qty(sum(rows, row => sum(classes, name => cell(row, name))))}</td></tr></tfoot></table>`;
+    return `<table class="mr-heat"><thead><tr><th>${esc(firstHeader)}</th>${classes.map(name => `<th>Clase ${esc(name)}</th>`).join('')}<th class="num">Total</th></tr></thead><tbody>${rows.map(row => `<tr><th>${esc(row.name)}</th>${classes.map(name => `<td style="${shade(cell(row, name), max, hue)}">${decimal(cell(row, name))}</td>`).join('')}<td class="num mr-strong">${decimal(sum(classes, name => cell(row, name)))}</td></tr>`).join('')}</tbody><tfoot><tr><th>Total</th>${classes.map(name => `<td class="mr-center">${decimal(sum(rows, row => cell(row, name)))}</td>`).join('')}<td class="num">${decimal(sum(rows, row => sum(classes, name => cell(row, name))))}</td></tr></tfoot></table>`;
   }
 
   const causeLegend = `<div class="mr-legend">${CAUSE_KEYS.map(key => `<span><i style="background:${CAUSES[key].color}"></i>${esc(CAUSES[key].label)}</span>`).join('')}</div>`;
@@ -146,19 +142,19 @@
   function moneyPanel(title, first, close, unit, value, color) {
     const firstCost = num(first.cost), closeCost = num(close.cost), resolved = Math.max(0, firstCost - closeCost);
     const max = Math.max(firstCost, closeCost, 1);
-    return panel(title, `<table class="mr-flat"><tbody><tr><td>Primer conteo</td><td>${hbar(firstCost, max, 150, color, qty(firstCost))}</td></tr><tr><td>Resuelto</td><td>${hbar(resolved, max, 150, GRAY, qty(resolved))}</td></tr><tr class="mr-strong"><td>Cierre</td><td>${hbar(closeCost, max, 150, color, qty(closeCost))}</td></tr></tbody></table><div class="mr-figure"><b>${bs(closeCost)}</b><span>${qty(close.lines)} ${unit} · ${qty(close.units)} unidades · ${value > 0 ? pct(closeCost / value * 100) : 'No disponible'} del valor</span></div>`);
+    return panel(title, `<table class="mr-flat"><tbody><tr><td>Primer conteo</td><td>${hbar(firstCost, max, 150, color, decimal(firstCost))}</td></tr><tr><td>Resuelto</td><td>${hbar(resolved, max, 150, GRAY, decimal(resolved))}</td></tr><tr class="mr-strong"><td>Cierre</td><td>${hbar(closeCost, max, 150, color, decimal(closeCost))}</td></tr></tbody></table><div class="mr-figure"><b>${bs(closeCost)}</b><span>${qty(close.lines)} ${unit} · ${qty(close.units)} unidades · ${value > 0 ? pct(closeCost / value * 100) : 'No disponible'} del valor</span></div>`);
   }
   function breakdownTable(first, groups, total) {
     const maxS = Math.max(...groups.map(g => g.shortage.cost), 1), maxP = Math.max(...groups.map(g => g.surplus.cost), 1);
     const row = g => { const i = indicators(g); return `<td class="num">${qty(g.skusExact)} / ${qty(g.skus)}</td><td class="num">${pct(i.codes)}</td><td class="num">${qty(g.unitsExact)} / ${qty(g.units)}</td><td class="num">${pct(i.units)}</td><td class="num">${qty(g.shortage.lines)}</td><td class="num">${qty(g.shortage.units)}</td>`; };
-    return `<table data-split><thead><tr><th></th><th class="mr-group" colspan="2">Códigos correctos</th><th class="mr-group" colspan="2">Unidades correctas</th><th class="mr-group" colspan="3">Faltantes</th><th class="mr-group" colspan="3">Sobrantes</th><th></th></tr><tr><th>${esc(first)}</th><th class="num">Cant.</th><th class="num">%</th><th class="num">Cant.</th><th class="num">%</th><th class="num">Líneas</th><th class="num">Unid.</th><th>Bs</th><th class="num">Líneas</th><th class="num">Unid.</th><th>Bs</th><th class="num">Averías Bs</th></tr></thead><tbody>${groups.map(g => `<tr><td class="mr-strong">${esc(g.name)}</td>${row(g)}<td>${hbar(g.shortage.cost, maxS, 75, RED, qty(g.shortage.cost))}</td><td class="num">${qty(g.surplus.lines)}</td><td class="num">${qty(g.surplus.units)}</td><td>${hbar(g.surplus.cost, maxP, 60, BLUE, qty(g.surplus.cost))}</td><td class="num">${qty(g.damage.cost)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td>${row(total)}<td>${qty(total.shortage.cost)}</td><td class="num">${qty(total.surplus.lines)}</td><td class="num">${qty(total.surplus.units)}</td><td>${qty(total.surplus.cost)}</td><td class="num">${qty(total.damage.cost)}</td></tr></tfoot></table>`;
+    return `<table data-split><thead><tr><th></th><th class="mr-group" colspan="2">Códigos correctos</th><th class="mr-group" colspan="2">Unidades correctas</th><th class="mr-group" colspan="3">Faltantes</th><th class="mr-group" colspan="3">Sobrantes</th><th></th></tr><tr><th>${esc(first)}</th><th class="num">Cant.</th><th class="num">%</th><th class="num">Cant.</th><th class="num">%</th><th class="num">Líneas</th><th class="num">Unid.</th><th>Bs</th><th class="num">Líneas</th><th class="num">Unid.</th><th>Bs</th><th class="num">Averías Bs</th></tr></thead><tbody>${groups.map(g => `<tr><td class="mr-strong">${esc(g.name)}</td>${row(g)}<td>${hbar(g.shortage.cost, maxS, 45, RED, decimal(g.shortage.cost))}</td><td class="num">${qty(g.surplus.lines)}</td><td class="num">${qty(g.surplus.units)}</td><td>${hbar(g.surplus.cost, maxP, 45, BLUE, decimal(g.surplus.cost))}</td><td class="num">${decimal(g.damage.cost)}</td></tr>`).join('')}</tbody><tfoot><tr><td>Total</td>${row(total)}<td>${decimal(total.shortage.cost)}</td><td class="num">${qty(total.surplus.lines)}</td><td class="num">${qty(total.surplus.units)}</td><td>${decimal(total.surplus.cost)}</td><td class="num">${decimal(total.damage.cost)}</td></tr></tfoot></table>`;
   }
   // How a group started per system and how it closed. Shortages and surpluses stay apart.
   const closingUnits = g => g.units - g.shortage.units + g.surplus.units;
   const closingValue = g => g.value - g.shortage.cost + g.surplus.cost;
   const MOVEMENT_NOTE = 'Cubre los códigos revisados en cada inventario. Cierre = inicio − faltantes + sobrantes al cierre; lo justificado no queda como diferencia.';
   function movementTable(first, groups, total) {
-    const row = (name, g, cls = '') => `<tr class="${cls}"><td class="mr-strong">${esc(name)}</td><td class="num">${qty(g.skus)}</td><td class="num">${qty(g.units)}</td><td class="num">${qty(g.value)}</td><td class="num">${qty(g.shortage.units)}</td><td class="num">${qty(g.shortage.cost)}</td><td class="num">${qty(g.surplus.units)}</td><td class="num">${qty(g.surplus.cost)}</td><td class="num">${qty(closingUnits(g))}</td><td class="num">${qty(closingValue(g))}</td></tr>`;
+    const row = (name, g, cls = '') => `<tr class="${cls}"><td class="mr-strong">${esc(name)}</td><td class="num">${qty(g.skus)}</td><td class="num">${qty(g.units)}</td><td class="num">${decimal(g.value)}</td><td class="num">${qty(g.shortage.units)}</td><td class="num">${decimal(g.shortage.cost)}</td><td class="num">${qty(g.surplus.units)}</td><td class="num">${decimal(g.surplus.cost)}</td><td class="num">${qty(closingUnits(g))}</td><td class="num">${decimal(closingValue(g))}</td></tr>`;
     return `<table data-split><thead><tr><th></th><th class="mr-group" colspan="3">Inicio según sistema</th><th class="mr-group" colspan="2">Faltantes</th><th class="mr-group" colspan="2">Sobrantes</th><th class="mr-group" colspan="2">Cierre</th></tr><tr><th>${esc(first)}</th><th class="num">Códigos</th><th class="num">Unid.</th><th class="num">Bs</th><th class="num">Unid.</th><th class="num">Bs</th><th class="num">Unid.</th><th class="num">Bs</th><th class="num">Unid.</th><th class="num">Bs</th></tr></thead><tbody>${groups.map(g => row(g.name, g)).join('')}${row('Total', total, 'mr-strong')}</tbody></table>`;
   }
   const DURATION_NOTE = 'Tiempo desde el primer registro hasta el último ingresado: conteo, reconteo o justificación. Los días son de calendario, en hora de Bolivia.';
@@ -202,7 +198,7 @@
   }
   const topTable = (list, helpers, color, total, sign) => {
     const max = Math.max(...list.map(helpers.cost), 1);
-    return `<table data-split class="mr-diff"><thead><tr><th>Código</th><th>Alm.</th><th class="num">Sist.</th><th class="num">Físico</th><th class="num">Dif.</th><th>Bs</th><th class="num">% del total</th><th>Motivo</th></tr></thead><tbody>${list.map(item => `<tr><td>${esc(item.sku)}</td><td>${esc(item.almacen)}</td><td class="num">${qty(item.stockSistema)}</td><td class="num">${qty(physical(item, helpers.final))}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), max, 58, color, qty(helpers.cost(item)))}</td><td class="num">${esc(share(helpers.cost(item), total))}</td><td>${esc(justifiedPart(item) + justification(item))}</td></tr>`).join('') || '<tr><td colspan="8">Sin registros.</td></tr>'}</tbody></table>`;
+    return `<table data-split class="mr-diff"><thead><tr><th>Código</th><th>Alm.</th><th class="num">Sist.</th><th class="num">Físico</th><th class="num">Dif.</th><th>Bs</th><th class="num">% del total</th><th>Motivo</th></tr></thead><tbody>${list.map(item => `<tr><td>${esc(item.sku)}</td><td>${esc(item.almacen)}</td><td class="num">${qty(item.stockSistema)}</td><td class="num">${qty(physical(item, helpers.final))}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), max, 58, color, decimal(helpers.cost(item)))}</td><td class="num">${pct(total ? helpers.cost(item) / total * 100 : 0)}</td><td>${esc(justifiedPart(item) + justification(item))}</td></tr>`).join('') || '<tr><td colspan="8">Sin registros.</td></tr>'}</tbody></table>`;
   };
   const annexTable = (list, helpers, color, sign, emptyText) => {
     const max = Math.max(...list.map(helpers.cost), 1);
@@ -405,7 +401,7 @@
     };
     const i = indicators(total);
     const count = key => centers.filter(c => c.lvl.key === key).length;
-    const lowest = c => [['Unidades', c.i.units, `${qty(c.unitsExact)} de ${qty(c.units)}`, c.i.units1], ['Códigos', c.i.codes, `${qty(c.skusExact)} de ${qty(c.skus)}`, c.i.codes1], ['Valor', c.i.money, `Bs ${qty(c.i.valueExact)} de ${qty(c.value)}`, c.i.money1]].sort((a, b) => num(a[1]) - num(b[1]))[0];
+    const lowest = c => [['Unidades', c.i.units, `${qty(c.unitsExact)} de ${qty(c.units)}`, c.i.units1], ['Códigos', c.i.codes, `${qty(c.skusExact)} de ${qty(c.skus)}`, c.i.codes1], ['Valor', c.i.money, `Bs ${decimal(c.i.valueExact)} de ${decimal(c.value)}`, c.i.money1]].sort((a, b) => num(a[1]) - num(b[1]))[0];
     const byWorst = centers.slice().sort((a, b) => num(lowest(a)[1]) - num(lowest(b)[1]));
     const met = count('perfect') + count('ok') + count('min');
     const known = centers.length + pending.length;
@@ -429,7 +425,7 @@
       </div>
       ${panel(`Estado por centro · ${levelsLine}`, statusChart(byWorst.map(c => { const low = lowest(c); return { name: c.name, lvl: c.lvl, value: low[1], first: low[3], indicator: low[0], amount: low[2], earlier: earlierClosures(c), forcedLabel: (c.durations || []).map(row => row.forcedLabel).filter(Boolean).join(' · ') }; }), pending))}`, 'Totales calculados sumando las bases de cada centro. Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%.', 'Resumen consolidado');
 
-    const kMoney = value => value >= 1e6 ? `${(value / 1e6).toLocaleString('es-BO', { maximumFractionDigits: 2 })} M` : qty(value);
+    const kMoney = value => value >= 1e6 ? `${(value / 1e6).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M` : decimal(value);
     const cell = (value, quantity) => `<td class="mr-cell lvl-${level(value).key}">${pct(value)}<small>${quantity}</small></td>`;
     const previous = c => {
       const history = c.history || [];
@@ -456,7 +452,7 @@
       </div>`, 'Las líneas son registros de conteo. Ningún monto compensa a otro.');
 
     const helpers = differences((metrics.discrepanciesList || []).filter(item => item && typeof item === 'object'));
-    const globalTable = (rows, color, sign, all) => `<table data-split class="mr-diff"><thead><tr><th>Centro</th><th>Código</th><th>Clase</th><th class="num">Unid.</th><th>Bs</th><th class="num">% del total</th><th>Motivo</th></tr></thead><tbody>${rows.map(item => `<tr><td>${esc(item.center)}</td><td>${esc(item.sku)}</td><td>${esc(item.abc)}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), Math.max(helpers.cost(rows[0]), 1), 90, color, qty(helpers.cost(item)))}</td><td class="num">${all ? pct(helpers.cost(item) / all * 100) : '—'}</td><td>${esc(justification(item))}</td></tr>`).join('') || '<tr><td colspan="7">Sin registros.</td></tr>'}</tbody></table>`;
+    const globalTable = (rows, color, sign, all) => `<table data-split class="mr-diff"><thead><tr><th>Centro</th><th>Código</th><th>Clase</th><th class="num">Unid.</th><th>Bs</th><th class="num">% del total</th><th>Motivo</th></tr></thead><tbody>${rows.map(item => `<tr><td>${esc(item.center)}</td><td>${esc(item.sku)}</td><td>${esc(item.abc)}</td><td class="num">${sign}${qty(Math.abs(helpers.final(item)))}</td><td>${hbar(helpers.cost(item), Math.max(helpers.cost(rows[0]), 1), 90, color, decimal(helpers.cost(item)))}</td><td class="num">${all ? pct(helpers.cost(item) / all * 100) : '—'}</td><td>${esc(justification(item))}</td></tr>`).join('') || '<tr><td colspan="7">Sin registros.</td></tr>'}</tbody></table>`;
     const damageRows = centers.slice().sort((a, b) => b.damage.cost - a.damage.cost);
     const page4 = sheet('Mayores diferencias', period, `
       ${panel('Mayores faltantes de todos los centros', globalTable(helpers.shortages.slice(0, 8), RED, '−', total.shortage.cost), 'mr-plain')}
