@@ -1574,16 +1574,17 @@ window.JustificationsView = {
       const targetReason = justDetails.reasonType || '';
       if (reasonSelect) {
         if (targetReason) {
-          const exists = Array.from(reasonSelect.options).some(opt => opt.value.toLowerCase() === targetReason.toLowerCase());
-          if (!exists) {
+          // Saved reviews may hold an earlier spelling: select the current option, or keep the old name as its own.
+          const match = Array.from(reasonSelect.options).find(opt => opt.value.toLowerCase() === targetReason.toLowerCase());
+          if (!match) {
             const opt = document.createElement('option');
             opt.value = targetReason;
             opt.textContent = targetReason;
             reasonSelect.appendChild(opt);
           }
-          reasonSelect.value = targetReason;
+          reasonSelect.value = match ? match.value : targetReason;
         } else {
-          reasonSelect.value = (item.Diferencia < 0) ? 'faltante en inventario anual' : ((item.Diferencia > 0) ? 'Sobrante del inventario anual' : 'balanceo');
+          reasonSelect.value = (item.Diferencia < 0) ? 'Faltante Detectado en IG 2026' : ((item.Diferencia > 0) ? 'Sobrante Detectado en IG 2026' : 'Balanceo');
         }
       }
       document.getElementById('just-input-text').value = justDetails.justification || '';
@@ -1627,11 +1628,11 @@ window.JustificationsView = {
       if (corrSelect) corrSelect.value = isCuadrado ? 'CUADRA' : 'NO_CUADRA';
       const reasonSelect = document.getElementById('just-select-reason');
       if (isCuadrado) {
-        if (reasonSelect) reasonSelect.value = 'balanceo';
+        if (reasonSelect) reasonSelect.value = 'Balanceo';
         document.getElementById('just-input-text').value = '';
       } else {
         if (reasonSelect) {
-          reasonSelect.value = (item.Diferencia < 0) ? 'faltante en inventario anual' : ((item.Diferencia > 0) ? 'Sobrante del inventario anual' : 'balanceo');
+          reasonSelect.value = (item.Diferencia < 0) ? 'Faltante Detectado en IG 2026' : ((item.Diferencia > 0) ? 'Sobrante Detectado en IG 2026' : 'Balanceo');
         }
       }
       document.getElementById('just-photo-url').value = '';

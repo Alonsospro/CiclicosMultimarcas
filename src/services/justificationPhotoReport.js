@@ -8,7 +8,9 @@ const { getInventoryIdentifier } = require('./metricsSourceService');
 
 const clean = value => String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
 const time = value => Date.parse(value) || 0;
-const NO_PHOTO_NEEDED_WHEN_CUADRA = new Set(['error de conteo', 'balanceo']);
+// Any other reason, including the earlier faltante and sobrante names, needs a photo.
+const NO_PHOTO_NEEDED = new Set(['transferencia', 'balanceo', 'error de conteo', 'mal ubicado', 'error de typeo', 'sobrestock',
+  'empaque diferente', 'empaque similar', 'sin justificacion', 'otro']);
 const STATUS_ORDER = ['falta', 'en_drive', 'por_confirmar', 'con_foto', 'no_requiere', 'cierre_forzado'];
 const isDriveLink = link => /^https:\/\/([\w-]+\.)*(google\.com|googleusercontent\.com)\//.test(link);
 
@@ -23,9 +25,8 @@ function photoLinks(entry) {
 
 function photoStatus(entry, links = photoLinks(entry)) {
   const reason = clean(entry.reasonType);
-  const decision = String(entry.corroboracion || entry.corroboration || '').trim().toUpperCase();
   if (entry.forced || reason === 'cierre forzado') return 'cierre_forzado';
-  if (decision === 'CUADRA' && NO_PHOTO_NEEDED_WHEN_CUADRA.has(reason)) return 'no_requiere';
+  if (NO_PHOTO_NEEDED.has(reason)) return 'no_requiere';
   if (!links.length) return 'falta';
   return entry.driveFileId || links.some(isDriveLink) ? 'con_foto' : 'por_confirmar';
 }

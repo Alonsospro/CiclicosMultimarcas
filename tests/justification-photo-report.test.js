@@ -7,25 +7,35 @@ const { buildRows, photoStatus, attachDrivePhotos } = require('../src/services/j
 
 const DRIVE = 'https://drive.google.com/file/d/abc/view';
 const record = (fields = {}) => ({inventoryId:'INV-1120-7', sku:'SKU-1', almacen:'A1', ubicacion:'U1', round:1, corroboracion:'NO CUADRA',
-  reasonType:'otro', justification:'Texto', reviewedAt:'2026-11-01T10:00:00.000Z', ...fields});
+  reasonType:'Venta del repuesto', justification:'Texto', reviewedAt:'2026-11-01T10:00:00.000Z', ...fields});
 
-test('the justification form offers the new reasons, and they still need a photo', () => {
+const REASONS = {
+  'Faltante Detectado en IG 2026': true, 'Sobrante Detectado en IG 2026': true, 'Venta del repuesto': true, Transferencia: false,
+  Balanceo: false, 'Error de Conteo': false, 'Devolucion a Fabrica': true, 'Mal Ubicado': false, 'Error de Typeo': false, Sobrestock: false,
+  'Empaque Diferente': false, 'Empaque Similar': false, 'Sin Justificación': false, Otro: false
+};
+
+test('the justification form offers the agreed reasons, in order, and each one follows its photo rule', () => {
   const page = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
   const select = page.slice(page.indexOf('id="just-select-reason"'), page.indexOf('</select>', page.indexOf('id="just-select-reason"')));
   const reasons = [...select.matchAll(/<option value="([^"]*)">([^<]*)<\/option>/g)];
-  assert.equal(reasons.at(-1)[1], 'otro');
-  for (const reason of ['Mal Ubicado', 'Error de Typeo', 'Sobrestock', 'Empaque Diferente', 'Empaque Similar', 'Sin Justificación']) {
-    assert.ok(reasons.some(option => option[1] === reason && option[2] === reason), reason);
-    assert.equal(photoStatus(record({corroboracion:'CUADRA', reasonType:reason})), 'falta', reason);
+  assert.deepEqual(reasons.map(option => option[1]), Object.keys(REASONS));
+  assert.deepEqual(reasons.map(option => option[2]), Object.keys(REASONS));
+  for (const [reason, needsPhoto] of Object.entries(REASONS)) {
+    for (const corroboracion of ['CUADRA', 'NO CUADRA']) {
+      assert.equal(photoStatus(record({corroboracion, reasonType:reason})), needsPhoto ? 'falta' : 'no_requiere', reason);
+    }
   }
 });
 
-test('only CUADRA with Error de Conteo or Balanceo goes without a photo', () => {
-  assert.equal(photoStatus(record({corroboracion:'CUADRA', reasonType:'Error de Conteo'})), 'no_requiere');
-  assert.equal(photoStatus(record({corroboracion:'CUADRA', reasonType:'balanceo'})), 'no_requiere');
-  assert.equal(photoStatus(record({corroboracion:'CUADRA', reasonType:'transferencia'})), 'falta');
-  assert.equal(photoStatus(record({reasonType:'Error de Conteo'})), 'falta');
-  assert.equal(photoStatus(record({reasonType:'balanceo'})), 'falta');
+test('reviews saved with an earlier spelling keep the same photo rule', () => {
+  for (const reason of ['faltante en inventario anual', 'Sobrante del inventario anual', 'venta del repuesto', 'devolucion a fabrica']) {
+    assert.equal(photoStatus(record({reasonType:reason})), 'falta', reason);
+  }
+  for (const reason of ['transferencia', 'balanceo', 'otro', 'Sin Justificacion']) {
+    assert.equal(photoStatus(record({reasonType:reason})), 'no_requiere', reason);
+  }
+  assert.equal(photoStatus(record({reasonType:'AJUSTE_INVENTARIO'})), 'falta');
 });
 
 test('a photo counts as saved only with a Drive link or file id', () => {
@@ -61,7 +71,7 @@ test('a recount is reported under its parent inventory with one photo per link',
 });
 
 test('justified rows without a record are reported, and rows supply a photo the record lost', () => {
-  const item = sku => ({SKU:sku, Almacen:'A1', Ubicacion:'U1', Estado:'NO CUADRA', Razon:'otro', Comentario_Justificacion:'Texto',
+  const item = sku => ({SKU:sku, Almacen:'A1', Ubicacion:'U1', Estado:'NO CUADRA', Razon:'Venta del repuesto', Comentario_Justificacion:'Texto',
     Fecha_Primera_Justificacion:'2026-11-01T10:00:00.000Z', foto_justificacion:DRIVE, fotos_justificacion:[DRIVE]});
   const inventories = [{id:'INV-1120-7', name:'Inventario 7', center:'1120', type:'BARRIDO',
     items:[item('ROW-ONLY'), item('LOST'), {SKU:'UNJUSTIFIED', Almacen:'A1', Ubicacion:'U1'}]}];
