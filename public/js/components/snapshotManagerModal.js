@@ -39,8 +39,7 @@ window.SnapshotManagerModal = {
     tbody.innerHTML = `
       <tr>
         <td colspan="6" style="text-align:center; padding: 2rem; color: var(--text-muted);">
-          <i class="fa-solid fa-spinner fa-spin" style="font-size: 1.25rem; margin-right: 0.5rem;"></i>
-          Cargando listado de snapshots históricos...
+          ${window.DeerLoader?.html('Cargando listado de snapshots históricos...') ?? 'Cargando listado de snapshots históricos...'}
         </td>
       </tr>
     `;

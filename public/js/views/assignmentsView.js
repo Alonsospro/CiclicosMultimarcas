@@ -95,7 +95,7 @@ window.AssignmentsView = {
 
   async loadInventoryItems(invId) {
     const tbody = document.getElementById('tbody-assignments');
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Cargando ítems...</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 2rem;">${window.DeerLoader?.html('Cargando ítems...') ?? 'Cargando ítems...'}</td></tr>`;
 
     try {
       const res = await window.API.getInventoryById(invId);

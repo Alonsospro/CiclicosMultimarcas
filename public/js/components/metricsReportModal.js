@@ -224,6 +224,7 @@ window.MetricsReportModal = {
     const btn = document.getElementById('btn-report-download-pdf');
     const originalText = btn ? btn.innerHTML : '';
     if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando PDF...';
+    const endWait = window.DeerLoader?.show('Generando el PDF...');
     window.Toast?.info('Generando el PDF...');
 
     const viewport = document.getElementById('report-preview-viewport');
@@ -266,6 +267,7 @@ window.MetricsReportModal = {
       window.Toast?.danger('No se pudo generar el PDF. Abriendo diálogo de impresión...');
       this.triggerNativePrint();
     } finally {
+      endWait?.();
       if (viewport) viewport.scrollTop = previousScroll;
       if (btn) btn.innerHTML = originalText;
       controls.forEach(control => { control.disabled = false; });

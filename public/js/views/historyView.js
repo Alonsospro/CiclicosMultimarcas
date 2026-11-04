@@ -11,7 +11,7 @@ window.HistoryView = {
     const tbody = document.getElementById('tbody-history');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding: 2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Cargando historial desde Google Drive...</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding: 2rem;">${window.DeerLoader?.html('Cargando historial desde Google Drive...') ?? 'Cargando historial desde Google Drive...'}</td></tr>`;
 
     try {
       const res = await window.API.getHistory();

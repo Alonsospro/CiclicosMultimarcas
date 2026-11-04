@@ -219,6 +219,7 @@ window.DashboardView = {
 
     if (iconRecalc) iconRecalc.className = 'fa-solid fa-spinner fa-spin';
     if (iconBanner) iconBanner.className = 'fa-solid fa-spinner fa-spin';
+    const endWait = window.DeerLoader?.show('Leyendo los datos de Google Sheets...');
     if (btnRecalc) btnRecalc.disabled = true;
     if (btnBanner) btnBanner.disabled = true;
 
@@ -308,6 +309,7 @@ window.DashboardView = {
         window.Toast?.danger(err.message || 'Error al leer las fuentes de métricas');
       }
     } finally {
+      endWait?.();
       if (requestSerial === this.requestSerial) this.isLoadingMetrics = false;
       if (iconRecalc) iconRecalc.className = 'fa-solid fa-calculator';
       if (iconBanner) iconBanner.className = 'fa-solid fa-calculator';
@@ -318,6 +320,7 @@ window.DashboardView = {
 
   async loadDashboard(forceRefresh = false) {
     const requestSerial = this.requestSerial = (this.requestSerial || 0) + 1;
+    const endWait = window.DeerLoader?.show('Cargando el dashboard...');
     this.isLoadingMetrics = true;
     this.setMetricsPending();
     this.metricsLoadFailed = false;
@@ -395,6 +398,7 @@ window.DashboardView = {
         window.Toast?.danger(err.message || 'Error cargando datos del Dashboard');
       }
     } finally {
+      endWait?.();
       if (requestSerial === this.requestSerial) this.isLoadingMetrics = false;
     }
   },
@@ -1709,6 +1713,7 @@ window.DashboardView = {
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando Excel...';
       btn.disabled = true;
     }
+    const endWait = window.DeerLoader?.show('Generando Excel...');
 
     try {
       window.Toast?.info('Compilando consolidado gerencial en formato .xlsx...');
@@ -2058,6 +2063,7 @@ window.DashboardView = {
       console.error('[exportOverviewXLSX] Error:', err);
       window.Toast?.danger(err.message || 'Error al exportar consolidado en formato .xlsx');
     } finally {
+      endWait?.();
       if (btn) {
         btn.innerHTML = originalText;
         btn.disabled = false;

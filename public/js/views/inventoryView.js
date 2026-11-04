@@ -115,6 +115,7 @@ window.InventoryView = {
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generando ' + selectedCenters.length + ' inventarios...';
       }
+      const endWait = window.DeerLoader?.show('Generando inventarios...');
 
       try {
         const res = await window.API.bulkCreateInventories({
@@ -133,6 +134,7 @@ window.InventoryView = {
         console.error('[inventoryView] Error in bulkCreate:', err);
         window.Toast.danger(err.message || 'Error al generar inventarios masivos');
       } finally {
+        endWait?.();
         if (submitBtn) {
           submitBtn.disabled = false;
           submitBtn.innerHTML = '<i class="fa-solid fa-bolt"></i> Crear Inventarios Masivos';
@@ -291,6 +293,7 @@ window.InventoryView = {
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creando e importando...';
       }
+      const endWait = window.DeerLoader?.show('Creando e importando el inventario...');
 
       try {
         // If items haven't been fetched yet, fetch them now
@@ -321,6 +324,7 @@ window.InventoryView = {
       } catch (err) {
         window.Toast.danger(err.message || 'Error creando inventario');
       } finally {
+        endWait?.();
         if (submitBtn) {
           submitBtn.disabled = false;
           submitBtn.innerHTML = '<i class="fa-solid fa-check"></i> Crear Inventario';
@@ -736,6 +740,7 @@ window.InventoryView = {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Finalizando y firmando...';
       }
+      const endWait = window.DeerLoader?.show('Finalizando y firmando...');
 
       try {
         const signerName = window.Auth.currentUser?.displayName || window.Auth.currentUser?.username || 'Usuario';
@@ -744,6 +749,7 @@ window.InventoryView = {
         await window.API.submitInventory(this.currentInventory.id, {
           signature: `Firmado digitalmente por ${rolePrefix}${signerName} (${new Date().toLocaleString()})`
         });
+        endWait?.();
 
         const submittedId = this.currentInventory.id;
         this.currentInventory.status = isReconteo ? 'RECONTEO_COMPLETADO' : 'PENDIENTE_JUSTIFICACION';
@@ -760,6 +766,7 @@ window.InventoryView = {
         this.currentInventory = null;
         window.Router.navigate('inventories');
       } catch (err) {
+        endWait?.();
         window.Toast.danger(err.message || 'Error al enviar inventario');
         this.updateSubmitButtonState();
       }
@@ -783,7 +790,7 @@ window.InventoryView = {
     const host = document.getElementById('inventory-groups');
     if (!host) return;
 
-    host.innerHTML = '<div class="inventory-groups-message" style="text-align:center; padding: 2rem;"><i class="fa-solid fa-spinner fa-spin"></i> Cargando inventarios...</div>';
+    host.innerHTML = `<div class="inventory-groups-message" style="text-align:center; padding: 2rem;">${window.DeerLoader?.html('Cargando inventarios...') ?? 'Cargando inventarios...'}</div>`;
 
     try {
       const res = await window.API.getInventories({ type, center });

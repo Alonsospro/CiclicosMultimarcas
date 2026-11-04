@@ -1,0 +1,69 @@
+/* Green badge with the yellow John Deere deer leaping over a moving ground line. */
+.deer-loader {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border: 2px solid #ffde00;
+  border-radius: 50%;
+  background: #367c2b;
+}
+.deer-loader-deer {
+  position: absolute;
+  left: 13px;
+  top: 8px;
+  width: 42px;
+  height: auto;
+  transform-origin: 50% 80%;
+  animation: deerLeap 0.72s ease-in-out infinite;
+}
+.deer-loader-ground {
+  position: absolute;
+  left: -20px;
+  right: -20px;
+  bottom: 11px;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, #ffde00 0 10px, transparent 10px 16px);
+  animation: deerGround 0.36s linear infinite;
+}
+@keyframes deerLeap {
+  0%, 100% { transform: translateY(5px) rotate(5deg); }
+  50% { transform: translateY(-5px) rotate(-5deg); }
+}
+@keyframes deerGround {
+  to { transform: translateX(16px); }
+}
+
+.deer-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1rem;
+}
+.deer-loading-text { color: var(--text-muted); font-weight: 500; }
+
+.deer-loading-card {
+  position: fixed;
+  z-index: 100000;
+  right: 1rem;
+  bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: min(340px, calc(100vw - 2rem));
+  padding: 0.6rem 1rem 0.6rem 0.6rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 999px;
+  background: var(--bg-app);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+.deer-loading-card .deer-loading-text { color: var(--text-main, inherit); }
+.deer-loading-card .deer-loader { transform: scale(0.8); margin: -7px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .deer-loader-deer, .deer-loader-ground { animation: none; }
+}

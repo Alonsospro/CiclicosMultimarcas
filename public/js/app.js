@@ -281,7 +281,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (loading) {
       loading.style.display = 'flex';
       loading.innerHTML = `
-        <i class="fa-solid fa-spinner fa-spin" style="font-size: 2.2rem; color: #38bdf8;"></i>
+        ${window.DeerLoader?.mark ?? ''}
         <p style="color: #cbd5e1; font-weight: 500;">Ejecutando diagnóstico integral contra todos los endpoints (.env)...</p>
         <small style="color: #94a3b8;">Verificando Cíclicos, Barrido, Mensuales, Semanales, hojas de cálculo y Drive...</small>
         <div style="margin-top: 1rem;">

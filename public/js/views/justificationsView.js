@@ -383,7 +383,7 @@ window.JustificationsView = {
     const container = document.getElementById('justifications-container');
     if (!container) return;
 
-    container.innerHTML = '<div style="text-align:center; padding: 3rem;"><i class="fa-solid fa-spinner fa-spin"></i> Cargando inventarios para justificación...</div>';
+    container.innerHTML = `<div style="text-align:center; padding: 3rem;">${window.DeerLoader?.html('Cargando inventarios para justificación...') ?? 'Cargando inventarios para justificación...'}</div>`;
 
     try {
       const centerSelect = document.getElementById('filter-just-center');
@@ -2121,10 +2121,11 @@ window.JustificationsView = {
       btn.disabled = true;
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Cerrando...';
     }
+    const endWait = window.DeerLoader?.show('Cerrando el inventario...');
 
     try {
       window.Toast.info('Creando archivo final en Google Drive...');
-      const res = await window.API.forceClose(inventoryId);
+      const res = await window.API.forceClose(inventoryId).finally(endWait);
       window.Toast.success(res.message || 'Cierre forzado completado');
       const notWritten = (res.masterFailed || []).map(failure => failure.sku).join(', ');
       alert(`✅ Cierre Forzado\n\n${res.message}\nArchivo Drive: ${res.drive?.fileName || 'creado'}${notWritten ? `\n\n⚠️ Quedaron en el archivo final, pero no se escribieron en la hoja principal: ${notWritten}` : ''}`);
@@ -2157,13 +2158,14 @@ window.JustificationsView = {
       btn.disabled = true;
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Finalizando y Creando Drive...';
     }
+    const endWait = window.DeerLoader?.show('Creando el archivo final en Google Drive...');
 
     try {
       window.Toast.info('Creando archivo final en Google Drive y archivando inventario...');
       const roleName = window.Auth.currentUser?.role === 'ENCARGADO' ? 'Encargado' : 'Administrador';
       const res = await window.API.finishReview(inventoryId, {
         reviewNotes: `Revisión documentada por ${roleName}; se conservan los resultados CUADRA y NO CUADRA.`
-      });
+      }).finally(endWait);
 
       if (task) {
         task.status = 'REVISADO';
