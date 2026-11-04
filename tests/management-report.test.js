@@ -463,9 +463,19 @@ test('each center shows its own share of the shortages and of the surpluses, not
   const shares = panel => [...panel.matchAll(/<td class="num">([^<]*%)<\/td><\/tr>/g)].map(match => match[1]);
   const shortages = html.slice(html.indexOf('Faltantes: '), html.indexOf('Sobrantes: '));
   const surpluses = html.slice(html.indexOf('Sobrantes: '), html.indexOf('Faltantes (Bs) por clase'));
-  assert.deepEqual(shares(shortages), ['60%', '40%', '&lt;1%']);
-  assert.deepEqual(shares(surpluses), ['70%', '30%', '&lt;1%']);
+  assert.deepEqual(shares(shortages), ['59,94%', '39,96%', '0,09%']);
+  assert.deepEqual(shares(surpluses), ['69,93%', '29,97%', '0,09%']);
   assert.doesNotMatch(html, /Acum\./);
+});
+
+test('the ranking by center shows small amounts with two decimals instead of rounding them to zero', async () => {
+  const html = report.render({ name: 'Corte' }, await load([
+    inventory('INV-1160-1', '1160', [line('A', { Stock_Fisico: 9, Stock_Total: 9, Diferencia: -1, Costo_Unitario: 1234.56 })]),
+    inventory('INV-1120-1', '1120', [line('B', { Stock_Fisico: 9, Stock_Total: 9, Diferencia: -1, Costo_Unitario: 0.4 })])
+  ]));
+  const shortages = html.slice(html.indexOf('Faltantes: '), html.indexOf('Sobrantes: '));
+  assert.match(shortages, /<\/i>1\.234,56<\/div>/);
+  assert.match(shortages, /<\/i>0,40<\/div>/);
 });
 
 test('the ranking title only counts centers that have an amount', async () => {
