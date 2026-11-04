@@ -14,7 +14,7 @@ test('the justification form offers the new reasons, and they still need a photo
   const select = page.slice(page.indexOf('id="just-select-reason"'), page.indexOf('</select>', page.indexOf('id="just-select-reason"')));
   const reasons = [...select.matchAll(/<option value="([^"]*)">([^<]*)<\/option>/g)];
   assert.equal(reasons.at(-1)[1], 'otro');
-  for (const reason of ['Mal Ubicado', 'Error de Typeo', 'Sobrestock', 'Empaque Diferente', 'Empaque Similar']) {
+  for (const reason of ['Mal Ubicado', 'Error de Typeo', 'Sobrestock', 'Empaque Diferente', 'Empaque Similar', 'Sin Justificación']) {
     assert.ok(reasons.some(option => option[1] === reason && option[2] === reason), reason);
     assert.equal(photoStatus(record({corroboracion:'CUADRA', reasonType:reason})), 'falta', reason);
   }
