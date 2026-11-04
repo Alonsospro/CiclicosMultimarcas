@@ -10,6 +10,8 @@ Para publicar: pegar el archivo completo en el proyecto de Apps Script, guardar 
 
 - **Justificación parcial.** Acepta `justifiedQuantity` con NO CUADRA: K no cambia y la diferencia de la última etapa guarda lo que queda. Justificar toda la diferencia queda como CUADRA y más que la diferencia se rechaza. Las 40 columnas no cambian.
 
+- **Fotos de justificación en Drive.** Nueva lectura `listJustificationPhotos` (también en semanales): recorre las carpetas de todas las fechas de un centro y tipo, sin escribir nada, para que "Revisar respaldos" encuentre las fotos subidas otro día. Sin esta versión, el reporte sale igual y avisa que no pudo buscar en Drive.
+
 ## Semanales (`InventoryWebhookSemanales.gs`)
 
 Copia del webhook semanal desplegado (commit base 2c68670), con estos cambios:

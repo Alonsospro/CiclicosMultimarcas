@@ -18,7 +18,8 @@ function tokenForType(type) {
 module.exports=async function request(url,payload,options={}) {
   const body=JSON.stringify({...payload,operationId:payload.operationId||randomUUID(),apiToken:tokenForType(payload.type)});
   const timeoutMs = options.timeout || 45000;
-  for(let attempt=0;attempt<3;attempt++){
+  const attempts = options.attempts || 3;
+  for(let attempt=0;attempt<attempts;attempt++){
     try{
       const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body,signal:AbortSignal.timeout(timeoutMs)});
       let result;
@@ -31,7 +32,7 @@ module.exports=async function request(url,payload,options={}) {
       if(options.photo&&!result.photo?.id)throw new Error('Google no confirmó la foto.');
       return result;
     }catch(e){
-      if((e.result&&!e.retryable)||attempt===2)throw e;
+      if((e.result&&!e.retryable)||attempt===attempts-1)throw e;
       await new Promise(resolve=>setTimeout(resolve,250*(attempt+1)));
     }
   }

@@ -408,8 +408,8 @@ window.API = {
     return this.request(`/dashboard/tracking${this.buildQueryString(params)}`, { timeoutMs: 60000 });
   },
 
-  getJustificationPhotoReport() {
-    return this.request('/dashboard/justification-photos', { timeoutMs: 60000 });
+  getJustificationPhotoReport(params = {}) {
+    return this.request(`/dashboard/justification-photos${this.buildQueryString(params)}`, { timeoutMs: 240000 });
   },
 
   recalculateDashboardMetrics(params = {}) {

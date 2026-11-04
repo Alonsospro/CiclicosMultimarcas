@@ -417,7 +417,7 @@ function doPost(e){
   let lock;
   try{
     const body=JSON.parse(e?.postData?.contents||'{}');authenticate_(body);
-    const readActions=['ping','getItems','getProducts','readItems','getHistory','listFinalFiles','readFinalInventory','getReferencePhoto','getLogos','listLogos','diagnostic'];
+    const readActions=['ping','getItems','getProducts','readItems','getHistory','listFinalFiles','readFinalInventory','getReferencePhoto','getLogos','listLogos','diagnostic','listJustificationPhotos'];
     if(readActions.includes(body.action))return json_(dispatchRead_(body));
     // Photos use a separate user lock so Drive uploads cannot block inventory writes.
     if(body.action==='savePhoto'||body.action==='uploadPhoto'){
@@ -453,9 +453,30 @@ function doPost(e){
   }catch(e){return json_({success:false,error:e.message});}
   finally{if(lock?.hasLock())lock.releaseLock();}
 }
+function listJustificationPhotos_(p){
+  // Read-only. Every upload day has its own folder, so a late photo lives in a later date than its inventory.
+  const root=getDriveFolder_(property_('PHOTOS_JUSTIFICATIONS_ROOT_ID')||CFG.photoRoots.justificaciones,'PHOTOS_JUSTIFICATIONS_ROOT_ID');
+  const type=String(p.type||'').trim().toUpperCase(),center=String(p.center||'').trim(),deadline=Date.now()+90000;
+  const files=[],dates=root.getFolders();let truncated=false;
+  while(dates.hasNext()&&!truncated){
+    const date=dates.next(),groups=date.getFolders();
+    while(groups.hasNext()&&!truncated){
+      const group=groups.next(),match=String(group.getName()).match(/^(\d{4}) (.+)$/);
+      if(!match||match[2].toUpperCase()!==type||(center&&match[1]!==center))continue;
+      const found=group.getFiles();
+      while(found.hasNext()){
+        if(Date.now()>deadline){truncated=true;break;}
+        const file=found.next();
+        files.push({id:file.getId(),name:file.getName(),url:file.getUrl(),createdAt:file.getDateCreated().toISOString(),center:match[1],type:match[2],folderDate:date.getName()});
+      }
+    }
+  }
+  return {success:true,files,truncated};
+}
 function dispatchRead_(p){
   switch(p.action){
     case 'ping':return {success:true,version:2};
+    case 'listJustificationPhotos':return listJustificationPhotos_(p);
     case 'getItems':case 'getProducts':case 'readItems':{
       const items=readRowsAsObjects_(getCenterSheet_(p.center||p.centro));
       return {success:true,schemaVersion:SHEET_LAYOUT,center:p.center,items,total:items.length};

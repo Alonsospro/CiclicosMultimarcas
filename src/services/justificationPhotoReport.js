@@ -9,8 +9,12 @@ const { getInventoryIdentifier } = require('./metricsSourceService');
 const clean = value => String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
 const time = value => Date.parse(value) || 0;
 const NO_PHOTO_NEEDED_WHEN_CUADRA = new Set(['error de conteo', 'balanceo']);
-const STATUS_ORDER = ['falta', 'por_confirmar', 'con_foto', 'no_requiere', 'cierre_forzado'];
+const STATUS_ORDER = ['falta', 'en_drive', 'por_confirmar', 'con_foto', 'no_requiere', 'cierre_forzado'];
 const isDriveLink = link => /^https:\/\/([\w-]+\.)*(google\.com|googleusercontent\.com)\//.test(link);
+
+const byStatus = (a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)
+  || String(a.center).localeCompare(String(b.center)) || String(a.inventoryName).localeCompare(String(b.inventoryName))
+  || String(a.sku).localeCompare(String(b.sku)) || a.round - b.round;
 
 function photoLinks(entry) {
   const listed = (entry.photoUrls || []).map(photo => typeof photo === 'string' ? photo : photo?.driveUrl || photo?.photoUrl);
@@ -73,9 +77,7 @@ function buildRows({ inventories = [], records = [] }) {
       reason:entry.reasonType || '', justification:entry.justification || '',
       reviewedBy:entry.reviewedBy || '', reviewedAt:entry.reviewedAt || '', links, status:photoStatus(entry, links)
     };
-  }).sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status)
-    || String(a.center).localeCompare(String(b.center)) || String(a.inventoryName).localeCompare(String(b.inventoryName))
-    || String(a.sku).localeCompare(String(b.sku)) || a.round - b.round);
+  }).sort(byStatus);
 }
 
 function readDirectory(dir) {
@@ -83,13 +85,75 @@ function readDirectory(dir) {
     .map(file => storage.readJson(path.join(dir, file), null)).filter(Boolean);
 }
 
-function getRows() {
+function readInventories() {
   // History first: an open inventory has the current version of a reopened one.
-  const inventories = [...readDirectory(storage.getHistoryDirectory()), ...readDirectory(storage.getInventoriesDirectory())]
+  return [...readDirectory(storage.getHistoryDirectory()), ...readDirectory(storage.getInventoriesDirectory())]
     .filter(inventory => !snapshots.isSnapshotDeleted(inventory));
-  const records = readDirectory(storage.getJustificationsDirectory())
-    .filter(record => !snapshots.isSnapshotDeleted(String(record.inventoryId || '')));
-  return buildRows({inventories, records});
 }
 
-module.exports = {buildRows, photoStatus, getRows};
+function readRecords() {
+  return readDirectory(storage.getJustificationsDirectory())
+    .filter(record => !snapshots.isSnapshotDeleted(String(record.inventoryId || '')));
+}
+
+function getRows() {
+  return buildRows({inventories:readInventories(), records:readRecords()});
+}
+
+const gasPhotos = (type, center) => require('./gasService').listJustificationPhotos(type, center);
+
+const startOf = inventory => time(inventory.launchedAt || inventory.createdAt || inventory.closedAt);
+const photoName = value => String(value || '').trim().replace(/[\\/:*?"<>|]/g, '_').slice(0, 100).toLowerCase();
+const sameType = (a, b) => String(a || '').trim().toUpperCase() === String(b || '').trim().toUpperCase();
+
+// A row without a photo takes the Drive files with its code and warehouse that nobody linked, from any
+// upload day, but only until the next group of its center and type starts: the same code in another week is not its photo.
+function attachDrivePhotos(rows, inventories, files) {
+  const launches = inventories.filter(inventory => !inventory.parentInventoryId).map(inventory => {
+    const id = inventory.inventoryId || inventory.id || inventory.fileId;
+    return {id, start:startOf(inventory), type:inventory.type, center:inventory.center ? config.getCenterCode(inventory.center) : '',
+      suffix:getInventoryIdentifier(id) || getInventoryIdentifier(inventory)};
+  });
+  const linked = rows.flatMap(row => row.links).join(' ');
+  const free = files.filter(file => !linked.includes(file.id));
+  const used = new Set();
+  return rows.map(row => {
+    if (row.status !== 'falta') return row;
+    const start = launches.find(launch => launch.id === row.inventoryId)?.start || 0;
+    const end = Math.min(Infinity, ...launches.filter(launch => sameType(launch.type, row.type) && launch.center === row.center
+      && launch.suffix !== row.suffix && launch.start > start).map(launch => launch.start));
+    const base = `just-${photoName(row.sku)}-${photoName(row.almacen)}`;
+    const found = free.filter(file => {
+      const created = time(file.createdAt);
+      return !used.has(file.id) && file.center === row.center && sameType(file.type, row.type)
+        && String(file.name || '').toLowerCase().replace(/\.[^.]+$/, '').replace(/(-r2)?(-evidencia-\d+)?$/, '') === base
+        && created >= start && created < end;
+    });
+    if (!found.length) return row;
+    found.forEach(file => used.add(file.id));
+    return {...row, status:'en_drive', links:found.map(file => file.url), driveFolders:[...new Set(found.map(file => file.folderDate))]};
+  }).sort(byStatus);
+}
+
+// The selected group only. Drive is looked up just for the rows still missing a photo.
+async function getReport({type = 'TODOS', center = 'TODOS', suffix = 'TODOS'} = {}, listPhotos = gasPhotos) {
+  const inventories = readInventories();
+  const rows = buildRows({inventories, records:readRecords()}).filter(row => (type === 'TODOS' || sameType(row.type, type))
+    && (center === 'TODOS' || row.center === center)
+    && (suffix === 'TODOS' || (row.suffix || 'SIN_TERMINACION') === suffix));
+  const drive = {checked:true, truncated:false, error:''};
+  const files = [];
+  for (const rowType of new Set(rows.filter(row => row.status === 'falta').map(row => row.type))) {
+    try {
+      const result = await listPhotos(rowType, center === 'TODOS' ? '' : center);
+      files.push(...result.files);
+      drive.truncated = drive.truncated || !!result.truncated;
+    } catch (error) {
+      drive.checked = false;
+      drive.error = error.message;
+    }
+  }
+  return {rows:attachDrivePhotos(rows, inventories, files), drive};
+}
+
+module.exports = {buildRows, photoStatus, getRows, attachDrivePhotos, getReport};

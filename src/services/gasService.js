@@ -719,6 +719,13 @@ class GasService {
       driveRecord:{...record,items,justifications:record.justifications||payload.justifications||[]}}, {file:true});
   }
 
+  // Scans every date folder, so it gets one long attempt instead of three.
+  async listJustificationPhotos(type,center) {
+    const result=await gasRequest(this.getUrlForType(type),{action:'listJustificationPhotos',type,center:center?config.getCenterCode(center):''},{timeout:110000,attempts:1});
+    if(!Array.isArray(result.files))throw new Error('Actualice el Apps Script para buscar las fotos en Drive.');
+    return result;
+  }
+
   async syncPhotoToGAS({category,date,center,sku,fileBuffer,mimeType,inventoryId,type,itemId,round,almacen,location}) {
     if(!fileBuffer?.length)throw new Error('No se recibió la foto.');
     const result=await gasRequest(this.getUrlForType(type),{action:'savePhoto',category,date,center:config.getCenterCode(center),

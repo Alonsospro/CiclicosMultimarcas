@@ -39,9 +39,10 @@ router.get('/tracking', authenticate, requireProgressAccess, async (req, res) =>
 });
 
 // GET /api/dashboard/justification-photos — photo backing of each justification (Alonso y Juan Carlos)
-router.get('/justification-photos', authenticate, requireProgressAccess, (req, res) => {
+router.get('/justification-photos', authenticate, requireProgressAccess, async (req, res) => {
   try {
-    res.json({success:true, rows:justificationPhotoReport.getRows()});
+    const { type, center, suffix } = req.query;
+    res.json({success:true, ...await justificationPhotoReport.getReport({type, center, suffix})});
   } catch (err) {
     console.error('[dashboardRoutes] Error in /justification-photos:', err);
     res.status(500).json({success:false, message:err.message});

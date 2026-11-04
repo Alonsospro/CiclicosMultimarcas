@@ -125,10 +125,10 @@ window.ProgressView = {
     }
     if (button) button.disabled = true;
     try {
-      const response = await window.API.getJustificationPhotoReport();
       const type = document.getElementById('progress-filter-type')?.value || 'TODOS';
       const center = document.getElementById('progress-filter-center')?.value || 'TODOS';
       const suffix = document.getElementById('progress-filter-suffix')?.value || 'TODOS';
+      const response = await window.API.getJustificationPhotoReport({type, center, suffix});
       const query = (document.getElementById('progress-search')?.value || '').trim().toLocaleLowerCase('es');
       const rows = (response.rows || []).filter(row => (type === 'TODOS' || row.type === type)
         && (center === 'TODOS' || row.center === center)
@@ -138,14 +138,16 @@ window.ProgressView = {
         window.Toast.warning('No hay justificaciones con estos filtros.');
         return;
       }
-      const statuses = {falta:'Falta foto', por_confirmar:'Por confirmar', con_foto:'Con foto', no_requiere:'No requiere', cierre_forzado:'Cierre forzado'};
+      const statuses = {falta:'Falta foto', en_drive:'En Drive sin vincular', por_confirmar:'Por confirmar', con_foto:'Con foto', no_requiere:'No requiere', cierre_forzado:'Cierre forzado'};
       const countsOf = list => Object.keys(statuses).map(key => list.filter(row => row.status === key).length);
       const centers = [...new Set(rows.map(row => row.center))].sort();
       const summary = XLSX.utils.aoa_to_sheet([
         ['Respaldo de justificaciones'],
         ['Generado', new Intl.DateTimeFormat('es-BO', {dateStyle:'short', timeStyle:'short', timeZone:'America/La_Paz'}).format(new Date())],
         ['Filtros', `Tipo: ${type} · Centro: ${center} · Terminación: ${suffix}${query ? ` · Búsqueda: ${query}` : ''}`],
-        ['Revisa los enlaces guardados en la app; no abre cada archivo en Drive.'],
+        [response.drive?.checked === false ? `No se pudo buscar en Drive: ${response.drive.error || 'sin respuesta'}. Solo se revisaron los enlaces de la app.`
+          : response.drive?.truncated ? 'La búsqueda en Drive no terminó a tiempo: puede haber más fotos. Vuelva a generar con un centro seleccionado.'
+          : 'Revisa los enlaces de la app y busca en Drive, en todas las fechas de este grupo, las fotos sin vincular.'],
         [],
         ['Centro', 'Justificaciones', ...Object.values(statuses)],
         ...centers.map(code => {
@@ -156,16 +158,16 @@ window.ProgressView = {
       ]);
       summary['!cols'] = [{wch:18}, {wch:15}, ...Object.keys(statuses).map(() => ({wch:15}))];
 
-      const header = ['Respaldo', 'Centro', 'Tipo', 'Inventario', 'Código', 'Almacén', 'Ubicación', 'Justificación', 'Decisión', 'Motivo', 'Comentario', 'Responsable', 'Fecha', 'Fotos', 'Enlace', 'Otras fotos'];
+      const header = ['Respaldo', 'Centro', 'Tipo', 'Inventario', 'Código', 'Almacén', 'Ubicación', 'Justificación', 'Decisión', 'Motivo', 'Comentario', 'Responsable', 'Fecha', 'Fotos', 'Enlace', 'Otras fotos', 'Carpeta Drive'];
       const detail = XLSX.utils.aoa_to_sheet([header, ...rows.map(row => [statuses[row.status], row.center, row.type, row.inventoryName, row.sku, row.almacen, row.ubicacion,
         `${row.round}ª`, row.decision, row.reason, row.justification, row.reviewedBy,
         Number.isFinite(Date.parse(row.reviewedAt)) ? new Intl.DateTimeFormat('es-BO', {dateStyle:'short', timeStyle:'short', timeZone:'America/La_Paz'}).format(new Date(row.reviewedAt)) : row.reviewedAt,
-        row.links.length, row.links.length ? 'Ver foto' : '', row.links.slice(1).join(' ')])]);
+        row.links.length, row.links.length ? 'Ver foto' : '', row.links.slice(1).join(' '), (row.driveFolders || []).join(', ')])]);
       rows.forEach((row, index) => {
         if (/^https:\/\//.test(row.links[0] || '')) detail[XLSX.utils.encode_cell({r:index + 1, c:14})].l = {Target:row.links[0]};
       });
       detail['!autofilter'] = {ref:XLSX.utils.encode_range({s:{r:0, c:0}, e:{r:rows.length, c:header.length - 1}})};
-      detail['!cols'] = [14, 8, 10, 26, 16, 10, 12, 8, 11, 26, 44, 20, 16, 6, 9, 40].map(wch => ({wch}));
+      detail['!cols'] = [20, 8, 10, 26, 16, 10, 12, 8, 11, 26, 44, 20, 16, 6, 9, 40, 14].map(wch => ({wch}));
 
       const book = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(book, summary, 'Resumen');
