@@ -29,7 +29,7 @@ window.ProgressView = {
     this.loading = true;
     const groupsNode = document.getElementById('progress-groups');
     const refreshButton = document.getElementById('progress-refresh');
-    if (groupsNode) groupsNode.innerHTML = `<div class="empty-state">${window.DeerLoader?.html('Actualizando el avance de inventarios...') ?? 'Actualizando el avance de inventarios...'}</div>`;
+    if (groupsNode) groupsNode.innerHTML = `<div class="empty-state"><p>Actualizando el avance de inventarios...</p></div>`;
     if (refreshButton) refreshButton.disabled = true;
     try {
       const response = await window.API.getInventoryTracking({type:'TODOS', center:'TODOS', ...(refresh ? {refresh:'true'} : {})});
@@ -182,3 +182,5 @@ window.ProgressView = {
     }
   }
 };
+
+window.DeerLoader?.track(window.ProgressView, 'load', 'Actualizando el avance de inventarios...', 'progress-groups');

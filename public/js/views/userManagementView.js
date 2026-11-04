@@ -161,7 +161,7 @@ window.UserManagementView = {
     const tbody = document.getElementById('tbody-users');
     if (!tbody) return;
 
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 2rem;">${window.DeerLoader?.html('Cargando usuarios...') ?? 'Cargando usuarios...'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 2rem;">Cargando usuarios...</td></tr>`;
 
     try {
       const res = await window.API.getUsers();
@@ -352,3 +352,5 @@ window.UserManagementView = {
     }
   }
 };
+
+window.DeerLoader?.track(window.UserManagementView, 'loadUsers', 'Cargando usuarios...', 'tbody-users');

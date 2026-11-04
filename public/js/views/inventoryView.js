@@ -790,7 +790,7 @@ window.InventoryView = {
     const host = document.getElementById('inventory-groups');
     if (!host) return;
 
-    host.innerHTML = `<div class="inventory-groups-message" style="text-align:center; padding: 2rem;">${window.DeerLoader?.html('Cargando inventarios...') ?? 'Cargando inventarios...'}</div>`;
+    host.innerHTML = `<div class="inventory-groups-message" style="text-align:center; padding: 2rem;">Cargando inventarios...</div>`;
 
     try {
       const res = await window.API.getInventories({ type, center });
@@ -2793,3 +2793,5 @@ window.InventoryView = {
     }
   }
 };
+
+window.DeerLoader?.track(window.InventoryView, 'loadInventories', 'Cargando inventarios...', 'inventory-groups');

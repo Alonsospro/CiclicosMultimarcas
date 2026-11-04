@@ -383,7 +383,7 @@ window.JustificationsView = {
     const container = document.getElementById('justifications-container');
     if (!container) return;
 
-    container.innerHTML = `<div style="text-align:center; padding: 3rem;">${window.DeerLoader?.html('Cargando inventarios para justificación...') ?? 'Cargando inventarios para justificación...'}</div>`;
+    container.innerHTML = `<div style="text-align:center; padding: 3rem;">Cargando inventarios para justificación...</div>`;
 
     try {
       const centerSelect = document.getElementById('filter-just-center');
@@ -2265,3 +2265,5 @@ window.JustificationsView = {
     }
   }
 };
+
+window.DeerLoader?.track(window.JustificationsView, 'loadJustifications', 'Cargando inventarios para justificación...', 'justifications-container');
