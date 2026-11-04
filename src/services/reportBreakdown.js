@@ -9,7 +9,7 @@ const emptyGroup = name => ({
   name,
   skus: 0, skusExact1: 0, skusExact: 0,
   units: 0, unitsExact1: 0, unitsExact: 0,
-  value: 0, lines: 0,
+  value: 0, valueExact1: 0, valueExact: 0, lines: 0,
   shortage: amount(), surplus: amount(), damage: amount(),
   eru: { evaluated: 0, exact: 0, causes: causeCounts() }
 });
@@ -23,6 +23,8 @@ const finishAmount = value => ({ ...value, cost: roundMoney(value.cost) });
 const finishGroup = group => ({
   ...group,
   value: roundMoney(group.value),
+  valueExact1: roundMoney(group.valueExact1),
+  valueExact: roundMoney(group.valueExact),
   shortage: finishAmount(group.shortage),
   surplus: finishAmount(group.surplus),
   damage: finishAmount(group.damage)
@@ -65,7 +67,11 @@ const localDay = time => Math.floor((time - LA_PAZ_OFFSET) / 86400000);
 // From the first entry to the last one: counts, recounts and justifications. The labels live here
 // so the dashboard and the PDF report say exactly the same thing.
 function inventoryDuration(inventory, { centerName = '', finished = true } = {}) {
-  const base = { inventoryId: inventory.id, inventoryName: inventory.name || inventory.id, center: inventory.center, centerName, finished };
+  // The final file keeps this reason on every row whose justification was skipped by a forced close.
+  const isForced = item => [item.Razon, item.Razon_Justificacion_2].some(reason => String(reason ?? '').trim().toUpperCase() === 'CIERRE FORZADO');
+  const forcedLines = (inventory.items || []).filter(isForced).length;
+  const base = { inventoryId: inventory.id, inventoryName: inventory.name || inventory.id, center: inventory.center, centerName, finished,
+    forcedLines, forcedLabel: forcedLines ? `Cierre forzado: ${forcedLines} ${forcedLines === 1 ? 'ítem' : 'ítems'} sin justificar` : '' };
   let first = 0, last = 0, lastEntry = '';
   (inventory.items || []).forEach(item => ENTRIES.forEach(([field, label]) => {
     const time = entryTime(item[field]);
@@ -124,13 +130,15 @@ function createCollector() {
       if (closedAt && (!entry.lastClosedAt || new Date(closedAt) > new Date(entry.lastClosedAt))) entry.lastClosedAt = closedAt;
     },
 
-    addLine({ center, centerName, warehouse, abc, systemUnits, value, unitsExact1, unitsExact, diff1, diffFinal, cost1, costFinal, damageUnits, damageCost }) {
+    addLine({ center, centerName, warehouse, abc, systemUnits, value, valueExact1 = 0, valueExact = 0, unitsExact1, unitsExact, diff1, diffFinal, cost1, costFinal, damageUnits, damageCost }) {
       const entry = centerOf(center, centerName);
       const groups = [entry, groupOf(entry.byWarehouse, warehouse), groupOf(entry.byClass, abc)];
       groups.forEach(group => {
         group.lines += 1;
         group.units += systemUnits;
         group.value += value;
+        group.valueExact1 += valueExact1;
+        group.valueExact += valueExact;
         group.unitsExact1 += unitsExact1;
         group.unitsExact += unitsExact;
         if (diffFinal < 0) add(group.shortage, Math.abs(diffFinal), costFinal);

@@ -354,7 +354,7 @@ test('each closure keeps its three indicators, by the same rules as the selected
   assert.equal(closure.exactCodes, center.skusExact);
   assert.equal(closure.totalCodes, center.skus);
   assert.equal(closure.totalValue, center.value);
-  assert.equal(closure.exactValue, center.value - center.shortage.cost - center.surplus.cost);
+  assert.equal(closure.exactValue, center.valueExact);
 });
 
 test('the chart compares each center with its earlier inventories of the same type', async () => {
@@ -386,6 +386,49 @@ test('a closure read before the three indicators existed still shows its units',
     history: [{ id: 'OLD', type: 'CICLICO', date: '2026-09-01', eri: 92, totalUnits: 100, exactUnits: 92 }, { id: 'NEW', type: 'CICLICO', date: '2026-10-01', eri: 100, totalUnits: 10, exactUnits: 10 }] };
   const html = report.render({ name: 'Corte' }, { reportData: { centers: [center, { ...center, center: '2', name: 'D', inventories: ['OTHER'], history: [] }], pendingCenters: [] }, discrepanciesList: [], summary: {}, filters: {} });
   assert.equal(cellsOf(stateRows(html).find(row => row.includes('>C<')))[4], '92,00%');
+});
+
+test('a surplus larger than its own line takes no value from the lines that matched', async () => {
+  const differ = (sku, sys, count, cost) => line(sku, { Stock_Sistema: sys, Stock_Fisico: count, Stock_Total: count, Diferencia: count - sys, Costo_Unitario: cost });
+  const metrics = await load([inventory('INV-1120-1', '1120', [differ('OK', 90, 90, 10), differ('HUGE', 1, 17, 100), differ('SHORT', 10, 8, 1)])]);
+  const center = metrics.reportData.centers[0];
+  assert.equal(center.value, 1010);
+  assert.equal(center.valueExact, 908);
+  const i = report.indicators(center);
+  assert.ok(Math.abs(i.money - 908 / 1010 * 100) < 0.01);
+  assert.ok(Math.abs(metrics.summary.eriMonetarioFinal - 89.9) < 0.01, 'The dashboard says the same');
+  assert.equal(center.surplus.cost, 1600, 'The surplus itself is still reported whole');
+  assert.equal(center.shortage.cost, 2);
+  assert.ok(Math.abs(metrics.centerStats[0].eriMonetarioFinal - 89.9) < 0.01);
+});
+
+test('a forced close shows its real percentages, says so and is not judged as failing', async () => {
+  const forced = { Estado: 'NO CUADRA', Razon: 'CIERRE FORZADO', Fecha_Ultimo_Conteo: '2026-10-20T12:00:00.000Z', Fecha_Primera_Justificacion: '2026-10-21T12:00:00.000Z' };
+  const differ = (sku, change, extra = {}) => line(sku, { Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change, ...extra });
+  const metrics = await load([
+    inventory('INV-1120-1', '1120', [line('A'), line('B'), differ('C', -5, forced), differ('D', -5, forced)]),
+    inventory('INV-1160-1', '1160', [line('E'), differ('F', -5)])
+  ]);
+  const html = report.render({ name: 'Corte' }, metrics);
+  const rows = stateRows(html);
+  const forcedRow = rows.find(row => row.includes('Centro 1120')), plainRow = rows.find(row => row.includes('Centro 1160'));
+  assert.match(forcedRow, /Cierre forzado: 2 ítems sin justificar/);
+  assert.match(forcedRow, /background:#55637a/);
+  assert.match(forcedRow, /⚑ 50,00%/, 'Lowest indicator as it was closed');
+  assert.match(plainRow, /✕ 50,00%/);
+  assert.equal(plainRow.includes('Cierre forzado'), false);
+  assert.match(html, /1 no cumple · 1 cierre forzado/);
+  assert.match(html, /Cierre forzado: porcentajes reales/);
+  assert.equal(metrics.reportData.centers.find(c => c.center === '1120').durations[0].forcedLines, 2);
+
+  const single = report.render({ name: 'Corte' }, await load([inventory('INV-1120-1', '1120', [line('A'), differ('C', -5, forced)])]));
+  assert.match(single, /CIERRE FORZADO/);
+  assert.match(single, /se forzó con 1 ítem sin justificar/);
+  assert.match(single, /Cierre forzado: 1 ítem sin justificar/);
+  assert.equal(single.includes('mr-chip lvl-no">✕ NO CUMPLE</span></span>'), false);
+
+  const good = await load([inventory('INV-1160-1', '1160', [...Array.from({ length: 99 }, (_, n) => line('S' + n)), differ('C', 0, forced)]), inventory('INV-1120-1', '1120', [line('A')])]);
+  assert.match(stateRows(report.render({ name: 'Corte' }, good)).find(row => row.includes('Centro 1160')), /★ 100,00%/, 'A compliant center keeps its level');
 });
 
 test('a partly justified shortage closes with the units explained and only the remainder as shortage', async () => {

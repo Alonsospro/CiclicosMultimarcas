@@ -668,7 +668,7 @@ window.DashboardView = {
       <div class="table-responsive" style="max-height: 280px; overflow-y: auto;">
         <table class="data-table">
           <thead><tr><th>Centro</th><th>Inventario</th><th>Primer registro</th><th>Último registro</th><th>Tiempo</th><th>Días</th></tr></thead>
-          <tbody>${rows.map(row => `<tr><td>${esc(row.centerName || row.center)}</td><td>${esc(row.inventoryName)}</td><td>${esc(row.startLabel)}</td><td>${esc(row.endLabel)}${row.lastEntry ? ` · ${esc(row.lastEntry)}` : ''}</td><td><strong>${esc(row.timeLabel)}</strong></td><td>${esc(row.dayLabel)}</td></tr>`).join('')}</tbody>
+          <tbody>${rows.map(row => `<tr><td>${esc(row.centerName || row.center)}</td><td>${esc(row.inventoryName)}${row.forcedLabel ? `<br><small><i class="fa-solid fa-flag"></i> ${esc(row.forcedLabel)}</small>` : ''}</td><td>${esc(row.startLabel)}</td><td>${esc(row.endLabel)}${row.lastEntry ? ` · ${esc(row.lastEntry)}` : ''}</td><td><strong>${esc(row.timeLabel)}</strong></td><td>${esc(row.dayLabel)}</td></tr>`).join('')}</tbody>
         </table>
       </div>`;
   },

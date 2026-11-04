@@ -43,8 +43,9 @@
   function indicators(group) {
     const value = num(group.value), short = num(group.shortage?.cost), surplus = num(group.surplus?.cost);
     const first = group.firstCount ? num(group.firstCount.shortage?.cost) + num(group.firstCount.surplus?.cost) : null;
-    const valueExact = Math.max(0, value - short - surplus);
-    const valueExact1 = first === null ? null : Math.max(0, value - first);
+    // Line by line, never below zero: a surplus larger than its own line takes nothing from the lines that matched.
+    const valueExact = group.valueExact ?? Math.max(0, value - short - surplus);
+    const valueExact1 = first === null ? null : (group.valueExact1 ?? Math.max(0, value - first));
     return {
       units: ratio(group.unitsExact, group.units), units1: ratio(group.unitsExact1, group.units),
       codes: ratio(group.skusExact, group.skus), codes1: ratio(group.skusExact1, group.skus),
@@ -53,7 +54,13 @@
       valueExact, valueExact1
     };
   }
-  const result = group => { const i = indicators(group); return worst([i.units, i.codes, i.money]); };
+  // A forced close keeps its real percentages and says so, but is not judged as a failure to comply.
+  const FORCED = { key: 'forced', icon: '⚑', label: 'Cierre forzado', rank: 0 };
+  const forcedLines = group => (group.durations || []).reduce((total, row) => total + num(row.forcedLines), 0);
+  const result = group => {
+    const i = indicators(group), lvl = worst([i.units, i.codes, i.money]);
+    return lvl.key === 'no' && forcedLines(group) ? FORCED : lvl;
+  };
 
   const bullet = (first, last) => {
     const pos = value => Math.max(0, Math.min(100, (value - 80) * 5));
@@ -156,7 +163,7 @@
   }
   const DURATION_NOTE = 'Tiempo desde el primer registro hasta el último ingresado: conteo, reconteo o justificación. Los días son de calendario, en hora de Bolivia.';
   function durationTable(rows, showCenter) {
-    return `<table data-split><thead><tr>${showCenter ? '<th>Centro</th>' : ''}<th>Inventario</th><th>Primer registro</th><th>Último registro</th><th>Tiempo</th><th>Días</th></tr></thead><tbody>${rows.map(row => `<tr>${showCenter ? `<td class="mr-strong">${esc(row.centerName || row.center)}</td>` : ''}<td>${esc(row.inventoryName)}</td><td>${esc(row.startLabel)}</td><td>${esc(row.endLabel)}${row.lastEntry ? ` · ${esc(row.lastEntry)}` : ''}</td><td class="mr-strong">${esc(row.timeLabel)}</td><td>${esc(row.dayLabel)}</td></tr>`).join('') || `<tr><td colspan="${showCenter ? 6 : 5}">No disponible</td></tr>`}</tbody></table>`;
+    return `<table data-split><thead><tr>${showCenter ? '<th>Centro</th>' : ''}<th>Inventario</th><th>Primer registro</th><th>Último registro</th><th>Tiempo</th><th>Días</th></tr></thead><tbody>${rows.map(row => `<tr>${showCenter ? `<td class="mr-strong">${esc(row.centerName || row.center)}</td>` : ''}<td>${esc(row.inventoryName)}${row.forcedLabel ? ` · ${esc(row.forcedLabel)}` : ''}</td><td>${esc(row.startLabel)}</td><td>${esc(row.endLabel)}${row.lastEntry ? ` · ${esc(row.lastEntry)}` : ''}</td><td class="mr-strong">${esc(row.timeLabel)}</td><td>${esc(row.dayLabel)}</td></tr>`).join('') || `<tr><td colspan="${showCenter ? 6 : 5}">No disponible</td></tr>`}</tbody></table>`;
   }
   // The lowest of the three indicators of a closure, the same rule as the columns of the current cut.
   // Closures read before these fields existed only know their units.
@@ -180,12 +187,13 @@
   }
   // One row per center, on the same 0 to 100% bar: its lowest indicator at this close, that indicator
   // at the first count, and its earlier inventories, which name their indicator when it is another one.
-  const LEVEL_COLORS = { perfect: '#0a5c40', ok: '#12875c', min: '#a86400', no: RED, nil: '#6f7888' };
+  const LEVEL_COLORS = { perfect: '#0a5c40', ok: '#12875c', min: '#a86400', no: RED, nil: '#6f7888', forced: '#55637a' };
   function statusChart(rows, pending) {
     const earlier = row => row.earlier.map(closure => `${pct(closure.value)}${closure.indicator === row.indicator ? '' : ` (${closure.indicator})`}`).join(' → ') || 'Sin anterior';
-    const line = row => `<tr><td class="mr-strong">${esc(row.name)}</td><td>${esc(row.indicator)}</td><td class="num">${esc(row.amount)}</td><td class="num">${row.first === null || row.first === undefined ? 'No disponible' : pct(row.first)}</td><td>${esc(earlier(row))}</td><td>${hbar(Math.min(100, Math.max(0, num(row.value))), 100, 240, LEVEL_COLORS[row.lvl.key], `${row.lvl.icon} ${pct(row.value)}`)}</td></tr>`;
+    const line = row => `<tr><td class="mr-strong">${esc(row.name)}${row.forcedLabel ? `<br><small>${esc(row.forcedLabel)}</small>` : ''}</td><td>${esc(row.indicator)}</td><td class="num">${esc(row.amount)}</td><td class="num">${row.first === null || row.first === undefined ? 'No disponible' : pct(row.first)}</td><td>${esc(earlier(row))}</td><td>${hbar(Math.min(100, Math.max(0, num(row.value))), 100, 240, LEVEL_COLORS[row.lvl.key], `${row.lvl.icon} ${pct(row.value)}`)}</td></tr>`;
     const missing = c => `<tr><td class="mr-strong">${esc(c.code)} - ${esc(c.name)}</td><td colspan="5">Sin cierre en este corte</td></tr>`;
-    return `<table data-split><thead><tr><th>Centro</th><th>Indicador más bajo</th><th class="num">Correctos</th><th class="num">Primer conteo</th><th>Inventarios anteriores</th><th>Al cierre</th></tr></thead><tbody>${rows.map(line).join('')}${pending.map(missing).join('')}</tbody></table>${scaleLegend}`;
+    const legend = rows.some(row => row.lvl.key === 'forced') ? scaleLegend.replace(/<\/div>$/, `<span><i class="lvl-forced"></i>${FORCED.icon} Cierre forzado: porcentajes reales, sin evaluar como incumplimiento</span></div>`) : scaleLegend;
+    return `<table data-split><thead><tr><th>Centro</th><th>Indicador más bajo</th><th class="num">Correctos</th><th class="num">Primer conteo</th><th>Inventarios anteriores</th><th>Al cierre</th></tr></thead><tbody>${rows.map(line).join('')}${pending.map(missing).join('')}</tbody></table>${legend}`;
   }
   function eruGroups(first, groups) {
     const lossOf = g => sum(CAUSE_KEYS, key => g.eru.causes[key]);
@@ -227,6 +235,7 @@
       ok: 'Unidades, códigos y valor están en 98% o más.',
       min: `Unidades, códigos y valor están en 95% o más. Para llegar a Cumplimiento falta alcanzar 98% en ${below(98)}.`,
       no: `No se alcanza el mínimo de 95% en ${below(95)}.`,
+      forced: `El cierre se forzó con ${qty(forcedLines(group))} ${forcedLines(group) === 1 ? 'ítem' : 'ítems'} sin justificar, así que no se evalúa como incumplimiento. Bajo 95%: ${below(95)}.`,
       nil: 'No hay datos suficientes para dar un resultado.'
     }[overall.key];
     const eruLoss = group.eru.evaluated - group.eru.exact;
@@ -333,7 +342,7 @@
       sheet('Anexo F · Cálculo y responsables', 'Referencia', `<table class="mr-defs"><tbody>
         <tr><th>Unidades correctas<small>ERI de cantidad</small></th><td>Unidades conformes ÷ unidades del sistema.</td></tr>
         <tr><th>Códigos correctos<small>ERI de SKU</small></th><td>Códigos sin diferencia ÷ códigos revisados.</td></tr>
-        <tr><th>Valor correcto<small>ERI monetario</small></th><td>(Valor del sistema − faltantes − sobrantes) ÷ valor del sistema. Un sobrante no compensa un faltante.</td></tr>
+        <tr><th>Valor correcto<small>ERI monetario</small></th><td>Valor de cada línea sin su diferencia, sin bajar de cero, ÷ valor del sistema. Un sobrante no compensa un faltante.</td></tr>
         <tr><th>Ubicación correcta<small>ERU</small></th><td>Cada almacén se evalúa por separado: códigos con una sola ubicación en ese almacén, que es la principal y tiene 10 caracteres ÷ códigos evaluados por almacén. No cuenta para el resultado.</td></tr>
         <tr><th>Escala NIBOL Multimarcas</th><td>100%: perfecto cumplimiento · 98% o más: cumplimiento · 95% a menos de 98%: mínimo de cumplimiento · menos de 95%: no cumple.</td></tr>
         <tr><th>Resultado del informe</th><td>Para alcanzar un nivel, unidades, códigos y valor deben cumplirlo los tres.</td></tr>
@@ -387,7 +396,7 @@
     const total = {
       units: sum(centers, c => c.units), unitsExact: sum(centers, c => c.unitsExact), unitsExact1: sum(centers, c => c.unitsExact1),
       skus: sum(centers, c => c.skus), skusExact: sum(centers, c => c.skusExact), skusExact1: sum(centers, c => c.skusExact1),
-      value: sum(centers, c => c.value),
+      value: sum(centers, c => c.value), valueExact: sum(centers, c => c.valueExact ?? indicators(c).valueExact), valueExact1: sum(centers, c => c.valueExact1 ?? indicators(c).valueExact1),
       shortage: { lines: sum(centers, c => c.shortage.lines), units: sum(centers, c => c.shortage.units), cost: sum(centers, c => c.shortage.cost) },
       surplus: { lines: sum(centers, c => c.surplus.lines), units: sum(centers, c => c.surplus.units), cost: sum(centers, c => c.surplus.cost) },
       damage: { lines: sum(centers, c => c.damage.lines), units: sum(centers, c => c.damage.units), cost: sum(centers, c => c.damage.cost) },
@@ -400,7 +409,7 @@
     const byWorst = centers.slice().sort((a, b) => num(lowest(a)[1]) - num(lowest(b)[1]));
     const met = count('perfect') + count('ok') + count('min');
     const known = centers.length + pending.length;
-    const levelsLine = `${count('perfect')} perfecto · ${count('ok')} cumplimiento · ${count('min')} mínimo · ${count('no')} no cumple${pending.length ? ` · ${pending.length} sin cierre` : ''}`;
+    const levelsLine = `${count('perfect')} perfecto · ${count('ok')} cumplimiento · ${count('min')} mínimo · ${count('no')} no cumple${count('forced') ? ` · ${count('forced')} cierre forzado` : ''}${pending.length ? ` · ${pending.length} sin cierre` : ''}`;
     const monthNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
     const [reportYear, reportMonth] = String(metrics.filters?.month || '').split('-');
     const period = reportMonth ? `Inventarios creados en ${monthNames[Number(reportMonth) - 1]} ${esc(reportYear)}` : metrics.filters?.startDate || metrics.filters?.endDate ? `${esc(metrics.filters.startDate || 'Inicio')} a ${esc(metrics.filters.endDate || 'Actualidad')}` : esc(inv?.name || 'Todo el histórico');
@@ -418,7 +427,7 @@
         ${kpi({ label: 'Averías', value: bs(total.damage.cost), line: `${qty(total.damage.lines)} líneas · ${qty(total.damage.units)} unidades`, cls: 'top-damage' })}
         ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(total.eru.exact)} de ${qty(total.eru.evaluated)} códigos por almacén`, cls: 'top-info' })}
       </div>
-      ${panel(`Estado por centro · ${levelsLine}`, statusChart(byWorst.map(c => { const low = lowest(c); return { name: c.name, lvl: c.lvl, value: low[1], first: low[3], indicator: low[0], amount: low[2], earlier: earlierClosures(c) }; }), pending))}`, 'Totales calculados sumando las bases de cada centro. Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%.', 'Resumen consolidado');
+      ${panel(`Estado por centro · ${levelsLine}`, statusChart(byWorst.map(c => { const low = lowest(c); return { name: c.name, lvl: c.lvl, value: low[1], first: low[3], indicator: low[0], amount: low[2], earlier: earlierClosures(c), forcedLabel: (c.durations || []).map(row => row.forcedLabel).filter(Boolean).join(' · ') }; }), pending))}`, 'Totales calculados sumando las bases de cada centro. Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%.', 'Resumen consolidado');
 
     const kMoney = value => value >= 1e6 ? `${(value / 1e6).toLocaleString('es-BO', { maximumFractionDigits: 2 })} M` : qty(value);
     const cell = (value, quantity) => `<td class="mr-cell lvl-${level(value).key}">${pct(value)}<small>${quantity}</small></td>`;

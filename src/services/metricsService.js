@@ -244,6 +244,7 @@ class MetricsService {
       let discrepanciasFinalCount = 0;
       let initialDiffCost = 0;
       let finalDiffCost = 0;
+      let exactValueFinal = 0;
       let sobrantesCost = 0;
       let faltantesCost = 0;
 
@@ -290,6 +291,7 @@ class MetricsService {
           const initCost = Math.abs(initDiff * unitCost);
           initialDiffCost += initCost;
           finalDiffCost += finalCost;
+          exactValueFinal += Math.max(0, sysStock - Math.abs(finalDiff)) * unitCost;
 
           if (initDiff === 0) {
             totalSkusExact1er++;
@@ -315,7 +317,7 @@ class MetricsService {
         ? parseFloat(((itemsCuadrados1erUnits / totalSysUnits) * 100).toFixed(1))
         : (totalSkus > 0 ? parseFloat(((totalSkusExact1er / totalSkus) * 100).toFixed(1)) : 100.0);
       const eriMonetarioFinal = totalSysValue > 0
-        ? parseFloat((Math.max(0, 100 - (finalDiffCost / totalSysValue) * 100)).toFixed(1))
+        ? parseFloat((Math.max(0, Math.min(100, (exactValueFinal / totalSysValue) * 100))).toFixed(1))
         : 100.0;
       const eruPercent = totalLocs > 0
         ? parseFloat(((exactLocs / totalLocs) * 100).toFixed(1))
@@ -945,6 +947,9 @@ class MetricsService {
         finalDamagedCost += (finalDamaged * unitCost);
         if (finalDamaged > 0) finalDamagedRows++;
 
+        centerBreakdown[invCenter].valueExactFirst = (centerBreakdown[invCenter].valueExactFirst || 0) + matchedUnits1 * unitCost;
+        centerBreakdown[invCenter].valueExactFinal = (centerBreakdown[invCenter].valueExactFinal || 0) + matchedUnitsFinal * unitCost;
+
         reportCollector.addLine({
           center: invCenter,
           centerName: centerDisplayName,
@@ -954,6 +959,8 @@ class MetricsService {
           value: stockSistema * unitCost,
           unitsExact1: matchedUnits1,
           unitsExact: matchedUnitsFinal,
+          valueExact1: matchedUnits1 * unitCost,
+          valueExact: matchedUnitsFinal * unitCost,
           diff1,
           diffFinal,
           cost1: absDiffCost1,
@@ -1267,12 +1274,13 @@ class MetricsService {
       ? parseFloat(((totalSkusExactFinal / totalSkusAudited) * 100).toFixed(2))
       : 0.0;
 
-    // 3. ERI Monetario
+    // 3. ERI Monetario: the value of each line without its difference, never below zero, so a surplus
+    // larger than its own line does not take value away from the lines that matched.
     let eriMonetarioInicial = 100.0;
     let eriMonetarioFinal = 100.0;
     if (totalAuditedSystemValue > 0) {
-      eriMonetarioInicial = parseFloat((Math.max(0, Math.min(100, ((totalAuditedSystemValue - totalInitialDiffCost) / totalAuditedSystemValue) * 100))).toFixed(2));
-      eriMonetarioFinal = parseFloat((Math.max(0, Math.min(100, ((totalAuditedSystemValue - totalFinalDiffCost) / totalAuditedSystemValue) * 100))).toFixed(2));
+      eriMonetarioInicial = parseFloat((Math.max(0, Math.min(100, (itemsCuadrados1erValue / totalAuditedSystemValue) * 100))).toFixed(2));
+      eriMonetarioFinal = parseFloat((Math.max(0, Math.min(100, (itemsCuadradosFinalValue / totalAuditedSystemValue) * 100))).toFixed(2));
     } else {
       eriMonetarioInicial = totalInitialDiffCost === 0 ? 100.0 : 0.0;
       eriMonetarioFinal = totalFinalDiffCost === 0 ? 100.0 : 0.0;
@@ -1305,8 +1313,8 @@ class MetricsService {
       const cSku1 = cb.skusAudited > 0 ? (((cb.skusExactFirstCount || cb.skusExact || 0) / cb.skusAudited) * 100).toFixed(1) : '0.0';
       const cSkuF = cb.skusAudited > 0 ? (((cb.skusExactFinal || cb.skusExact || 0) / cb.skusAudited) * 100).toFixed(1) : '0.0';
       const cSysVal = cb.auditedSystemValue || 0;
-      const cMoney1 = cSysVal > 0 ? Math.max(0, Math.min(100, ((cSysVal - (cb.initialDiffCost || 0)) / cSysVal) * 100)).toFixed(1) : '100.0';
-      const cMoneyF = cSysVal > 0 ? Math.max(0, Math.min(100, ((cSysVal - (cb.diffCost || 0)) / cSysVal) * 100)).toFixed(1) : '100.0';
+      const cMoney1 = cSysVal > 0 ? Math.max(0, Math.min(100, ((cb.valueExactFirst || 0) / cSysVal) * 100)).toFixed(1) : '100.0';
+      const cMoneyF = cSysVal > 0 ? Math.max(0, Math.min(100, ((cb.valueExactFinal || 0) / cSysVal) * 100)).toFixed(1) : '100.0';
       const eru = cb.locationsEvaluated > 0 ? ((cb.locationsExact / cb.locationsEvaluated) * 100).toFixed(1) : '0.0';
 
       return {
@@ -1434,7 +1442,7 @@ class MetricsService {
       let linesCount = 0;
       let exactLines = 0;
       let totalValue = 0;
-      let wrongValue = 0;
+      let exactValue = 0;
       // Same rule as the selected inventory: weekly codes count per warehouse and every row must match;
       // cyclic codes add up their locations and a CUADRA settles the code.
       const closureCodes = new Map();
@@ -1468,7 +1476,7 @@ class MetricsService {
         if (difference === 0) exactLines++;
         const unitCost = parseCurrencyOrNumber(it.Costo_Unitario !== undefined ? it.Costo_Unitario : it.costo_unitario, 0);
         totalValue += system * unitCost;
-        wrongValue += Math.abs(difference * unitCost);
+        exactValue += Math.max(0, system - Math.abs(difference)) * unitCost;
         code.total += difference;
         if (difference !== 0) code.allExact = false;
         if (justified) code.justified = true;
@@ -1500,7 +1508,7 @@ class MetricsService {
           totalCodes: auditedCodes.length,
           exactCodes,
           totalValue: Math.round(totalValue * 100) / 100,
-          exactValue: Math.round(Math.max(0, totalValue - wrongValue) * 100) / 100
+          exactValue: Math.round(exactValue * 100) / 100
         });
       }
     });

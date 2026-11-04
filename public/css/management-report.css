@@ -60,6 +60,7 @@
 .lvl-min { background: #a86400 !important; color: #fff !important; }
 .lvl-no { background: #c9373f !important; color: #fff !important; }
 .lvl-nil { background: #6f7888 !important; color: #fff !important; }
+.lvl-forced { background: #55637a !important; color: #fff !important; }
 .mr-bullet { position: relative; height: 13px; background: var(--mr-track); border-radius: 3px; }
 .mr-bullet i { position: absolute; left: 0; display: block; }
 .mr-bullet .first { top: 0; bottom: 0; background: #aebbd0; border-radius: 3px; }
