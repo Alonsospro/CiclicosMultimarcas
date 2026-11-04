@@ -147,6 +147,10 @@ window.Auth = {
     });
     if (isAlonsoSuperadmin) window.FirestoreUsageIndicator?.load();
 
+    document.querySelectorAll('.role-progress-only').forEach(el => {
+      el.style.display = this.canViewProgress() ? '' : 'none';
+    });
+
     document.querySelectorAll('.role-inventory-creator-only').forEach(el => {
       el.style.display = canCreateInv ? '' : 'none';
     });
@@ -206,6 +210,13 @@ window.Auth = {
   isSuperadminAlonso() {
     if (!this.currentUser) return false;
     return this.isAlonso() || this.currentUser.isSuperadmin === true;
+  },
+
+  canViewProgress() {
+    if (!this.currentUser) return false;
+    if (this.isSuperadminAlonso()) return true;
+    const u = String(this.currentUser.username || '').toLowerCase().trim();
+    return u === 'jcarlos' || u === 'juancarlos' || u === 'juan carlos' || this.currentUser.clave === 'JCS';
   },
 
   canCreateInventory() {

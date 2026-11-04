@@ -22,7 +22,7 @@ window.ProgressView = {
   },
 
   async load(refresh = false) {
-    if (!window.Auth || !window.Auth.isSuperadminAlonso()) {
+    if (!window.Auth || !window.Auth.canViewProgress()) {
       return;
     }
     if (this.loading) return;

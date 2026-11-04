@@ -32,8 +32,8 @@ window.Router = {
       return;
     }
 
-    if (viewName === 'progress' && (!window.Auth || !window.Auth.isSuperadminAlonso())) {
-      window.Toast.warning('Acceso exclusivo para el superadministrador Alonso');
+    if (viewName === 'progress' && (!window.Auth || !window.Auth.canViewProgress())) {
+      window.Toast.warning('Acceso exclusivo para Alonso y Juan Carlos');
       window.Router.navigate('inventories');
       return;
     }

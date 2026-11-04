@@ -196,11 +196,36 @@ function requireSuperadminAlonso(req, res, next) {
   });
 }
 
+// The progress window: superadmin Alonso and Juan Carlos.
+function canViewProgress(user) {
+  if (!user) return false;
+  if (isAlonsoSuperadmin(user)) return true;
+  const u = String(user.username || '').toLowerCase().trim();
+  return u === 'jcarlos' || u === 'juancarlos' || u === 'juan carlos' || user.clave === 'JCS';
+}
+
+function requireProgressAccess(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ success: false, message: 'No autenticado.' });
+  }
+
+  if (canViewProgress(req.user)) {
+    return next();
+  }
+
+  return res.status(403).json({
+    success: false,
+    message: 'Acceso denegado: Esta ventana y sus datos son exclusivos para Alonso y Juan Carlos.'
+  });
+}
+
 module.exports = {
   authenticate,
   requireRole,
   requireAlonso,
   requireSuperadminAlonso,
+  requireProgressAccess,
+  canViewProgress,
   isExactAlonso,
   requireExactAlonso,
   isAlonsoSuperadmin,

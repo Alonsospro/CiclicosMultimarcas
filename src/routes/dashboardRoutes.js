@@ -4,7 +4,7 @@ const metricsService = require('../services/metricsService');
 const inventoryTrackingService = require('../services/inventoryTrackingService');
 const justificationPhotoReport = require('../services/justificationPhotoReport');
 const auditService = require('../services/auditService');
-const { authenticate, requireRole, requireSuperadminAlonso } = require('../middlewares/authMiddleware');
+const { authenticate, requireRole, requireSuperadminAlonso, requireProgressAccess } = require('../middlewares/authMiddleware');
 const firebaseSyncService = require('../services/firebaseSyncService');
 
 // Aggregate scores may be visible to auxiliaries; signed quantities remain private during blind counts.
@@ -25,8 +25,8 @@ router.get('/usage', authenticate, requireSuperadminAlonso, (req, res) => {
   res.json({success:true, usage:firebaseSyncService.usage.snapshot()});
 });
 
-// GET /api/dashboard/tracking — status and active workflow stage per inventory launch (Exclusivo Superadmin Alonso)
-router.get('/tracking', authenticate, requireSuperadminAlonso, async (req, res) => {
+// GET /api/dashboard/tracking — status and active workflow stage per inventory launch (Alonso y Juan Carlos)
+router.get('/tracking', authenticate, requireProgressAccess, async (req, res) => {
   try {
     const type = req.query.type || 'TODOS';
     const center = (req.user.role === 'ADMIN' || req.user.isSuperadmin) ? (req.query.center || 'TODOS') : req.user.center;
@@ -38,8 +38,8 @@ router.get('/tracking', authenticate, requireSuperadminAlonso, async (req, res) 
   }
 });
 
-// GET /api/dashboard/justification-photos — photo backing of each justification (Exclusivo Superadmin Alonso)
-router.get('/justification-photos', authenticate, requireSuperadminAlonso, (req, res) => {
+// GET /api/dashboard/justification-photos — photo backing of each justification (Alonso y Juan Carlos)
+router.get('/justification-photos', authenticate, requireProgressAccess, (req, res) => {
   try {
     res.json({success:true, rows:justificationPhotoReport.getRows()});
   } catch (err) {
