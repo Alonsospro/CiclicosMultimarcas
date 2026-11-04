@@ -317,30 +317,31 @@ test('the dashboard and both PDF reports show the same duration', async () => {
   assert.equal(card.style.display, 'none');
 });
 
-test('the state of all centers is one chart: lowest indicator at the close, marked with its first count', async () => {
+const stateRows = html => {
+  const start = html.indexOf('Estado por centro');
+  return html.slice(start, html.indexOf('</table>', start)).split('<tbody>')[1].split('<tr>').slice(1);
+};
+
+test('the state of all centers is one table with bars: lowest indicator at the close and at its first count', async () => {
   const differ = (sku, change, extra = {}) => line(sku, { Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change, ...extra });
   const metrics = await load([
     inventory('INV-1160-1', '1160', [line('A'), differ('B', -2, { Reconteo: 10, Stock_Total_Reconteo: 10, Diferencia_Final: 0 })]),
     inventory('INV-1120-1', '1120', [line('C'), differ('D', -5)])
   ]);
   const html = report.render({ name: 'Corte' }, metrics);
-  assert.equal(html.includes('mr-tile'), false, 'The tiles are gone');
-  const columns = html.split('<div class="mr-vcol"').slice(1);
-  assert.equal(columns.length, 3, 'Two centers with a close and one without');
-  const worst = columns[0], best = columns[1], pending = columns[2];
+  assert.equal(html.includes('mr-vcol'), false, 'The columns are gone');
+  const rows = stateRows(html);
+  assert.equal(rows.length, 3, 'Two centers with a close and one without');
+  const [worst, best, pending] = rows;
+  assert.deepEqual(cellsOf(worst).slice(1), ['Códigos', '1 de 2', '50,00%', 'Sin anterior', '✕ 50,00%']);
   assert.match(worst, /1120/);
-  assert.match(worst, /mr-vbar lvl-no" style="height:50%/);
-  assert.match(worst, /mr-vfirst" style="bottom:50%/);
-  assert.match(worst, /Códigos: 1 de 2/);
-  assert.match(best, /1160/);
-  assert.match(best, /mr-vbar lvl-perfect" style="height:100%/);
-  assert.match(best, /mr-vfirst" style="bottom:90%/, 'The recount took it from the first count to the close');
+  assert.match(worst, /width:120px;background:#c9373f/);
+  assert.deepEqual(cellsOf(best).slice(1), ['Unidades', '20 de 20', '90,00%', 'Sin anterior', '★ 100,00%']);
+  assert.match(best, /width:240px;background:#0a5c40/);
   assert.match(pending, /5100/);
   assert.match(pending, /Sin cierre en este corte/);
-  assert.equal(pending.split('mr-legend')[0].includes('mr-vbar'), false);
-  assert.match(html, /Marca: primer conteo/);
+  assert.equal(pending.includes('mr-ibar'), false);
   assert.match(html, /Menos de 95%: no cumple/);
-  assert.match(html, /grid-template-columns:repeat\(3,/);
 });
 
 test('each closure keeps its three indicators, by the same rules as the selected inventory', async () => {
@@ -370,15 +371,11 @@ test('the chart compares each center with its earlier inventories of the same ty
   service.getAllInventoriesData = async () => inventories;
   const metrics = JSON.parse(JSON.stringify(await service.getDashboardMetrics({ startDate: '2026-10-01', endDate: '2026-10-31' })));
   const html = report.render({ name: 'Corte' }, metrics);
-  const columns = html.split('<div class="mr-vcol"').slice(1);
-  const center1160 = columns.find(column => column.includes('Centro 1160'));
-  const earlier = [...center1160.matchAll(/mr-vbefore" style="height:([\d.]+)%/g)].map(match => Number(match[1]));
-  assert.deepEqual(earlier, [50, 75], 'Lowest indicator of each earlier cyclic closure, oldest first and without the weekly one');
-  assert.match(center1160, /mr-vbar lvl-perfect" style="height:100%/);
-  assert.match(center1160, /Anterior: 75,00% · Códigos/);
-  const center1120 = columns.find(column => column.includes('Centro 1120'));
-  assert.equal(center1120.includes('mr-vbefore'), false);
-  assert.match(center1120, /Sin anterior/);
+  const rows = stateRows(html);
+  const center1160 = rows.find(row => row.includes('Centro 1160'));
+  assert.equal(cellsOf(center1160)[4], '50,00% (Códigos) → 75,00% (Códigos)', 'Lowest indicator of each earlier cyclic closure, oldest first and without the weekly one');
+  assert.equal(cellsOf(center1160)[5], '★ 100,00%');
+  assert.equal(cellsOf(rows.find(row => row.includes('Centro 1120')))[4], 'Sin anterior');
 });
 
 test('a closure read before the three indicators existed still shows its units', () => {
@@ -388,8 +385,7 @@ test('a closure read before the three indicators existed still shows its units',
     byWarehouse: [], byClass: [], crossWarehouse: [], crossClass: [], flow: { firstDifferences: 0, resolved: 0, stillShort: 0, stillSurplus: 0, appeared: 0 }, inventories: ['NEW'], issues: [],
     history: [{ id: 'OLD', type: 'CICLICO', date: '2026-09-01', eri: 92, totalUnits: 100, exactUnits: 92 }, { id: 'NEW', type: 'CICLICO', date: '2026-10-01', eri: 100, totalUnits: 10, exactUnits: 10 }] };
   const html = report.render({ name: 'Corte' }, { reportData: { centers: [center, { ...center, center: '2', name: 'D', inventories: ['OTHER'], history: [] }], pendingCenters: [] }, discrepanciesList: [], summary: {}, filters: {} });
-  assert.match(html, /mr-vbefore" style="height:92%/);
-  assert.match(html, /Anterior: 92,00% · Unidades/);
+  assert.equal(cellsOf(stateRows(html).find(row => row.includes('>C<')))[4], '92,00%');
 });
 
 test('a partly justified shortage closes with the units explained and only the remainder as shortage', async () => {
