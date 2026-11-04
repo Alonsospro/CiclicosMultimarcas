@@ -1659,7 +1659,15 @@ window.JustificationsView = {
     }
     if (corrSelect) corrSelect.onchange = () => this.refreshCompensation(item, true);
     this.refreshCompensation(item);
+    const reasonSelect = document.getElementById('just-select-reason');
+    if (reasonSelect) reasonSelect.onchange = () => this.refreshPhotoRequirement();
+    this.refreshPhotoRequirement();
     window.ModalHelper.open('modal-justification');
+  },
+
+  refreshPhotoRequirement() {
+    const mark = document.getElementById('just-photo-required');
+    if (mark) mark.hidden = !window.JustificationPhotoRule.needsPhoto(document.getElementById('just-select-reason')?.value);
   },
 
   refreshCompensation(item, decisionChanged = false) {
@@ -1774,6 +1782,16 @@ window.JustificationsView = {
     const photoUrls = this.uploadedPhotos || [];
     const driveUrl = document.getElementById('just-drive-url')?.value || this.uploadedDriveUrl || null;
     const driveFileId = document.getElementById('just-drive-file-id')?.value || this.uploadedDriveFileId || null;
+    if (window.JustificationPhotoRule.needsPhoto(reasonType)) {
+      if (this.uploadingJustificationPhotos) {
+        window.Toast.warning('Espere a que terminen de subirse las fotos en curso.');
+        return false;
+      }
+      if (!photoUrl && !driveUrl && !photoUrls.length) {
+        window.Toast.warning(`El tipo "${reasonType}" requiere foto de evidencia. Súbala antes de guardar.`);
+        return false;
+      }
+    }
 
     const saveBtn = document.getElementById('btn-save-justification');
     const saveAndNextBtn = document.getElementById('btn-save-and-next');

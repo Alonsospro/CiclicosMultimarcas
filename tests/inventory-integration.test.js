@@ -47,7 +47,7 @@ function inventoryService(gas,allowed=true){
     './inventoryWorkflow':require('../src/services/inventoryWorkflow'),
     './inventoryContract':contract,'../config':{countSheetSync:'inmediato',centersList:[{code:'1120'},{code:'1160'}],findCenter:v=>['1120','1160'].includes(v)?{code:v}:null,getCenterCode:v=>v,isSameCenter:(a,b)=>a===b},
     './storagePath':{getInventoriesDirectory:()=>'/fake',getJustificationsDirectory:()=>'/fake-just',listFiles:()=>[...records.keys()].map(id=>id+'.json'),readJson:p=>records.get(path.basename(p,'.json'))},
-    './auditService':{logAction(){},logCount(){}},'./driveService':{getPhotoAsDataUri:()=>''},'./gasService':gas,'./metricsService':{},'./snapshotService':{},
+    './auditService':{logAction(){},logCount(){}},'./driveService':{getPhotoAsDataUri:()=>''},'./gasService':gas,'./metricsService':{},'./snapshotService':{},'../../public/js/justificationPhotoRule':require('../public/js/justificationPhotoRule'),
     '../middlewares/authMiddleware':{isBulkInventoryCreator:()=>allowed}
   });
   service.getInventoryRaw=id=>records.get(id);

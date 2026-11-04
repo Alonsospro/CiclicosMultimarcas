@@ -58,7 +58,7 @@ function fixture({countSheetSync='inmediato'}={}) {
     './counterReliability':require('../src/services/counterReliability'),
     './inventoryContract':contract,'./inventoryWorkflow':workflow,'../config':{countSheetSync,isSameCenter:(a,b)=>a===b},
     './storagePath':store,'./auditService':new Proxy({}, {get:()=>()=>{}}),
-    './gasService':gas,'./metricsService':{},'./snapshotService':{},
+    './gasService':gas,'./metricsService':{},'./snapshotService':{},'../../public/js/justificationPhotoRule':require('../public/js/justificationPhotoRule'),
     './driveService':{getPhotoAsDataUri:()=>failures.photo||'',createFinalDriveFile:async p=>{
       if(failures.drive)throw new Error('Drive no disponible');
       closures.push(clone(p)); return {fileId:'drive-id',fileName:'final',spreadsheetUrl:'https://example.test/final'};
@@ -389,7 +389,7 @@ function browser() {
       classList:{add(){},remove(){},contains(){return false;}},reset(){},focus(){}});
     return elements.get(id);
   };
-  const window={Toast:{warning:msg=>messages.push(msg),info(){},danger:msg=>messages.push(msg),success(){}},
+  const window={JustificationPhotoRule:require('../public/js/justificationPhotoRule'),Toast:{warning:msg=>messages.push(msg),info(){},danger:msg=>messages.push(msg),success(){}},
     ModalHelper:{open(){},close(){}},Auth:{currentUser:user},API:{saveJustification:async p=>{saves.push(p);return {};}}};
   vm.runInNewContext(fs.readFileSync(path.join(root,'public/js/views/justificationsView.js'),'utf8'),{
     window,document:{getElementById:element,querySelectorAll:()=>[]},console,setTimeout:()=>{}
@@ -397,6 +397,19 @@ function browser() {
   window.JustificationsView.initDualScrollbars=()=>{};
   return {view:window.JustificationsView,element,messages,saves};
 }
+
+test('the server refuses a reason that needs a photo until it comes with one',async()=>{
+  const {service,put}=fixture();
+  const item={...counted('A'),Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null};
+  put({id:'REVIEW',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
+  await service.updateCount({inventoryId:'REVIEW',itemId:item.id,stockFisico:7,malEstado:0,user:countUser});
+  service.submitInventoryForReview({inventoryId:'REVIEW',user});
+  const review={inventoryId:'REVIEW',sku:item.SKU,itemId:item.id,almacen:item.Almacen,location:item.Ubicacion,round:1,
+    corroboracion:'CUADRA',justification:'Venta registrada',reasonType:'Venta del repuesto',user};
+  await assert.rejects(service.saveJustification(review),/requiere foto/);
+  await assert.rejects(service.saveJustification({...review,reasonType:undefined}),/requiere foto/);
+  await service.saveJustification({...review,photoUrls:['https://drive.google.com/file/d/abc/view']});
+});
 
 test('review screen retains CUADRA history and does not count a zero-difference recount as justified',()=>{
   const {view,element}=browser();

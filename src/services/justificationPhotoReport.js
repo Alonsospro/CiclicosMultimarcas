@@ -5,12 +5,10 @@ const contract = require('./inventoryContract');
 const workflow = require('./inventoryWorkflow');
 const snapshots = require('./snapshotService');
 const { getInventoryIdentifier } = require('./metricsSourceService');
+const { needsPhoto } = require('../../public/js/justificationPhotoRule');
 
 const clean = value => String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
 const time = value => Date.parse(value) || 0;
-// Any other reason, including the earlier faltante and sobrante names, needs a photo.
-const NO_PHOTO_NEEDED = new Set(['transferencia', 'balanceo', 'error de conteo', 'mal ubicado', 'error de typeo', 'sobrestock',
-  'empaque diferente', 'empaque similar', 'sin justificacion', 'otro']);
 const STATUS_ORDER = ['falta', 'en_drive', 'por_confirmar', 'con_foto', 'no_requiere', 'cierre_forzado'];
 const isDriveLink = link => /^https:\/\/([\w-]+\.)*(google\.com|googleusercontent\.com)\//.test(link);
 
@@ -26,7 +24,7 @@ function photoLinks(entry) {
 function photoStatus(entry, links = photoLinks(entry)) {
   const reason = clean(entry.reasonType);
   if (entry.forced || reason === 'cierre forzado') return 'cierre_forzado';
-  if (NO_PHOTO_NEEDED.has(reason)) return 'no_requiere';
+  if (!needsPhoto(reason)) return 'no_requiere';
   if (!links.length) return 'falta';
   return entry.driveFileId || links.some(isDriveLink) ? 'con_foto' : 'por_confirmar';
 }

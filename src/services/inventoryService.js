@@ -11,6 +11,7 @@ const driveService = require('./driveService');
 const gasService = require('./gasService');
 const metricsService = require('./metricsService');
 const snapshotService = require('./snapshotService');
+const {needsPhoto} = require('../../public/js/justificationPhotoRule');
 
 const FORCED_MASTER_BATCH = 50;
 const SHEET_BATCH = 50;
@@ -1437,6 +1438,7 @@ class InventoryService {
     if(contract.isWeeklyType(inv.type)&&!contract.isWeekly(item))throw new Error('Sincronice primero el inventario semanal de 44 columnas.');
     const context=this.getReviewPlan(inv);
     workflow.assertJustification(inv,item,round,context,p.justification);
+    if(needsPhoto(p.reasonType)&&!p.photoUrl&&!p.driveUrl&&!(p.photoUrls||[]).length)throw new Error(`El tipo "${p.reasonType||'sin indicar'}" requiere foto de evidencia.`);
     // The script reads the row it justifies; a failure here is logged like the justification write below.
     for(const id of [inv.id,inv.recountInventoryId,inv.parentInventoryId].filter(Boolean)){
       const unsent=await this.flushSheetCounts(id,id===inv.id?inv:null);

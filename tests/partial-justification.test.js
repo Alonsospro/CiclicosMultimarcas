@@ -233,7 +233,7 @@ function browser() {
       classList:{add() {}, remove() {}, contains() { return false; }}, reset() {}, focus() {}});
     return elements.get(id);
   };
-  const window = {InventoryContract:contract, Toast:{warning:msg => messages.push(msg), info() {}, danger:msg => messages.push(msg), success:msg => messages.push(msg)},
+  const window = {InventoryContract:contract, JustificationPhotoRule:require('../public/js/justificationPhotoRule'), Toast:{warning:msg => messages.push(msg), info() {}, danger:msg => messages.push(msg), success:msg => messages.push(msg)},
     ModalHelper:{open() {}, close() {}}, Auth:{currentUser:{role:'ADMIN'}},
     API:{saveJustification:async p => { saves.push(p); return {justification:{reviewItem:{}, reviewState:{}, corroboracion:'NO CUADRA'}}; }}};
   vm.runInNewContext(fs.readFileSync(path.join(root, 'public/js/views/justificationsView.js'), 'utf8'), {
@@ -305,6 +305,48 @@ async function saveFromForm(typed) {
   const saved = await view.saveCurrentModalJustification(false);
   return {...browserView, saved};
 }
+
+test('justification form refuses a reason that needs a photo until there is one, and marks it as required', async () => {
+  const {view, element, messages, saves} = browser();
+  const item = {...row(), canJustify:true};
+  view.tasks = [{inventoryId:'INV', items:[item]}];
+  view.currentInventoryId = 'INV';
+  element('just-modal-inv-id').value = 'INV';
+  element('just-modal-sku-input').value = 'A';
+  element('just-modal-item-id').value = 'A';
+  element('just-modal-item-idx').value = '0';
+  element('just-input-text').value = 'Venta registrada';
+  element('just-select-corroboration').value = 'CUADRA';
+  element('just-compensation-panel').hidden = true;
+  element('just-photo-url').value = '';
+  const reason = element('just-select-reason'), mark = element('just-photo-required');
+
+  reason.value = 'Venta del repuesto';
+  view.refreshPhotoRequirement();
+  assert.equal(mark.hidden, false);
+  assert.equal(await view.saveCurrentModalJustification(false), false);
+  assert.equal(saves.length, 0);
+  assert.match(messages.at(-1), /requiere foto/);
+
+  view.uploadingJustificationPhotos = true;
+  assert.equal(await view.saveCurrentModalJustification(false), false);
+  assert.match(messages.at(-1), /Espere/);
+  view.uploadingJustificationPhotos = false;
+
+  element('just-photo-url').value = 'https://drive.google.com/file/d/abc/view';
+  await view.saveCurrentModalJustification(false);
+  assert.equal(saves.length, 1);
+
+  saves.length = 0;
+  element('just-photo-url').value = '';
+  view.uploadedDriveUrl = null;
+  view.uploadedPhotos = [];
+  reason.value = 'Transferencia';
+  view.refreshPhotoRequirement();
+  assert.equal(mark.hidden, true);
+  await view.saveCurrentModalJustification(false);
+  assert.equal(saves.length, 1);
+});
 
 test('justification form sends the typed quantity and refuses more than the difference before calling the server', async () => {
   const partial = await saveFromForm('6');
