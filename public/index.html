@@ -2068,10 +2068,25 @@
                 <input type="radio" name="reopen-target-phase" value="JUSTIFICACION" style="margin-top: 3px; accent-color: #10b981;">
                 <div>
                   <strong style="color: #10b981; font-size: 0.88rem;">Solo Justificaciones</strong>
-                  <p style="margin: 0; font-size: 0.78rem; color: var(--text-dim);">Pasa a <strong>PENDIENTE JUSTIFICACIÓN</strong> para justificar discrepancias manteniendo conteos.</p>
+                  <p style="margin: 0; font-size: 0.78rem; color: var(--text-dim);">Pasa a <strong>PENDIENTE JUSTIFICACIÓN</strong> para volver a justificar los códigos que elija, manteniendo conteos.</p>
                 </div>
               </label>
             </div>
+          </div>
+
+          <!-- Códigos que se vuelven a justificar -->
+          <div id="reopen-items-panel" class="form-group" style="display: none; margin-bottom: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.4rem;">
+              <label class="form-label" for="reopen-items-search" style="margin: 0; font-weight: 700; color: var(--text-main);"><i class="fa-solid fa-list-check"></i> Códigos a volver a justificar</label>
+              <span style="display: flex; gap: 0.4rem; align-items: center;">
+                <small id="reopen-items-count" style="color: var(--text-dim);">0 seleccionado(s)</small>
+                <button type="button" class="btn btn-secondary btn-xs" id="reopen-items-all">Todos</button>
+                <button type="button" class="btn btn-secondary btn-xs" id="reopen-items-none">Ninguno</button>
+              </span>
+            </div>
+            <input type="search" id="reopen-items-search" class="form-input" placeholder="Buscar código, almacén, ubicación o descripción">
+            <div id="reopen-items-list" style="max-height: 240px; overflow: auto; border: 1px solid var(--border-glass); border-radius: 8px; margin-top: 0.4rem;"></div>
+            <p style="margin: 0.35rem 0 0; font-size: 0.76rem; color: var(--text-dim);">Solo los códigos marcados aparecerán para justificar. Los demás conservan su justificación y no se piden de nuevo.</p>
           </div>
 
           <!-- Opción de sincronización desde Google Sheets -->
@@ -2942,7 +2957,7 @@
   <script src="/js/views/assignmentsView.js?v=deer-loader-2"></script>
   <script src="/js/inventoryContract.js?v=partial-justification-1"></script>
   <script src="/js/justificationPhotoRule.js?v=1.0"></script>
-  <script src="/js/views/justificationsView.js?v=editable-compensation-1"></script>
+  <script src="/js/views/justificationsView.js?v=reopen-selection-2"></script>
   <script src="/js/views/historyView.js?v=deer-loader-2"></script>
 
   <script src="/js/components/managementReport.js?v=1.16"></script>

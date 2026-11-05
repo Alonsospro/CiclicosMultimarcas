@@ -1799,7 +1799,7 @@ class InventoryService {
         phase: inv.phase || 'CONTEO', isReconteo: !!inv.isReconteo,
         hasRecount: plan.keys.size > 0, hasRecount2: !!inv.hasRecount2, recountRound: inv.recountRound || 1,
         parentInventoryId: inv.parentInventoryId || null, recountInventoryId: inv.recountInventoryId || `REC-${inv.id}`,
-        reopenedPhase: inv.reopenedPhase || null, assignedTo: inv.assignedTo || [], totalItems: inv.items.length,
+        reopenedPhase: inv.reopenedPhase || null, reopenItemKeys: inv.reopenItemKeys || null, assignedTo: inv.assignedTo || [], totalItems: inv.items.length,
         totalDiscrepancies: plan.items.length, pendingJustificationsCount: plan.pending.length,
         justifiedItemsCount: plan.items.length - plan.pending.length,
         canClose: plan.canClose, canEnableRecount: plan.canEnableRecount, canEnableRecount2: plan.canEnableRecount2, canForceClose: plan.canForceClose, closeBlockers: plan.closeBlockers,
@@ -2028,7 +2028,7 @@ class InventoryService {
     };
   }
 
-  async reopenInventory({ inventoryId, user, reason, targetPhase = '1ER_CONTEO', syncFromGAS = true }) {
+  async reopenInventory({ inventoryId, user, reason, targetPhase = '1ER_CONTEO', syncFromGAS = true, itemKeys }) {
     const isAdmin = user.role === 'ADMIN' || user.isSuperadmin || ['alonso', 'jcarlos', 'absael', 'admin'].includes(String(user.username || '').toLowerCase());
     const isEncargado = user.role === 'ENCARGADO';
 
@@ -2060,6 +2060,13 @@ class InventoryService {
         !['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO', 'REVISADO'].includes(inv.status)) {
       throw new Error('Debe finalizar y firmar el conteo o reconteo antes de reabrir su justificación.');
     }
+    // Only the chosen codes are justified again; without a list, every code is (earlier clients).
+    let reopenItemKeys = null;
+    if (['JUSTIFICACION', 'JUSTIFICACIONES'].includes(cleanPhase) && Array.isArray(itemKeys)) {
+      const members = new Set(inv.items.map(contract.member));
+      reopenItemKeys = [...new Set(itemKeys.map(String))].filter(key => members.has(key));
+      if (!reopenItemKeys.length) throw new Error('Seleccione al menos un código para volver a justificar.');
+    }
     if (cleanPhase === 'RECONTEO_2' || cleanPhase === 'RECONTEO 2') {
       inv.status = 'EN_RECONTEO';
       inv.phase = 'RECONTEO_2';
@@ -2090,6 +2097,13 @@ class InventoryService {
     }
 
     const reopenedAt = new Date(Date.now() + 1).toISOString();
+    if (reopenItemKeys) {
+      inv.reopenItemKeys = reopenItemKeys;
+      inv.reopenReviewNotBefore = reopenedAt;
+    } else {
+      delete inv.reopenItemKeys;
+      delete inv.reopenReviewNotBefore;
+    }
     if (cleanPhase === 'JUSTIFICACION' || cleanPhase === 'JUSTIFICACIONES') {
       if (inv.hasRecount) inv.status = 'RECONTEO_COMPLETADO';
     } else if (workflow.countStage(inv)) {

@@ -1087,3 +1087,40 @@ test('operations that continue after sending pending counts do not bring them ba
   assert.equal(sent(context,'REOPEN'),undefined,'after a reopening');
   assert.equal(batches.length,3);
 });
+
+test('reopening justification for chosen codes asks only for those and keeps the others as they closed',async()=>{
+  const {service,put,save,closures}=fixture(),a=counted('A'),b=counted('B');
+  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
+  service.submitInventoryForReview({inventoryId:'INV',user});
+  await save('INV',a,'CUADRA',1,'Guía de remisión de A.'); await save('INV',b,'CUADRA',1,'Guía de remisión de B.');
+  await service.finishReviewAndClose({inventoryId:'INV',user});
+  await assert.rejects(service.reopenInventory({inventoryId:'INV',user,targetPhase:'JUSTIFICACION',syncFromGAS:false,itemKeys:['otro']}),/al menos un código/);
+  await service.reopenInventory({inventoryId:'INV',user,targetPhase:'JUSTIFICACION',syncFromGAS:false,itemKeys:[contract.member(a)]});
+  const task=service.getPendingJustifications(user)[0];
+  const [reopened,kept]=['A','B'].map(sku=>task.items.find(item=>item.SKU===sku));
+  assert.deepEqual([reopened.reopenLocked,reopened.canJustify,reopened.reviewComplete],[false,true,false]);
+  assert.deepEqual([kept.reopenLocked,kept.canJustify,kept.reviewComplete],[true,false,true]);
+  assert.equal(task.pendingJustificationsCount,1);
+  assert.equal(task.reopenItemKeys.join(),contract.member(a));
+  await assert.rejects(save('INV',b,'NO CUADRA',2,'Otra explicación.'),/no fue habilitado/);
+  await save('INV',a,'NO CUADRA',2,'Se encontró la salida de una pieza.');
+  assert.equal(service.getPendingJustifications(user)[0].canClose,true);
+  await service.finishReviewAndClose({inventoryId:'INV',user});
+  const closed=closures.at(-1).inventory.items;
+  assert.equal(closed.find(item=>item.SKU==='A').Estado_Justificacion_2,'NO CUADRA');
+  assert.equal(closed.find(item=>item.SKU==='B').Estado,'CUADRA');
+  assert.equal(closed.find(item=>item.SKU==='B').Comentario_Justificacion,'Guía de remisión de B.');
+});
+
+test('reopening justification without a list of codes still asks for all of them',async()=>{
+  const {service,put,save}=fixture(),a=counted('A'),b=counted('B');
+  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
+  service.submitInventoryForReview({inventoryId:'INV',user});
+  await save('INV',a,'CUADRA'); await save('INV',b,'CUADRA');
+  await service.finishReviewAndClose({inventoryId:'INV',user});
+  await service.reopenInventory({inventoryId:'INV',user,targetPhase:'JUSTIFICACION',syncFromGAS:false,itemKeys:[contract.member(a)]});
+  await service.reopenInventory({inventoryId:'INV',user,targetPhase:'JUSTIFICACION',syncFromGAS:false});
+  const task=service.getPendingJustifications(user)[0];
+  assert.equal(task.reopenItemKeys,null);
+  assert.ok(task.items.every(item=>!item.reopenLocked&&item.canJustify));
+});

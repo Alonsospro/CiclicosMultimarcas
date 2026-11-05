@@ -252,13 +252,14 @@ router.post('/:id/submit', authenticate, async (req, res) => {
 // POST /api/inventories/:id/reopen (Reopen inventory - Admin & Encargado)
 router.post('/:id/reopen', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {
-    const { reason, targetPhase, syncFromGAS } = req.body;
+    const { reason, targetPhase, syncFromGAS, itemKeys } = req.body;
     const result = await inventoryService.reopenInventory({
       inventoryId: req.params.id,
       user: req.user,
       reason,
       targetPhase,
-      syncFromGAS
+      syncFromGAS,
+      itemKeys
     });
     res.json(result);
   } catch (err) {

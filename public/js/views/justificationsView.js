@@ -93,6 +93,11 @@ window.JustificationsView = {
       const targetPhase = selectedRadio ? selectedRadio.value : '1ER_CONTEO';
       const syncFromGAS = document.getElementById('reopen-chk-sync-gas')?.checked ?? true;
       const reason = document.getElementById('reopen-modal-reason')?.value || 'Reapertura para actualización de cantidades';
+      const itemKeys = targetPhase === 'JUSTIFICACION' ? this.selectedReopenKeys() : undefined;
+      if (itemKeys && !itemKeys.length) {
+        window.Toast.warning('Seleccione al menos un código para volver a justificar.');
+        return;
+      }
 
       const submitBtn = document.getElementById('btn-submit-reopen');
       if (submitBtn) {
@@ -105,7 +110,8 @@ window.JustificationsView = {
         const res = await window.API.reopenInventory(inventoryId, {
           targetPhase,
           syncFromGAS,
-          reason
+          reason,
+          itemKeys
         });
 
         window.ModalHelper.close('modal-reopen-inventory');
@@ -669,7 +675,7 @@ window.JustificationsView = {
                 style="display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600;"
               >
                 <i class="fa-solid ${isExpanded ? 'fa-chevron-up' : 'fa-folder-open'}"></i>
-                <span>${isExpanded ? 'Ocultar Ítems' : `Abrir y Revisar Ítems (${(task.items || []).length})`}</span>
+                <span>${isExpanded ? 'Ocultar Ítems' : `Abrir y Revisar Ítems (${this.visibleItems(task).length})`}</span>
               </button>
 
               <div id="card-main-action-${task.inventoryId}" style="display: inline-flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
@@ -780,7 +786,7 @@ window.JustificationsView = {
           <div id="task-details-${task.inventoryId}" style="display: ${isExpanded ? 'block' : 'none'}; margin-top: 1.25rem; border-top: 1px solid var(--border-glass); padding-top: 1.25rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
               <span style="font-size: 0.88rem; font-weight: 600; color: var(--text-dim);">
-                <i class="fa-solid fa-list-check"></i> Listado de ítems con diferencias para este inventario (${(task.items || []).length}):
+                <i class="fa-solid fa-list-check"></i> ${task.reopenItemKeys?.length ? `Códigos habilitados al reabrir (${this.visibleItems(task).length} de ${(task.items || []).length}; los demás conservan su justificación)` : `Listado de ítems con diferencias para este inventario (${(task.items || []).length})`}:
               </span>
               <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                 <button 
@@ -912,6 +918,8 @@ window.JustificationsView = {
                         `;
                       }
                       return itemsToDisplay.map((item, itemIdx) => {
+                      // Codes left out of a reopening keep their review and are not listed.
+                      if (item.reopenLocked) return '';
                       const settled = this.settledDifference(item);
                       const isPartial = this.isPartialJustification(settled);
                       const isPartialFirstCount = isPartial && settled.stage === 0 && !window.InventoryContract?.isWeekly(item);
@@ -1719,15 +1727,9 @@ window.JustificationsView = {
     const skipJustified = document.getElementById('just-chk-skip-justified')?.checked;
     let nextIndex = this.currentItemIndex + direction;
 
-    if (skipJustified) {
-      // Find next pending item in the given direction
-      while (nextIndex >= 0 && nextIndex < task.items.length) {
-        const it = task.items[nextIndex];
-        const isResolved = it.reviewComplete || !it.canJustify;
-        if (!isResolved) break;
-        nextIndex += direction;
-      }
-    }
+    // Codes left out of a reopening are never shown; with the option checked, resolved ones are skipped too.
+    const skip = it => it.reopenLocked || (skipJustified && (it.reviewComplete || !it.canJustify));
+    while (nextIndex >= 0 && nextIndex < task.items.length && skip(task.items[nextIndex])) nextIndex += direction;
 
     if (nextIndex < 0) {
       window.Toast.info('Ya estás en el primer ítem de la lista.');
@@ -1915,6 +1917,12 @@ window.JustificationsView = {
       `;
     }
 
+    const setText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text || '-'; };
+    setText('reopen-modal-inv-name', task.inventoryName);
+    setText('reopen-modal-id-display', task.inventoryId);
+    setText('reopen-modal-center-display', task.center);
+    setText('reopen-modal-status-badge', task.isFinalized ? 'CERRADO' : String(task.status || '').replace(/_/g, ' '));
+
     const validPhases = ['1ER_CONTEO', 'RECONTEO_1', 'RECONTEO_2', 'JUSTIFICACION'];
     const phase = validPhases.includes(task.reopenedPhase)
       ? task.reopenedPhase
@@ -1923,6 +1931,9 @@ window.JustificationsView = {
     const radios = document.querySelectorAll('input[name="reopen-target-phase"]');
     radios.forEach(radio => { radio.checked = radio.value === phase; });
 
+    radios.forEach(radio => { radio.onchange = () => this.refreshReopenItems(); });
+    this.renderReopenItems(task);
+
     const chkSync = document.getElementById('reopen-chk-sync-gas');
     if (chkSync) chkSync.checked = true;
 
@@ -1930,6 +1941,59 @@ window.JustificationsView = {
     if (reasonInput) reasonInput.value = 'Reapertura para actualización de cantidades';
 
     window.ModalHelper.open('modal-reopen-inventory');
+  },
+
+  visibleItems(task) {
+    return (task.items || []).filter(item => !item.reopenLocked);
+  },
+
+  // The codes with differences, to choose which ones are justified again. Marked: the ones of the last reopening.
+  renderReopenItems(task) {
+    const list = document.getElementById('reopen-items-list');
+    if (!list) return;
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    const chosen = new Set(task.reopenItemKeys || []);
+    const items = task.items || [];
+    list.innerHTML = items.map(item => {
+      const key = window.InventoryContract.member(item);
+      const label = [item.SKU, item.Almacen, item.Ubicacion].filter(Boolean).join(' · ');
+      const state = item.reviewStatus ? String(item.reviewStatus).replace(/_/g, ' ') : 'Sin justificar';
+      return `<label data-search="${esc(`${label} ${item.Descripcion || ''}`.toUpperCase())}" style="display:flex; gap:0.55rem; align-items:center; padding:0.4rem 0.65rem; border-bottom:1px solid var(--border-glass); cursor:pointer; font-size:0.82rem;">
+        <input type="checkbox" value="${esc(key)}" ${chosen.has(key) ? 'checked' : ''} style="accent-color:#10b981;">
+        <span style="flex:1; min-width:0; overflow-wrap:anywhere;"><strong>${esc(label)}</strong>${item.Descripcion ? `<br><small style="color:var(--text-dim);">${esc(item.Descripcion)}</small>` : ''}</span>
+        <span class="badge ${state === 'CUADRA' ? 'badge-success' : state === 'Sin justificar' ? 'badge-neutral' : 'badge-warning'}" style="flex:none;">${esc(state)}</span>
+      </label>`;
+    }).join('') || '<p style="margin:0; padding:0.75rem; font-size:0.82rem; color:var(--text-dim);">Este inventario no tiene códigos con diferencias.</p>';
+    list.onchange = () => this.refreshReopenItems();
+    const search = document.getElementById('reopen-items-search');
+    if (search) {
+      search.value = '';
+      search.oninput = () => {
+        const text = search.value.trim().toUpperCase();
+        list.querySelectorAll('label[data-search]').forEach(row => { row.style.display = !text || row.dataset.search.includes(text) ? 'flex' : 'none'; });
+      };
+    }
+    // "Todos" marks only the codes the search leaves visible.
+    const mark = checked => {
+      list.querySelectorAll('label[data-search]').forEach(row => { if (row.style.display !== 'none') row.querySelector('input').checked = checked; });
+      this.refreshReopenItems();
+    };
+    const all = document.getElementById('reopen-items-all'), none = document.getElementById('reopen-items-none');
+    if (all) all.onclick = () => mark(true);
+    if (none) none.onclick = () => mark(false);
+    this.refreshReopenItems();
+  },
+
+  refreshReopenItems() {
+    const panel = document.getElementById('reopen-items-panel');
+    const phase = document.querySelector('input[name="reopen-target-phase"]:checked')?.value;
+    if (panel) panel.style.display = phase === 'JUSTIFICACION' ? '' : 'none';
+    const count = document.getElementById('reopen-items-count');
+    if (count) count.textContent = `${this.selectedReopenKeys().length} seleccionado(s)`;
+  },
+
+  selectedReopenKeys() {
+    return Array.from(document.querySelectorAll('#reopen-items-list input[type="checkbox"]:checked')).map(input => input.value);
   },
 
   openEditCountModal(inventoryId, sku, itemKey, itemIdx) {

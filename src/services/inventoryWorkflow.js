@@ -123,12 +123,16 @@ function plan(inv, child, records = []) {
     && childFinished
     && recountRequired.every(item => hasCount(item, stageOf(item), recountSince)));
   const reopeningJustification = inv.reopenedPhase === 'JUSTIFICACION';
+  // Justification reopened for some codes only: those need a new review, the others keep the one they closed with.
+  const reopenKeys = reopeningJustification && Array.isArray(inv.reopenItemKeys) && inv.reopenItemKeys.length
+    ? new Set(inv.reopenItemKeys) : null;
   const rows = (inv.items || []).map(item => {
+    const reopened = !reopenKeys || reopenKeys.has(contract.member(item));
     const first = review(item, 1, records, inv.firstReviewNotBefore);
-    const second = review(item, 2, records, secondSince(item));
+    const second = review(item, 2, records, reopenKeys && reopened ? inv.reopenReviewNotBefore : secondSince(item));
     const recounted = keys.has(contract.member(item));
-    // Reopening the justification phase always targets the second justification fields.
-    const round = reopeningJustification ? 2 : (recounted ? 2 : 1);
+    // Reopening the justification phase targets the second justification fields of the reopened codes.
+    const round = reopeningJustification && reopened ? 2 : (recounted ? 2 : 1);
     const current = round === 2 ? second : first;
     const stage = recounted ? stageOf(item) : 0;
     const countSince = !stage ? inv.countNotBefore
@@ -136,7 +140,7 @@ function plan(inv, child, records = []) {
     // Explanations of the first recount replaced in Sheets by those of the second one.
     const superseded = records.filter(j => j.superseded && contract.member(j) === contract.member(item));
     const canJustify = !finalized && (reopeningJustification
-      ? ['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO'].includes(inv.status)
+      ? reopened && ['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO'].includes(inv.status)
       : countComplete && (round === 1
         ? inv.status === 'PENDIENTE_JUSTIFICACION' && !keys.size
         : inv.status === 'RECONTEO_COMPLETADO' && recountComplete)
@@ -144,8 +148,8 @@ function plan(inv, child, records = []) {
     // A stale or oversized recount membership list must not pull an item into
     // second justification when its original count already matched the system.
     const requiresSecondJustification = recounted && initialDiscrepancy(item);
-    return {...item, justificationRound: round, requiresSecondJustification,
-      canJustify, isJustified: current.complete, reviewComplete: current.complete,
+    return {...item, justificationRound: round, requiresSecondJustification, reopenLocked: !reopened,
+      canJustify, isJustified: current.complete || !reopened, reviewComplete: current.complete || !reopened,
       // Keep imported decisions visible in the review form even when they are
       // incomplete; closure still depends on reviewComplete below.
       reviewStatus: current.corroboracion,
@@ -226,6 +230,7 @@ function assertJustification(inv, item, round, context, explanation) {
     (skuMatches(it.SKU, item.SKU) && contract.identity(it.Almacen) === contract.identity(item.Almacen)) ||
     skuMatches(it.SKU, item.SKU));
   const isReopenedJust = inv.reopenedPhase === 'JUSTIFICACION';
+  if (entry?.reopenLocked) throw new Error('Este código no fue habilitado al reabrir el inventario; conserva su justificación.');
   if (!entry || (!isReopenedJust && entry.justificationRound !== round) || !entry.canJustify)
     throw new Error('La justificación no está habilitada: finalice y firme el conteo o reconteo correspondiente.');
   if (!String(explanation || '').trim()) throw new Error('Es obligatorio explicar el resultado, tanto CUADRA como NO CUADRA.');
