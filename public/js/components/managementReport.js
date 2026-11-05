@@ -161,14 +161,13 @@
   function durationTable(rows, showCenter) {
     return `<table data-split><thead><tr>${showCenter ? '<th>Centro</th>' : ''}<th>Inventario</th><th>Primer registro</th><th>Último registro</th><th>Tiempo</th><th>Días</th></tr></thead><tbody>${rows.map(row => `<tr>${showCenter ? `<td class="mr-strong">${esc(row.centerName || row.center)}</td>` : ''}<td>${esc(row.inventoryName)}${row.forcedLabel ? ` · ${esc(row.forcedLabel)}` : ''}</td><td>${esc(row.startLabel)}</td><td>${esc(row.endLabel)}${row.lastEntry ? ` · ${esc(row.lastEntry)}` : ''}</td><td class="mr-strong">${esc(row.timeLabel)}</td><td>${esc(row.dayLabel)}</td></tr>`).join('') || `<tr><td colspan="${showCenter ? 6 : 5}">No disponible</td></tr>`}</tbody></table>`;
   }
-  // The lowest of the three indicators of a closure, the same rule as the columns of the current cut.
+  // The three indicators of a closure, the same rule as the current cut.
   // Closures read before these fields existed only know their units.
-  function closureLowest(closure) {
-    const units = ratio(closure.exactUnits, closure.totalUnits) ?? (closure.eri === null || closure.eri === undefined ? null : num(closure.eri));
-    const known = [['Unidades', units], ['Códigos', ratio(closure.exactCodes, closure.totalCodes)], ['Valor', ratio(closure.exactValue, closure.totalValue)]]
-      .filter(([, value]) => value !== null && value !== undefined);
-    return known.sort((a, b) => a[1] - b[1])[0] || null;
-  }
+  const closureIndicators = closure => ({
+    units: ratio(closure.exactUnits, closure.totalUnits) ?? (closure.eri === null || closure.eri === undefined ? null : num(closure.eri)),
+    codes: ratio(closure.exactCodes, closure.totalCodes),
+    money: ratio(closure.exactValue, closure.totalValue)
+  });
   // Closures of the same type before the current cut, oldest first. Only what the dashboard already read.
   function earlierClosures(c) {
     const history = c.history || [];
@@ -176,20 +175,23 @@
     const firstInCut = history.findIndex(inCut);
     const before = firstInCut >= 0 ? history.slice(0, firstInCut) : history;
     const type = (firstInCut >= 0 ? history[firstInCut] : history[history.length - 1])?.type;
-    return before.filter(closure => closure.type === type).map(closure => {
-      const low = closureLowest(closure);
-      return low && { name: closure.name || closure.id, indicator: low[0], value: low[1] };
-    }).filter(Boolean);
+    return before.filter(closure => closure.type === type).map(closureIndicators);
   }
-  // One row per center, on the same 0 to 100% bar: its lowest indicator at this close, that indicator
-  // at the first count, and its earlier inventories, which name their indicator when it is another one.
+  // One row per center with its three indicators stacked, each on the same 0 to 100% bar: at this close,
+  // at the first count and in its earlier inventories. A row keeps its center whole across sheets.
   const LEVEL_COLORS = { perfect: '#0a5c40', ok: '#12875c', min: '#a86400', no: RED, nil: '#6f7888', forced: '#55637a' };
   function statusChart(rows, pending) {
-    const earlier = row => row.earlier.map(closure => `${pct(closure.value)}${closure.indicator === row.indicator ? '' : ` (${closure.indicator})`}`).join(' → ') || 'Sin anterior';
-    const line = row => `<tr><td class="mr-strong">${esc(row.name)}${row.forcedLabel ? `<br><small>${esc(row.forcedLabel)}</small>` : ''}</td><td>${esc(row.indicator)}</td><td class="num">${esc(row.amount)}</td><td class="num">${row.first === null || row.first === undefined ? 'No disponible' : pct(row.first)}</td><td>${esc(earlier(row))}</td><td>${hbar(Math.min(100, Math.max(0, num(row.value))), 100, 240, LEVEL_COLORS[row.lvl.key], `${row.lvl.icon} ${pct(row.value)}`)}</td></tr>`;
+    const earlier = (row, key) => {
+      if (!row.earlier.length) return 'Sin anterior';
+      return row.earlier.map(closure => closure[key]).filter(value => value !== null && value !== undefined).map(pct).join(' → ') || 'No disponible';
+    };
+    // A forced close is not judged as a failure, on any of its indicators.
+    const lineLevel = (row, value) => { const lvl = level(value); return row.lvl.key === 'forced' && lvl.key === 'no' ? FORCED : lvl; };
+    const stack = (row, cell) => `<div class="mr-state-lines">${row.lines.map(item => `<div>${cell(item)}</div>`).join('')}</div>`;
+    const line = row => `<tr><td class="mr-strong">${esc(row.name)}${row.forcedLabel ? `<br><small>${esc(row.forcedLabel)}</small>` : ''}</td><td>${stack(row, item => esc(item.label))}</td><td class="num">${stack(row, item => esc(item.amount))}</td><td class="num">${stack(row, item => pct(item.first ?? null))}</td><td>${stack(row, item => esc(earlier(row, item.key)))}</td><td>${stack(row, item => { const lvl = lineLevel(row, item.value); return hbar(Math.min(100, Math.max(0, num(item.value))), 100, 240, LEVEL_COLORS[lvl.key], `${lvl.icon} ${pct(item.value ?? null)}`); })}</td></tr>`;
     const missing = c => `<tr><td class="mr-strong">${esc(c.code)} - ${esc(c.name)}</td><td colspan="5">Sin cierre en este corte</td></tr>`;
     const legend = rows.some(row => row.lvl.key === 'forced') ? scaleLegend.replace(/<\/div>$/, `<span><i class="lvl-forced"></i>${FORCED.icon} Cierre forzado: porcentajes reales, sin evaluar como incumplimiento</span></div>`) : scaleLegend;
-    return `<table data-split><thead><tr><th>Centro</th><th>Indicador más bajo</th><th class="num">Correctos</th><th class="num">Primer conteo</th><th>Inventarios anteriores</th><th>Al cierre</th></tr></thead><tbody>${rows.map(line).join('')}${pending.map(missing).join('')}</tbody></table>${legend}`;
+    return `<table data-split><thead><tr><th>Centro</th><th>Indicadores</th><th class="num">Correctos</th><th class="num">Primer conteo</th><th>Inventarios anteriores</th><th>Al cierre</th></tr></thead><tbody>${rows.map(line).join('')}${pending.map(missing).join('')}</tbody></table>${legend}`;
   }
   function eruGroups(first, groups) {
     const lossOf = g => sum(CAUSE_KEYS, key => g.eru.causes[key]);
@@ -401,8 +403,13 @@
     };
     const i = indicators(total);
     const count = key => centers.filter(c => c.lvl.key === key).length;
-    const lowest = c => [['Unidades', c.i.units, `${qty(c.unitsExact)} de ${qty(c.units)}`, c.i.units1], ['Códigos', c.i.codes, `${qty(c.skusExact)} de ${qty(c.skus)}`, c.i.codes1], ['Valor', c.i.money, `Bs ${decimal(c.i.valueExact)} de ${decimal(c.value)}`, c.i.money1]].sort((a, b) => num(a[1]) - num(b[1]))[0];
-    const byWorst = centers.slice().sort((a, b) => num(lowest(a)[1]) - num(lowest(b)[1]));
+    const stateLines = c => [
+      { key: 'units', label: 'Cant.', value: c.i.units, amount: `${qty(c.unitsExact)} de ${qty(c.units)}`, first: c.i.units1 },
+      { key: 'codes', label: 'Línea', value: c.i.codes, amount: `${qty(c.skusExact)} de ${qty(c.skus)}`, first: c.i.codes1 },
+      { key: 'money', label: 'Valor', value: c.i.money, amount: `Bs ${decimal(c.i.valueExact)} de ${decimal(c.value)}`, first: c.i.money1 }
+    ];
+    const lowest = c => Math.min(num(c.i.units), num(c.i.codes), num(c.i.money));
+    const byWorst = centers.slice().sort((a, b) => lowest(a) - lowest(b));
     const met = count('perfect') + count('ok') + count('min');
     const known = centers.length + pending.length;
     const levelsLine = `${count('perfect')} perfecto · ${count('ok')} cumplimiento · ${count('min')} mínimo · ${count('no')} no cumple${count('forced') ? ` · ${count('forced')} cierre forzado` : ''}${pending.length ? ` · ${pending.length} sin cierre` : ''}`;
@@ -423,7 +430,7 @@
         ${kpi({ label: 'Averías', value: bs(total.damage.cost), line: `${qty(total.damage.lines)} líneas · ${qty(total.damage.units)} unidades`, cls: 'top-damage' })}
         ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(total.eru.exact)} de ${qty(total.eru.evaluated)} códigos por almacén`, cls: 'top-info' })}
       </div>
-      ${panel(`Estado por centro · ${levelsLine}`, statusChart(byWorst.map(c => { const low = lowest(c); return { name: c.name, lvl: c.lvl, value: low[1], first: low[3], indicator: low[0], amount: low[2], earlier: earlierClosures(c), forcedLabel: (c.durations || []).map(row => row.forcedLabel).filter(Boolean).join(' · ') }; }), pending))}`, 'Totales calculados sumando las bases de cada centro. Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%.', 'Resumen consolidado');
+      ${panel(`Estado por centro · ${levelsLine}`, statusChart(byWorst.map(c => ({ name: c.name, lvl: c.lvl, lines: stateLines(c), earlier: earlierClosures(c), forcedLabel: (c.durations || []).map(row => row.forcedLabel).filter(Boolean).join(' · ') })), pending))}`, 'Totales calculados sumando las bases de cada centro. Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%.', 'Resumen consolidado');
 
     const kMoney = value => value >= 1e6 ? `${(value / 1e6).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M` : decimal(value);
     const cell = (value, quantity) => `<td class="mr-cell lvl-${level(value).key}">${pct(value)}<small>${quantity}</small></td>`;
