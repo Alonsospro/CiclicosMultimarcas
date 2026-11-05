@@ -335,11 +335,11 @@ test('the state of all centers is one table with bars: its three indicators at t
   const [worst, best, pending] = rows;
   assert.match(html, /<th>Indicadores<\/th>/);
   assert.deepEqual(cellsOf(worst).slice(1), ['Cant.', 'Línea', 'Valor', '15 de 20', '1 de 2', 'Bs 1.500,00 de 2.000,00', '75,00%', '50,00%', '75,00%',
-    'Sin anterior', 'Sin anterior', 'Sin anterior', '✕ 75,00%', '✕ 50,00%', '✕ 75,00%']);
+    '✕ 75,00%', '✕ 50,00%', '✕ 75,00%', 'Sin anterior', 'Sin anterior', 'Sin anterior']);
   assert.match(worst, /1120/);
   assert.match(worst, /width:120px;background:#c9373f/);
   assert.deepEqual(cellsOf(best).slice(1), ['Cant.', 'Línea', 'Valor', '20 de 20', '2 de 2', 'Bs 2.000,00 de 2.000,00', '90,00%', '50,00%', '90,00%',
-    'Sin anterior', 'Sin anterior', 'Sin anterior', '★ 100,00%', '★ 100,00%', '★ 100,00%']);
+    '★ 100,00%', '★ 100,00%', '★ 100,00%', 'Sin anterior', 'Sin anterior', 'Sin anterior']);
   assert.match(best, /width:240px;background:#0a5c40/);
   assert.match(pending, /5100/);
   assert.match(pending, /Sin cierre en este corte/);
@@ -376,9 +376,9 @@ test('the chart compares each center with its earlier inventories of the same ty
   const html = report.render({ name: 'Corte' }, metrics);
   const rows = stateRows(html);
   const center1160 = rows.find(row => row.includes('Centro 1160'));
-  assert.deepEqual(cellsOf(center1160).slice(10, 13), ['75,00% → 95,00%', '50,00% → 75,00%', '75,00% → 95,00%'], 'Each indicator of the earlier cyclic closures, oldest first and without the weekly one');
-  assert.equal(cellsOf(center1160)[13], '★ 100,00%');
-  assert.equal(cellsOf(rows.find(row => row.includes('Centro 1120')))[10], 'Sin anterior');
+  assert.deepEqual(cellsOf(center1160).slice(13, 16), ['75,00% → 95,00%', '50,00% → 75,00%', '75,00% → 95,00%'], 'Each indicator of the earlier cyclic closures, oldest first and without the weekly one');
+  assert.equal(cellsOf(center1160)[10], '★ 100,00%');
+  assert.equal(cellsOf(rows.find(row => row.includes('Centro 1120')))[13], 'Sin anterior');
 });
 
 test('a closure read before the three indicators existed still shows its units', () => {
@@ -388,11 +388,11 @@ test('a closure read before the three indicators existed still shows its units',
     byWarehouse: [], byClass: [], crossWarehouse: [], crossClass: [], flow: { firstDifferences: 0, resolved: 0, stillShort: 0, stillSurplus: 0, appeared: 0 }, inventories: ['NEW'], issues: [],
     history: [{ id: 'OLD', type: 'CICLICO', date: '2026-09-01', eri: 92, totalUnits: 100, exactUnits: 92 }, { id: 'NEW', type: 'CICLICO', date: '2026-10-01', eri: 100, totalUnits: 10, exactUnits: 10 }] };
   const html = report.render({ name: 'Corte' }, { reportData: { centers: [center, { ...center, center: '2', name: 'D', inventories: ['OTHER'], history: [] }], pendingCenters: [] }, discrepanciesList: [], summary: {}, filters: {} });
-  assert.deepEqual(cellsOf(stateRows(html).find(row => row.includes('>C<'))).slice(10, 13), ['92,00%', 'No disponible', 'No disponible']);
+  assert.deepEqual(cellsOf(stateRows(html).find(row => row.includes('>C<'))).slice(13, 16), ['92,00%', 'No disponible', 'No disponible']);
 
   const forced = { ...center, unitsExact: 9, durations: [{ forcedLines: 1 }] };
   const forcedHtml = report.render({ name: 'Corte' }, { reportData: { centers: [forced, { ...center, center: '2', name: 'D', inventories: ['OTHER'], history: [] }], pendingCenters: [] }, discrepanciesList: [], summary: {}, filters: {} });
-  assert.deepEqual(cellsOf(stateRows(forcedHtml).find(row => row.includes('>C<'))).slice(13, 16), ['⚑ 90,00%', '★ 100,00%', '★ 100,00%'], 'A forced close flags the low indicator and is not judged as failing');
+  assert.deepEqual(cellsOf(stateRows(forcedHtml).find(row => row.includes('>C<'))).slice(10, 13), ['⚑ 90,00%', '★ 100,00%', '★ 100,00%'], 'A forced close flags the low indicator and is not judged as failing');
 });
 
 test('a surplus larger than its own line takes no value from the lines that matched', async () => {
