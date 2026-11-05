@@ -406,6 +406,10 @@ test('justifications list the newest inventory first and the oldest last',()=>{
   put(inventory('NEWEST','2026-11-02T10:00:00.000Z'));
   put(inventory('OLDEST','2026-09-01T10:00:00.000Z'));
   assert.equal(service.getPendingJustifications(user).map(task=>task.inventoryId).join(),'NEWEST,MIDDLE,OLDEST,NO-DATE');
+  put({...inventory('CLOSED-NEW','2026-11-03T10:00:00.000Z'),status:'REVISADO',isFinalized:true});
+  put({...inventory('CLOSED-OLD','2026-08-01T10:00:00.000Z'),status:'REVISADO',isFinalized:true});
+  assert.equal(service.getPendingJustifications(user,null,{status:'ALL'}).map(task=>task.inventoryId).join(),
+    'NEWEST,MIDDLE,OLDEST,NO-DATE,CLOSED-NEW,CLOSED-OLD');
 });
 
 test('the server refuses a reason that needs a photo until it comes with one',async()=>{

@@ -1806,8 +1806,9 @@ class InventoryService {
         items: plan.items
       });
     }
-    // Newest first; an inventory without a valid date goes last.
-    return tasks.sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
+    // Active before closed, each newest first; an inventory without a valid date goes last in its group.
+    return tasks.sort((a, b) => Number(!!a.isFinalized) - Number(!!b.isFinalized)
+      || (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
   }
 
   closeTargets(inv) {
