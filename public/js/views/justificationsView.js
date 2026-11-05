@@ -120,7 +120,13 @@ window.JustificationsView = {
         if (this.expandedTaskIds) {
           this.expandedTaskIds.add(inventoryId);
         }
-        await this.loadJustifications();
+        // From Historial, go where the reopened codes are justified; that view loads them.
+        if (this.reopenFromHistory) {
+          this.reopenFromHistory = false;
+          window.Router.navigate('justifications');
+        } else {
+          await this.loadJustifications();
+        }
       } catch (err) {
         window.Toast.danger(err.message || 'Error al reabrir inventario');
       } finally {
@@ -1898,7 +1904,7 @@ window.JustificationsView = {
     }
   },
 
-  openReopenModal(inventoryId) {
+  openReopenModal(inventoryId, preferredPhase = null, fromHistory = false) {
     const task = this.tasks?.find(t => t.inventoryId === inventoryId);
     if (!task) return;
 
@@ -1924,7 +1930,9 @@ window.JustificationsView = {
     setText('reopen-modal-status-badge', task.isFinalized ? 'CERRADO' : String(task.status || '').replace(/_/g, ' '));
 
     const validPhases = ['1ER_CONTEO', 'RECONTEO_1', 'RECONTEO_2', 'JUSTIFICACION'];
-    const phase = validPhases.includes(task.reopenedPhase)
+    this.reopenFromHistory = fromHistory;
+    const phase = validPhases.includes(preferredPhase) ? preferredPhase
+      : validPhases.includes(task.reopenedPhase)
       ? task.reopenedPhase
       : task.hasRecount2 ? 'RECONTEO_2' : task.hasRecount ? 'RECONTEO_1' : '1ER_CONTEO';
     document.querySelectorAll('input[name="reopen-target-phase"]').forEach(radio => { radio.disabled = false; });

@@ -180,22 +180,20 @@ window.HistoryView = {
     }
   },
 
+  // Same window as in Justificaciones, starting on "Solo Justificaciones" to choose the codes justified again.
   async reopen(inventoryId) {
-    let reason = 'Reapertura controlada de inventario';
+    const end = window.DeerLoader?.show('Cargando los códigos del inventario...');
     try {
-      const p = prompt('Ingrese el motivo de la reapertura controlada del inventario:', reason);
-      if (p === null) return;
-      if (p.trim()) reason = p.trim();
-    } catch (e) {
-      // In sandbox/iframe prompt might be blocked
-    }
-
-    try {
-      await window.API.reopenInventory(inventoryId, { reason });
-      window.Toast.success('Inventario reabierto y retornado a lista operativa.');
-      window.Router.navigate('inventories');
+      const res = await window.API.getJustifications(undefined, { status: 'REVISADO', includeFinalized: true });
+      const task = (res.tasks || []).find(t => t.inventoryId === inventoryId);
+      if (!task) throw new Error('No se encontró este inventario cerrado para reabrirlo.');
+      const view = window.JustificationsView;
+      view.tasks = [...(view.tasks || []).filter(t => t.inventoryId !== inventoryId), task];
+      view.openReopenModal(inventoryId, 'JUSTIFICACION', true);
     } catch (err) {
       window.Toast.danger(err.message || 'Error al reabrir inventario');
+    } finally {
+      end?.();
     }
   }
 };
