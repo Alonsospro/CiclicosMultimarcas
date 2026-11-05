@@ -350,7 +350,7 @@
     const differing = c.shortage.lines + c.surplus.lines;
     const conclusion = `El inventario de ${esc(name)} revisó ${qty(s.totalItemsAudited)} líneas y ${qty(c.units)} unidades del sistema, con resultado <b>${esc(overall.label.toLowerCase())}</b>. Al cierre, la exactitud es ${pct(i.units)} en unidades, ${pct(i.codes)} en códigos y ${pct(i.money)} en valor; la ubicación es ${pct(i.eru)}. ${differing ? `Quedan ${qty(differing)} ${differing === 1 ? 'línea' : 'líneas'} con diferencia: ${differencesText(c)}.` : 'No quedan líneas con diferencia.'}${c.damage.lines ? ` Las averías suman ${bs(c.damage.cost)} (${linesOf(c.damage)}).` : ''} Corresponde dar seguimiento a lo pendiente, conservar la evidencia y obtener las autorizaciones de ajuste antes del cierre administrativo.`;
     const closing = closingSheet({ right: small, footer: 'Este documento no reemplaza la autorización formal de un ajuste contable.', group: c, overall, helpers, conclusion,
-      roles: [['Responsable de conteo', counters], ['Responsable de almacén', managers], ['Auditoría · Control de Gestión', []]] });
+      roles: [['Responsable de conteo', counters], ['Responsable de almacén', managers], ['Responsable de Inventarios', ['Humberto Alonso Rios Lino']]] });
     return [page1, page2, page3, page4, ...annexes, closing].join('');
   }
 

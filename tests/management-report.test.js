@@ -641,11 +641,28 @@ test('a center report closes with the names of whoever counted and of its wareho
   assert.ok(role('Responsable de conteo').includes('Contador Real') && role('Responsable de conteo').includes('Segundo Contador'));
   assert.ok(role('Responsable de almacén').includes('Encargado &lt;Real&gt;'));
   assert.equal(closing.includes('Otro Centro'), false);
-  assert.equal(role('Auditoría · Control de Gestión').includes('Real'), false, 'whoever audits signs under the title');
+  assert.ok(role('Responsable de Inventarios').includes('Humberto Alonso Rios Lino'));
+  assert.equal(closing.includes('Control de Gestión</h4>'), false, 'the audit signature is gone');
   assert.equal(html.includes('Encargado del centro'), false, 'the signatures are not repeated earlier');
   const page4 = html.slice(html.indexOf('<b>Principales diferencias y plan de acción</b>'), html.indexOf('Anexo A'));
   assert.equal(page4.includes('mr-signs'), false);
   assert.equal(page4.includes('mr-c2'), false, 'long motives do not overlap in the center report either');
+});
+
+test('center 1120 signs with one warehouse manager even when several hold the role', async () => {
+  const counted = inventory('INV-1120-1', '1120', [line('A', { Responsable: 'brayan', Fecha_Ultimo_Conteo: '2026-10-15' })]);
+  const html = report.render({ name: 'Inventario' }, await load([counted], {}, [
+    { username: 'brayan', displayName: 'Brayan Balderrama', role: 'ENCARGADO', center: '1120' },
+    { username: 'wenderson', displayName: 'Wenderson Da silva', role: 'ENCARGADO', center: '1120' },
+    { username: 'ignacio', displayName: 'Ignacio Suarez Justiniano', role: 'ENCARGADO', center: '1120' }
+  ]));
+  const closing = html.slice(html.lastIndexOf('<section class="mr-sheet"'));
+  const start = closing.indexOf('<h4>Responsable de almacén</h4>');
+  const managers = closing.slice(start, closing.indexOf('<h4>Responsable de Inventarios</h4>'));
+  assert.ok(managers.includes('Ignacio Suarez Justiniano'));
+  assert.equal(managers.includes('Brayan'), false);
+  assert.equal(managers.includes('Wenderson'), false);
+  assert.ok(closing.slice(0, start).includes('Brayan Balderrama'), 'whoever counted still signs as a counter');
 });
 
 test('without differences the closing sheet says so instead of listing empty actions', async () => {

@@ -5,6 +5,8 @@ const counterReliability = require('./counterReliability');
 const contract = require('./inventoryContract');
 const metricsSources = require('./metricsSourceService');
 const reportBreakdown = require('./reportBreakdown');
+// Centers where several people hold the role but only one signs the report.
+const REPORT_WAREHOUSE_MANAGER = {'1120': 'Ignacio Suarez Justiniano'};
 const getInventoryIdentifier = metricsSources.getInventoryIdentifier || (value => {
   const str = typeof value === 'string'
     ? value
@@ -1599,7 +1601,8 @@ class MetricsService {
     const reportCenters = new Set(filtered.map(inv => config.getCenterCode(inv.center)));
     const reportSignatories = {
       counters: uniqueNames(filtered.flatMap(inv => (inv.items || []).filter(item => item.Fecha_Ultimo_Conteo || item.countedAt).map(item => personName(item.Responsable)))),
-      centerManagers: uniqueNames(usersForReport.filter(person => person.role === 'ENCARGADO' && reportCenters.has(config.getCenterCode(person.center))).map(person => person.displayName || person.name || person.username))
+      centerManagers: uniqueNames([...reportCenters].flatMap(center => REPORT_WAREHOUSE_MANAGER[center] ? [REPORT_WAREHOUSE_MANAGER[center]]
+        : usersForReport.filter(person => person.role === 'ENCARGADO' && config.getCenterCode(person.center) === center).map(person => person.displayName || person.name || person.username)))
     };
 
     // Legacy summary fields (chart, compatibility aliases) describe the final
