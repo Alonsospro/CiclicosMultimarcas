@@ -665,6 +665,13 @@ test('center 1120 signs with one warehouse manager even when several hold the ro
   assert.ok(closing.slice(0, start).includes('Brayan Balderrama'), 'whoever counted still signs as a counter');
 });
 
+test('a long inventory name wraps inside its table instead of pushing the bars over the next panel', async () => {
+  const html = report.render({ name: 'Inventario' }, await load([inventory('Inventario_CICLICO_1120_FINAL_20261102_222505', '1120', [line('A')])]));
+  assert.match(html, /<table class="mr-history">/);
+  const css = fs.readFileSync(path.join(__dirname, '../public/css/management-report.css'), 'utf8');
+  assert.match(css, /table\.mr-history td:first-child \{[^}]*overflow-wrap: anywhere/);
+});
+
 test('without differences the closing sheet says so instead of listing empty actions', async () => {
   const html = report.render({ name: 'Inventario' }, await load([inventory('INV-1160-1', '1160', [line('OK')])]));
   const closing = html.slice(html.lastIndexOf('<section class="mr-sheet"'));

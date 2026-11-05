@@ -363,7 +363,7 @@
       return `<tr class="${last ? 'mr-strong' : ''}"><td>${esc(closure.name || closure.id)}</td><td>${esc(new Date(closure.date).toLocaleDateString('es-BO', { timeZone: 'America/La_Paz' }))}</td><td class="num">${qty(closure.exactUnits)}</td><td class="num">${qty(closure.totalUnits)}</td><td><div class="mr-ibar"><span class="mr-track"><i style="width:${Math.max(0, (value - 80) * 5)}%;background:${last ? NAVY : GRAY}"></i><u></u></span>${pct(value)}</div></td></tr>`;
     }).join('');
     const note = history.length === 1 ? '<p class="mr-more">Este centro no tiene un inventario anterior con el que comparar.</p>' : '<p class="mr-more">La barra muestra el porcentaje; la marca oscura es el 95%.</p>';
-    return `<table><thead><tr><th>Inventario</th><th>Cierre</th><th class="num">Correctas</th><th class="num">De</th><th>Porcentaje</th></tr></thead><tbody>${rows}</tbody></table>${note}`;
+    return `<table class="mr-history"><thead><tr><th>Inventario</th><th>Cierre</th><th class="num">Correctas</th><th class="num">De</th><th>Porcentaje</th></tr></thead><tbody>${rows}</tbody></table>${note}`;
   }
   function flowTable(c) {
     const f = c.flow, total = f.firstDifferences;
@@ -534,7 +534,15 @@
         const body = sheet.querySelector('.mr-body');
         const limit = body.getBoundingClientRect().bottom - parseFloat(getComputedStyle(body).paddingBottom || 0);
         const children = Array.from(body.children);
-        const index = children.findIndex(child => child.getBoundingClientRect().bottom > limit + 0.5);
+        const overflowing = () => children.findIndex(child => child.getBoundingClientRect().bottom > limit + 0.5);
+        let index = overflowing();
+        // A sheet with signatures tightens up first, so they stay with the diagnosis they sign.
+        const signsAt = children.findIndex(child => child.classList.contains('mr-signs'));
+        if (index >= 0 && signsAt >= 0) {
+          sheet.classList.add('mr-tight');
+          index = overflowing();
+          if (index === signsAt && index > 0) index -= 1;
+        }
         if (index >= 0) {
           const child = children[index];
           const table = child.matches('table[data-split]') ? child : child.querySelector('table[data-split]');

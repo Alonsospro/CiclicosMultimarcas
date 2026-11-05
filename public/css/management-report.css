@@ -92,13 +92,23 @@
 .mr-text { margin: 0; font-size: 12px; line-height: 1.45; color: var(--mr-ink); }
 .mr-sheet table.mr-diff td:last-child { white-space: normal; min-width: 42%; line-height: 1.3; overflow-wrap: anywhere; }
 .mr-sheet table.mr-actions td { padding-top: 5px; padding-bottom: 5px; line-height: 1.3; }
-.mr-signs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 26px; padding-top: 8px; }
+.mr-signs { display: grid; grid-template-columns: minmax(0, 1.7fr) repeat(2, minmax(0, 1fr)); gap: 26px; padding-top: 4px; }
 .mr-signs-single { display: flex; justify-content: center; }
 .mr-signs-single .mr-sign-role { width: min(320px, 100%); text-align: center; }
 .mr-sign-role h4 { margin: 0 0 2px; color: var(--mr-navy); font-size: 12px; font-weight: 700; }
 .mr-sign-lines { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0 14px; }
-.mr-sign-line i { display: block; height: 42px; border-bottom: 1px solid var(--mr-ink); }
+.mr-sign-line i { display: block; height: 34px; border-bottom: 1px solid var(--mr-ink); }
 .mr-sign-line span { display: block; min-height: 15px; padding-top: 3px; color: var(--mr-ink); font-size: 11px; }
+.mr-sheet.mr-tight .mr-body { gap: 7px; padding-top: 9px; }
+.mr-sheet.mr-tight .mr-text { font-size: 11px; line-height: 1.32; }
+.mr-sheet.mr-tight .mr-panel { padding: 6px 10px; gap: 4px; }
+.mr-sheet.mr-tight .mr-panel.mr-plain { padding: 0; }
+.mr-sheet.mr-tight table.mr-actions td { padding-top: 3px; padding-bottom: 3px; }
+.mr-sheet.mr-tight .mr-sign-line i { height: 26px; }
+/* A long inventory name wraps instead of pushing the bars over the next panel. */
+.mr-sheet table.mr-history td { white-space: nowrap; }
+.mr-sheet table.mr-history td:first-child { white-space: normal; overflow-wrap: anywhere; }
+.mr-sheet table.mr-history .mr-track { width: 80px; }
 
 @media print {
   .mr-report { display: block; width: auto; }
