@@ -1655,7 +1655,7 @@ window.JustificationsView = {
     if (amountInput) {
       const saved = item[this.currentIsSecondJustification ? 'Cantidad_Justificada_2' : 'Cantidad_Justificada_1'];
       amountInput.value = window.InventoryContract?.has(saved) ? Math.abs(Number(saved)) : '0';
-      amountInput.oninput = () => this.refreshCompensation(item);
+      amountInput.oninput = () => this.refreshCompensation(item, false, true);
     }
     if (corrSelect) corrSelect.onchange = () => this.refreshCompensation(item, true);
     this.refreshCompensation(item);
@@ -1670,7 +1670,7 @@ window.JustificationsView = {
     if (mark) mark.hidden = !window.JustificationPhotoRule.needsPhoto(document.getElementById('just-select-reason')?.value);
   },
 
-  refreshCompensation(item, decisionChanged = false) {
+  refreshCompensation(item, decisionChanged = false, quantityTyped = false) {
     const panel = document.getElementById('just-compensation-panel');
     const input = document.getElementById('just-compensation-quantity');
     const hint = document.getElementById('just-compensation-hint');
@@ -1684,13 +1684,14 @@ window.JustificationsView = {
     panel.hidden = total === 0;
     panel.style.display = total === 0 ? 'none' : '';
     if (total === 0) return;
-    // Writing the whole difference is CUADRA; leaving CUADRA starts again from nothing justified.
+    // Writing the whole difference is CUADRA and writing anything else is not; leaving CUADRA
+    // from the list starts again from nothing justified.
+    if (quantityTyped && select.value === 'CUADRA' && Number(input.value) !== total) select.value = 'NO_CUADRA';
     if (select.value !== 'CUADRA' && !decisionChanged && Number(input.value) === total) select.value = 'CUADRA';
     if (select.value !== 'CUADRA' && decisionChanged && Number(input.value) === total) input.value = '0';
     const isCuadra = select.value === 'CUADRA';
     if (isCuadra) input.value = String(total);
     input.max = String(total);
-    input.readOnly = isCuadra;
     input.disabled = !item.canJustify;
     input.required = false;
     const units = Number(input.value === '' ? 0 : input.value);

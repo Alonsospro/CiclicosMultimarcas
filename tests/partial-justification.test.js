@@ -252,7 +252,6 @@ test('justification form: the manager types the quantity and sees what really re
   select.value = 'NO_CUADRA';
   input.value = '6';
   view.refreshCompensation(item);
-  assert.equal(input.readOnly, false);
   assert.equal(element('just-compensation-panel').hidden, false);
   assert.match(hint.textContent, /Faltante contado: 7\. Justificado: 6\. Falta realmente: 1 \(Bs\. 50\.00\)/);
 
@@ -264,7 +263,6 @@ test('justification form: the manager types the quantity and sees what really re
   input.value = '7';
   view.refreshCompensation(item);
   assert.equal(select.value, 'CUADRA', 'Justifying everything turns into CUADRA');
-  assert.equal(input.readOnly, true);
   assert.match(hint.textContent, /Queda sin diferencia/);
 
   select.value = 'NO_CUADRA';
@@ -276,6 +274,35 @@ test('justification form: the manager types the quantity and sees what really re
   input.value = '6';
   view.refreshCompensation(item, true);
   assert.equal(input.value, '6');
+});
+
+test('justification form: under CUADRA the quantity can be edited, and less than the difference becomes NO CUADRA', () => {
+  const {view, element} = browser();
+  const item = {...row(), canJustify:true};
+  const select = element('just-select-corroboration'), input = element('just-compensation-quantity'), hint = element('just-compensation-hint');
+  element('just-compensation-panel');
+  view.currentIsSecondJustification = false;
+  select.value = 'CUADRA';
+  input.value = '0';
+  view.refreshCompensation(item);
+  assert.equal(input.value, '7', 'Opening under CUADRA still proposes the whole difference');
+  assert.equal(select.value, 'CUADRA');
+  assert.notEqual(input.readOnly, true);
+
+  input.value = '6';
+  view.refreshCompensation(item, false, true);
+  assert.equal(input.value, '6', 'The typed quantity is kept');
+  assert.equal(select.value, 'NO_CUADRA');
+  assert.match(hint.textContent, /Justificado: 6\. Falta realmente: 1 \(Bs\. 50\.00\)/);
+
+  input.value = '7';
+  view.refreshCompensation(item, false, true);
+  assert.equal(select.value, 'CUADRA', 'Typing the whole difference again goes back to CUADRA');
+
+  input.value = '';
+  view.refreshCompensation(item, false, true);
+  assert.equal(input.value, '', 'Clearing the field to type another number does not fill it back');
+  assert.equal(select.value, 'NO_CUADRA');
 });
 
 test('justification form: without a difference there is nothing to type', () => {
