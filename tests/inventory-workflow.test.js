@@ -398,6 +398,16 @@ function browser() {
   return {view:window.JustificationsView,element,messages,saves};
 }
 
+test('justifications list the newest inventory first and the oldest last',()=>{
+  const {service,put}=fixture();
+  const inventory=(id,createdAt)=>({id,type:'CICLICO',name:id,status:'PENDIENTE_JUSTIFICACION',center:'1120',createdAt,items:[counted(id)]});
+  put(inventory('MIDDLE','2026-10-15T10:00:00.000Z'));
+  put(inventory('NO-DATE',undefined));
+  put(inventory('NEWEST','2026-11-02T10:00:00.000Z'));
+  put(inventory('OLDEST','2026-09-01T10:00:00.000Z'));
+  assert.equal(service.getPendingJustifications(user).map(task=>task.inventoryId).join(),'NEWEST,MIDDLE,OLDEST,NO-DATE');
+});
+
 test('the server refuses a reason that needs a photo until it comes with one',async()=>{
   const {service,put}=fixture();
   const item={...counted('A'),Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null};

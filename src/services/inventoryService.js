@@ -1793,7 +1793,7 @@ class InventoryService {
       if (options.status === 'REVISADO' && !plan.finalized) continue;
       tasks.push({
         inventoryId: inv.id, inventoryName: inv.name, type: inv.type, center: inv.center, status: inv.status,
-        isFinalized: plan.finalized, closedAt: inv.closedAt || null, closedBy: inv.closedBy || null,
+        createdAt: inv.createdAt || null, isFinalized: plan.finalized, closedAt: inv.closedAt || null, closedBy: inv.closedBy || null,
         driveFileName: inv.driveFileName || null, spreadsheetUrl: inv.spreadsheetUrl || null,
         driveUrl: inv.driveUrl || null, previousSpreadsheetUrl: inv.previousSpreadsheetUrl || null,
         phase: inv.phase || 'CONTEO', isReconteo: !!inv.isReconteo,
@@ -1806,7 +1806,8 @@ class InventoryService {
         items: plan.items
       });
     }
-    return tasks;
+    // Newest first; an inventory without a valid date goes last.
+    return tasks.sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0));
   }
 
   closeTargets(inv) {
