@@ -1453,7 +1453,8 @@ class InventoryService {
       photoJustificacion:p.driveUrl||p.photoUrl||'',
       fotosJustificacion:Array.isArray(p.photoUrls)?p.photoUrls.map(photo=>photo.driveUrl||photo.photoUrl).filter(Boolean):[],
       spreadsheetUrl:inv.spreadsheetUrl||inv.driveUrl||null,
-      workflow:{version:1,status:inv.status,round,countStage:round===1||!(workflow.countStage(inv)||inv.hasRecount||inv.hasRecount2)?0:workflow.recountStageOf(inv,item),
+      // A reopened justification reviews each code in its own round, as the script checks.
+      workflow:{version:1,status:inv.reopenedPhase==='JUSTIFICACION'?(round===1?'PENDIENTE_JUSTIFICACION':'RECONTEO_COMPLETADO'):inv.status,round,countStage:round===1||!(workflow.countStage(inv)||inv.hasRecount||inv.hasRecount2)?0:workflow.recountStageOf(inv,item),
         reopenedPhase:inv.reopenedPhase||null}};
     const local=contract.update(item,payload);
     const quantityKey=round===2?'Cantidad_Justificada_2':'Cantidad_Justificada_1';

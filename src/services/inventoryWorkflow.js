@@ -123,16 +123,19 @@ function plan(inv, child, records = []) {
     && childFinished
     && recountRequired.every(item => hasCount(item, stageOf(item), recountSince)));
   const reopeningJustification = inv.reopenedPhase === 'JUSTIFICACION';
-  // Justification reopened for some codes only: those need a new review, the others keep the one they closed with.
+  // Justification reopened for some codes only: those need a new review of their own round, the others keep
+  // the one they closed with. Without a list nothing is invalidated: every code may be reviewed again.
   const reopenKeys = reopeningJustification && Array.isArray(inv.reopenItemKeys) && inv.reopenItemKeys.length
     ? new Set(inv.reopenItemKeys) : null;
   const rows = (inv.items || []).map(item => {
     const reopened = !reopenKeys || reopenKeys.has(contract.member(item));
-    const first = review(item, 1, records, inv.firstReviewNotBefore);
-    const second = review(item, 2, records, reopenKeys && reopened ? inv.reopenReviewNotBefore : secondSince(item));
+    const fresh = reopenKeys && reopened ? inv.reopenReviewNotBefore : null;
+    const first = review(item, 1, records, fresh || inv.firstReviewNotBefore);
+    const second = review(item, 2, records, fresh || secondSince(item));
     const recounted = keys.has(contract.member(item));
-    // Reopening the justification phase targets the second justification fields of the reopened codes.
-    const round = reopeningJustification && reopened ? 2 : (recounted ? 2 : 1);
+    // A code goes to the second justification only through its recount, also when reopened: Sheets refuses
+    // a second review of a code whose first one was CUADRA.
+    const round = recounted ? 2 : 1;
     const current = round === 2 ? second : first;
     const stage = recounted ? stageOf(item) : 0;
     const countSince = !stage ? inv.countNotBefore
@@ -229,9 +232,8 @@ function assertJustification(inv, item, round, context, explanation) {
     contract.member(it) === contract.member(item) ||
     (skuMatches(it.SKU, item.SKU) && contract.identity(it.Almacen) === contract.identity(item.Almacen)) ||
     skuMatches(it.SKU, item.SKU));
-  const isReopenedJust = inv.reopenedPhase === 'JUSTIFICACION';
   if (entry?.reopenLocked) throw new Error('Este código no fue habilitado al reabrir el inventario; conserva su justificación.');
-  if (!entry || (!isReopenedJust && entry.justificationRound !== round) || !entry.canJustify)
+  if (!entry || entry.justificationRound !== round || !entry.canJustify)
     throw new Error('La justificación no está habilitada: finalice y firme el conteo o reconteo correspondiente.');
   if (!String(explanation || '').trim()) throw new Error('Es obligatorio explicar el resultado, tanto CUADRA como NO CUADRA.');
 }

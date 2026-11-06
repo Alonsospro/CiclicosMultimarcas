@@ -1102,17 +1102,20 @@ test('reopening justification for chosen codes asks only for those and keeps the
   assert.deepEqual([kept.reopenLocked,kept.canJustify,kept.reviewComplete],[true,false,true]);
   assert.equal(task.pendingJustificationsCount,1);
   assert.equal(task.reopenItemKeys.join(),contract.member(a));
-  await assert.rejects(save('INV',b,'NO CUADRA',2,'Otra explicación.'),/no fue habilitado/);
-  await save('INV',a,'NO CUADRA',2,'Se encontró la salida de una pieza.');
+  assert.equal(reopened.justificationRound,1,'A code that matched at its first review is reviewed again in that round');
+  await assert.rejects(save('INV',b,'NO CUADRA',1,'Otra explicación.'),/no fue habilitado/);
+  await assert.rejects(save('INV',a,'NO CUADRA',2,'Ronda equivocada.'),/no está habilitada/);
+  await save('INV',a,'NO CUADRA',1,'Se encontró la salida de una pieza.');
   assert.equal(service.getPendingJustifications(user)[0].canClose,true);
   await service.finishReviewAndClose({inventoryId:'INV',user});
   const closed=closures.at(-1).inventory.items;
-  assert.equal(closed.find(item=>item.SKU==='A').Estado_Justificacion_2,'NO CUADRA');
+  assert.equal(closed.find(item=>item.SKU==='A').Estado,'NO CUADRA');
+  assert.equal(closed.find(item=>item.SKU==='A').Comentario_Justificacion,'Se encontró la salida de una pieza.');
   assert.equal(closed.find(item=>item.SKU==='B').Estado,'CUADRA');
   assert.equal(closed.find(item=>item.SKU==='B').Comentario_Justificacion,'Guía de remisión de B.');
 });
 
-test('reopening justification without a list of codes still asks for all of them',async()=>{
+test('reopening justification without a list of codes keeps every review and lets any code be reviewed again',async()=>{
   const {service,put,save}=fixture(),a=counted('A'),b=counted('B');
   put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
   service.submitInventoryForReview({inventoryId:'INV',user});
@@ -1122,5 +1125,31 @@ test('reopening justification without a list of codes still asks for all of them
   await service.reopenInventory({inventoryId:'INV',user,targetPhase:'JUSTIFICACION',syncFromGAS:false});
   const task=service.getPendingJustifications(user)[0];
   assert.equal(task.reopenItemKeys,null);
-  assert.ok(task.items.every(item=>!item.reopenLocked&&item.canJustify));
+  assert.ok(task.items.every(item=>!item.reopenLocked&&item.canJustify&&item.justificationRound===1));
+  assert.equal(task.pendingJustificationsCount,0);
+  assert.equal(task.canClose,true);
+});
+
+test('a reopened inventory with a recount asks again for nothing: matched codes stay in the first round, recounted ones in the second',async()=>{
+  const {service,put,save}=fixture(),a=counted('A'),b=counted('B');
+  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
+  service.submitInventoryForReview({inventoryId:'INV',user});
+  await save('INV',a,'CUADRA'); await save('INV',b,'NO CUADRA');
+  const rec=service.enableRecount({inventoryId:'INV',user}).recountInventory;
+  await service.updateCount({inventoryId:rec.id,itemId:rec.items[0].id,stockFisico:9,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:rec.id,user});
+  await save('INV',b,'NO CUADRA',2,'Falta una pieza tras el reconteo.');
+  await service.finishReviewAndClose({inventoryId:'INV',user});
+  await service.reopenInventory({inventoryId:'INV',user,targetPhase:'JUSTIFICACION',syncFromGAS:false});
+  let task=service.getPendingJustifications(user)[0];
+  assert.equal(task.status,'RECONTEO_COMPLETADO');
+  assert.deepEqual(['A','B'].map(sku=>task.items.find(item=>item.SKU===sku).justificationRound),[1,2]);
+  assert.equal(task.pendingJustificationsCount,0,task.closeBlockers.join(' '));
+  assert.equal(task.canClose,true);
+  // Choosing the matched code reviews it again in its first round, which the script accepts while the recount is complete.
+  await service.reopenInventory({inventoryId:'INV',user,targetPhase:'JUSTIFICACION',syncFromGAS:false,itemKeys:[contract.member(a)]});
+  task=service.getPendingJustifications(user)[0];
+  assert.equal(task.pendingJustificationsCount,1);
+  await save('INV',a,'CUADRA',1,'Se revisó de nuevo la guía.');
+  assert.equal(service.getPendingJustifications(user)[0].canClose,true);
 });
