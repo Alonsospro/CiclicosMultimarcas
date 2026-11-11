@@ -223,7 +223,7 @@ class MetricsService {
     const metricsValid = filtered.length > 0;
     const metricsComplete = metricsValid && selected.length === filtered.length &&
       (cleanInventoryId !== 'TODOS' || discoveryIssues.length === 0);
-    const option = inv => ({id:inv.id, inventoryId:inv.inventoryId, name:inv.name, type:inv.type,
+    const option = inv => ({id:inv.id, inventoryId:inv.inventoryId, name:inv.name, inventoryName:inv.inventoryName || null, type:inv.type,
       center:inv.center, status:inv.status, createdAt:inv.closedAt || inv.createdAt,
       totalItems:inv.totalItems ?? (inv.items || []).length, isHistory:!!inv.isHistory,
       aliases:inv.aliases || [], driveFileId:inv.driveFileId,

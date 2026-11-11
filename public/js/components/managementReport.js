@@ -121,7 +121,7 @@
 
   const scaleLegend = `<div class="mr-legend">${Object.values(LEVELS).slice().reverse().map(lvl => `<span><i class="lvl-${lvl.key}"></i>${lvl.key === 'no' ? 'Menos de 95%: no cumple' : lvl.key === 'min' ? '95% a menos de 98%: mínimo' : lvl.key === 'ok' ? '98% o más: cumplimiento' : '100%: perfecto'}</span>`).join('')}</div>`;
 
-  const sheet = (title, right, body, footer, label) => `<section class="mr-sheet" aria-label="${esc(label || title)}"><header class="mr-band"><b>${esc(title)}</b><span>${right}</span></header><div class="mr-body">${body}</div><footer class="mr-foot"><span>${footer}</span><span class="mr-page-no"></span></footer></section>`;
+  const sheet = (title, right, body, footer, label, subtitle) => `<section class="mr-sheet" aria-label="${esc(label || title)}"><header class="mr-band"><b>${esc(title)}${subtitle ? `<small>${esc(subtitle)}</small>` : ''}</b><span>${right}</span></header><div class="mr-body">${body}</div><footer class="mr-foot"><span>${footer}</span><span class="mr-page-no"></span></footer></section>`;
   const panel = (title, content, cls = '') => `<section class="mr-panel ${cls}"><h3>${esc(title)}</h3>${content}</section>`;
 
   const differences = list => {
@@ -269,11 +269,12 @@
     const helpers = differences(list);
     const name = c.name || c.center;
     const closedAt = c.lastClosedAt ? new Date(c.lastClosedAt).toLocaleDateString('es-BO', { timeZone: 'America/La_Paz' }) : 'Sin fecha';
-    const title = `${name} · ${inv?.name || 'Inventario'}`;
+    // The center on top and, below it, the name the inventory was created with.
+    const created = inv?.inventoryName || inv?.name || inv?.id || 'Inventario';
     const right = `${chip(overall)}`;
-    const small = `${esc(name)} · ${esc(inv?.name || inv?.id || '')}`;
+    const small = `${esc(name)} · ${esc(created)}`;
 
-    const page1 = sheet(title, `Cierre ${esc(closedAt)} &nbsp; ${right}`, `
+    const page1 = sheet(name, `Cierre ${esc(closedAt)} &nbsp; ${right}`, `
       <div class="mr-row mr-c4">
         ${kpi({ label: 'Unidades correctas', value: pct(i.units), status: level(i.units), pair: [i.units1, i.units], line: `${qty(c.unitsExact)} de ${qty(c.units)} unidades`, sub: `Primer conteo: ${qty(c.unitsExact1)} (${pct(i.units1)})` })}
         ${kpi({ label: 'Códigos correctos', value: pct(i.codes), status: level(i.codes), pair: [i.codes1, i.codes], line: `${qty(c.skusExact)} de ${qty(c.skus)} códigos`, sub: `Primer conteo: ${qty(c.skusExact1)} (${pct(i.codes1)})` })}
@@ -293,7 +294,7 @@
       <div class="mr-row mr-c2">
         ${panel('Faltantes por código · cada bloque es su peso en Bs', treemap(codeBlocks(helpers.shortages, helpers.cost, c.shortage.cost, RED), 500, 104))}
         ${panel('Sobrantes por código · cada bloque es su peso en Bs', treemap(codeBlocks(helpers.surpluses, helpers.cost, c.surplus.cost, BLUE), 500, 104))}
-      </div>`, 'Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%. Para alcanzar un nivel, unidades, códigos y valor deben cumplirlo los tres. ' + DURATION_NOTE, 'Resumen del centro');
+      </div>`, 'Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%. Para alcanzar un nivel, unidades, códigos y valor deben cumplirlo los tres. ' + DURATION_NOTE, 'Resumen del centro', created);
 
     const page2 = sheet('Dónde está el problema', small, `
       ${panel('Por almacén', breakdownTable('Almacén', c.byWarehouse, c), 'mr-plain')}

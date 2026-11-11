@@ -306,3 +306,13 @@ test('a closure known only from Drive falls back to its closing date for the mon
   const other=await f.service.load({month:'2026-09'});
   assert.equal(other[0].sourceValidation.status,'not_requested');
 });
+
+test('a closed inventory read from its final file keeps the name it was created with',async()=>{
+  const closedCopy={inventoryId:'INV',fileId:'copy_5100',fileName:'Inventario_CICLICO_5100_FINAL_20261020_120000',type:'CICLICO',center:'5100',
+    spreadsheetUrl:url,items:[base],manifest:model.createManifest({id:'INV',center:'5100',type:'CICLICO',items:[base]})};
+  const local={...closedCopy,id:'INV',name:'CICLICO-5100-2026-10-20',status:'REVISADO',closedAt:'2026-10-20T12:00:00.000Z'};
+  delete local.fileName;
+  const f=sourceFixture({active:[local],history:[closedCopy]});
+  const metrics=await dashboard(f.service).getDashboardMetrics({type:'CICLICO',center:'5100',inventoryId:'INV'});
+  assert.equal(metrics.selectedInventory.inventoryName,'CICLICO-5100-2026-10-20');
+});

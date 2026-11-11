@@ -686,3 +686,12 @@ test('without differences the closing sheet says so instead of listing empty act
   assert.ok(closing.includes('No quedan faltantes ni sobrantes por regularizar.'));
   assert.ok(closing.includes('No quedan líneas con diferencia.'));
 });
+
+test('the center report title shows the center and, below it, the name the inventory was created with', async () => {
+  const metrics = await load([inventory('INV-SEMANAL-1300-1', '1300', [line('A')])]);
+  const html = report.render({ name: 'Inventario_SEMANAL_1300_FINAL_20261109_101500', inventoryName: 'SEMANAL-1300-2026-11-09' }, metrics);
+  const band = html.match(/<header class="mr-band"><b>(.*?)<\/b>/)[1];
+  assert.match(band, /^[^<]*1300[^<]*<small>SEMANAL-1300-2026-11-09<\/small>$/);
+  assert.equal(band.includes('FINAL'), false, 'The final file name is not the title');
+  assert.equal(html.includes('Inventario_SEMANAL_1300_FINAL'), false);
+});

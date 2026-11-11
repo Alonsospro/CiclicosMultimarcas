@@ -10,6 +10,7 @@
   width: 1122px; height: 793px; display: flex; flex-direction: column; background: #fff; color: var(--mr-ink); overflow: hidden; font-size: 12px; line-height: 1.32; box-shadow: 0 6px 18px rgba(20, 35, 70, .18); }
 .mr-band { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 11px 26px; background: var(--mr-navy); color: #fff; flex: none; }
 .mr-band b { font-size: 18px; line-height: 1.15; font-weight: 700; }
+.mr-band b small { display: block; margin-top: 3px; font-size: 13px; font-weight: 600; color: #d3def2; }
 .mr-band span { font-size: 12px; color: #d3def2; white-space: nowrap; }
 .mr-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 26px 6px; overflow: hidden; }
 .mr-body > * { flex: none; min-width: 0; }

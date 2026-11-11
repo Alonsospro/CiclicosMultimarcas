@@ -245,6 +245,8 @@ class MetricsSourceService {
     const reopened = !closed(anchor) && !!anchor.reopenedAt;
     const linked = reopened ? null : (closed(anchor) ? primary.find(r => closed(r) && sheetKey(r)) : (primary.find(r => sheetKey(r)) || null));
     const record = { ...anchor, creationDate: creationDateOf(group), items: [], aliases: [...new Set(group.flatMap(r => [r.id, r.inventoryId, r.fileId, r.driveFileId, r.fileName]).filter(Boolean))] };
+    // The name the inventory was created with; closed copies are named after their final file.
+    record.inventoryName = group.find(r => !r.isHistory && !child(r) && r.name)?.name || group.map(r => r.inventoryName).find(Boolean) || null;
     if (linked) {
       record.spreadsheetUrl = group.find(r => sheetKey(r) === sheetKey(linked) && /[#&?]gid=\d+/.test(r.spreadsheetUrl || ''))?.spreadsheetUrl || linked.spreadsheetUrl || linked.driveUrl;
       record.driveFileId = sheetKey(linked);
