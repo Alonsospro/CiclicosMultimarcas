@@ -700,7 +700,8 @@ test('forced close is refused while a count or recount is unsigned, and the rout
   assert.match(routes,/const \{[^}]*requireExactAlonso[^}]*\} = require\('\.\.\/middlewares\/authMiddleware'\)/);
   assert.match(routes,/router\.post\('\/:id\/force-close', authenticate, requireExactAlonso,/);
   const view=fs.readFileSync(path.join(root,'public/js/views/justificationsView.js'),'utf8');
-  assert.match(view,/task\.canForceClose && !task\.canClose && window\.Auth\?\.isExactAlonso\?\.\(\)/);
+  assert.match(view,/const forceClose = task\.canForceClose && window\.Auth\?\.isExactAlonso\?\.\(\)/);
+  assert.equal((view.match(/\$\{forceClose\}/g)||[]).length,3,'Offered with recount, with the normal close and with the blockers');
 });
 
 test('only the exact Alonso username passes the forced close guard',()=>{

@@ -367,12 +367,13 @@ window.JustificationsView = {
   reviewAction(task) {
     if (task.isFinalized || task.status === 'REVISADO') return '<span class="badge badge-success">Finalizado en Drive · Solo lectura</span>';
     if (task.status === 'EN_RECONTEO') return '<span class="badge badge-info">Reconteo en curso · Justificación bloqueada</span>';
-    const forceClose = task.canForceClose && !task.canClose && window.Auth?.isExactAlonso?.() ? ` <button type="button" id="btn-force-close-${task.inventoryId}" class="btn btn-danger" onclick="window.JustificationsView.forceClose('${task.inventoryId}')"><i class="fa-solid fa-lock"></i> Cierre forzado</button>` : '';
+    // Always offered to Alonso while it applies, also when the inventory can already close normally.
+    const forceClose = task.canForceClose && window.Auth?.isExactAlonso?.() ? ` <button type="button" id="btn-force-close-${task.inventoryId}" class="btn btn-danger" onclick="window.JustificationsView.forceClose('${task.inventoryId}')"><i class="fa-solid fa-lock"></i> Cierre forzado</button>` : '';
     const finish = `<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>`;
     // With NO CUADRA at the first review, the recount is optional: the inventory may also close as it is.
     if (task.canEnableRecount) return `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableRecount('${task.inventoryId}')">Habilitar Reconteo</button>${task.canClose ? ` ${finish}` : ''}${forceClose}`;
     const secondRecount = task.canEnableRecount2 ? `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableSecondRecount('${task.inventoryId}')">Habilitar 2do Reconteo</button> ` : '';
-    if (task.canClose) return `${secondRecount}<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>`;
+    if (task.canClose) return `${secondRecount}<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>${forceClose}`;
     const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
     const blockers = Array.isArray(task.closeBlockers) && task.closeBlockers.length ? task.closeBlockers : ['Complete las justificaciones pendientes para continuar'];
     return `<div class="badge badge-warning" style="display:block; white-space:normal; text-align:left; line-height:1.4;"><strong>No se puede finalizar todavía:</strong>${blockers.map(b => `<br>• ${escape(b)}`).join('')}</div>${forceClose}`;
