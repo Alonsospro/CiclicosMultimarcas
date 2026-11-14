@@ -212,7 +212,8 @@ for (const [label,schema] of [['cyclic',{}],['weekly',{Schema_Version:contract.w
     assert.equal(gasCalls.at(-1).justifiedQuantity,6);
     assert.equal(contract.differenceDetail(service.getInventoryRaw('PART').items[0]).remaining,-1);
     assert.equal(first.reviewItem.reviewComplete,true);
-    assert.equal(first.reviewState.canClose,false,'NO CUADRA still needs its recount');
+    assert.equal(first.reviewState.canClose,true,'NO CUADRA may close without a recount');
+    assert.equal(first.reviewState.canEnableRecount,true,'The recount stays available');
 
     const child=service.enableRecount({inventoryId:'PART',user}).recountInventory;
     await service.updateCount({inventoryId:child.id,itemId:child.items[0].id,stockFisico:3,malEstado:0,user});
@@ -1152,4 +1153,22 @@ test('a reopened inventory with a recount asks again for nothing: matched codes 
   assert.equal(task.pendingJustificationsCount,1);
   await save('INV',a,'CUADRA',1,'Se revisó de nuevo la guía.');
   assert.equal(service.getPendingJustifications(user)[0].canClose,true);
+});
+
+test('the first justification can close with NO CUADRA items, keeping their difference for administration',async()=>{
+  const {service,put,save,closures}=fixture(),a=counted('A'),b=counted('B');
+  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
+  service.submitInventoryForReview({inventoryId:'INV',user});
+  await save('INV',a,'CUADRA',1,'Guía de remisión.');
+  let task=service.getPendingJustifications(user)[0];
+  assert.equal(task.canClose,false,'Every first justification is still required');
+  assert.ok(task.closeBlockers.some(b=>/1 justificación\(es\) pendiente/.test(b)));
+  await save('INV',b,'NO CUADRA',1,'Se resolverá con administración.');
+  task=service.getPendingJustifications(user)[0];
+  assert.equal(task.canClose,true,task.closeBlockers.join(' '));
+  assert.equal(task.canEnableRecount,true);
+  await service.finishReviewAndClose({inventoryId:'INV',user});
+  const closed=closures.at(-1).inventory.items.find(item=>item.SKU==='B');
+  assert.equal(closed.Estado,'NO CUADRA');
+  assert.equal(closed.Diferencia,-2);
 });

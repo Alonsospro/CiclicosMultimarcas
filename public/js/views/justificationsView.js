@@ -368,7 +368,9 @@ window.JustificationsView = {
     if (task.isFinalized || task.status === 'REVISADO') return '<span class="badge badge-success">Finalizado en Drive · Solo lectura</span>';
     if (task.status === 'EN_RECONTEO') return '<span class="badge badge-info">Reconteo en curso · Justificación bloqueada</span>';
     const forceClose = task.canForceClose && !task.canClose && window.Auth?.isExactAlonso?.() ? ` <button type="button" id="btn-force-close-${task.inventoryId}" class="btn btn-danger" onclick="window.JustificationsView.forceClose('${task.inventoryId}')"><i class="fa-solid fa-lock"></i> Cierre forzado</button>` : '';
-    if (task.canEnableRecount) return `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableRecount('${task.inventoryId}')">Habilitar Reconteo</button>${forceClose}`;
+    const finish = `<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>`;
+    // With NO CUADRA at the first review, the recount is optional: the inventory may also close as it is.
+    if (task.canEnableRecount) return `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableRecount('${task.inventoryId}')">Habilitar Reconteo</button>${task.canClose ? ` ${finish}` : ''}${forceClose}`;
     const secondRecount = task.canEnableRecount2 ? `<button type="button" class="btn btn-warning" onclick="window.JustificationsView.enableSecondRecount('${task.inventoryId}')">Habilitar 2do Reconteo</button> ` : '';
     if (task.canClose) return `${secondRecount}<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>`;
     const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
@@ -2222,7 +2224,9 @@ window.JustificationsView = {
       return;
     }
 
-    if (!confirm('¿Está seguro de terminar la justificación de este inventario?\n\nEsto cerrará el inventario, creará el archivo oficial en Google Drive y actualizará el botón a estado finalizado.')) {
+    const unresolved = (task.items || []).filter(item => item.justificationRound === 1 && String(item.reviewStatus || '').replace(/_/g, ' ').toUpperCase() === 'NO CUADRA').length;
+    const unresolvedNote = unresolved ? `\n\n${unresolved} ítem(s) quedaron NO CUADRA sin reconteo: se cierran con su diferencia para resolverla con administración.` : '';
+    if (!confirm(`¿Está seguro de terminar la justificación de este inventario?\n\nEsto cerrará el inventario, creará el archivo oficial en Google Drive y actualizará el botón a estado finalizado.${unresolvedNote}`)) {
       return;
     }
 

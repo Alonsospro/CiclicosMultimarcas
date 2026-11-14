@@ -172,8 +172,8 @@ function plan(inv, child, records = []) {
   const secondNoCuadra = rows.filter(item => keys.has(contract.member(item)) && item.reviewComplete && item.reviewStatus === 'NO CUADRA');
   const canClose =!finalized && ['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO'].includes(inv.status)
     && countComplete && recountComplete && !pending.length
-    && (reopeningJustification || isReconteoStage || (!initialPending.length
-      && noCuadra.every(item => keys.has(contract.member(item)))));
+    // NO CUADRA at the first review may close without a recount: those differences are settled with administration.
+    && (reopeningJustification || isReconteoStage || !initialPending.length);
   const closeBlockers = finalized || canClose ? [] : closeBlockersFor({inv, child, keys, members, recountRequired,
     stageOf, recountSince, childFinished, isReconteoStage, pending, initialPending, noCuadra, reopeningJustification});
   return {items: rows, keys, initialPending, noCuadra, secondNoCuadra, pending, finalized, canClose, closeBlockers,
@@ -214,8 +214,6 @@ function closeBlockersFor({inv, child, keys, members, recountRequired, stageOf, 
   if (pending.length) blockers.push(`${pending.length} justificación(es) pendiente(s): ${list(pending)}.`);
   if (!reopeningJustification && !isReconteoStage) {
     if (initialPending.length) blockers.push(`${initialPending.length} primera(s) justificación(es) pendiente(s): ${list(initialPending)}.`);
-    const notRecounted = noCuadra.filter(item => !keys.has(contract.member(item)));
-    if (notRecounted.length) blockers.push(`${notRecounted.length} ítem(s) NO CUADRA deben recontarse antes de cerrar: ${list(notRecounted)}.`);
   }
   return blockers.length ? blockers : ['Condición de cierre no identificada; revise el inventario.'];
 }
