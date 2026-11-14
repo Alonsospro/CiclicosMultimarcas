@@ -1099,6 +1099,8 @@ test('reopening justification for chosen codes asks only for those and keeps the
   await assert.rejects(service.reopenInventory({inventoryId:'INV',user,targetPhase:'JUSTIFICACION',syncFromGAS:false,itemKeys:['otro']}),/al menos un código/);
   await service.reopenInventory({inventoryId:'INV',user,targetPhase:'JUSTIFICACION',syncFromGAS:false,itemKeys:[contract.member(a)]});
   const task=service.getPendingJustifications(user)[0];
+  // reopenedAt is stamped 1 ms ahead; a review in that same instant would read as older than the reopening.
+  await new Promise(resolve=>setTimeout(resolve,3));
   const [reopened,kept]=['A','B'].map(sku=>task.items.find(item=>item.SKU===sku));
   assert.deepEqual([reopened.reopenLocked,reopened.canJustify,reopened.reviewComplete],[false,true,false]);
   assert.deepEqual([kept.reopenLocked,kept.canJustify,kept.reviewComplete],[true,false,true]);
@@ -1151,6 +1153,8 @@ test('a reopened inventory with a recount asks again for nothing: matched codes 
   // Choosing the matched code reviews it again in its first round, which the script accepts while the recount is complete.
   await service.reopenInventory({inventoryId:'INV',user,targetPhase:'JUSTIFICACION',syncFromGAS:false,itemKeys:[contract.member(a)]});
   task=service.getPendingJustifications(user)[0];
+  // reopenedAt is stamped 1 ms ahead; a review in that same instant would read as older than the reopening.
+  await new Promise(resolve=>setTimeout(resolve,3));
   assert.equal(task.pendingJustificationsCount,1);
   await save('INV',a,'CUADRA',1,'Se revisó de nuevo la guía.');
   assert.equal(service.getPendingJustifications(user)[0].canClose,true);
