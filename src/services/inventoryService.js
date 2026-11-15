@@ -1839,6 +1839,55 @@ class InventoryService {
   // Closes despite missing justifications; only the route exclusive to the Alonso user reaches it. The missing
   // ones are recorded as NO CUADRA, so differences stay visible. A failed close is rolled back with its request,
   // so the main sheet is written only after it succeeds; a failure there no longer undoes the close.
+  // Undoes a reopening that nothing used: the inventory goes back to its last close, with the final file,
+  // closing dates and justifications it already had. Only the Alonso route reaches it.
+  restoreLastClosure({ inventoryId, fileId, user }) {
+    const inv = this.getInventoryRaw(inventoryId);
+    if (!inv) throw new Error('Inventario no encontrado');
+    if (workflow.isFinalized(inv)) throw new Error('Este inventario ya está cerrado; no hay nada que restaurar.');
+    if (!inv.closedAt || !inv.driveFileId) throw new Error('Este inventario no tiene un cierre anterior que restaurar.');
+    if (fileId && fileId !== inv.driveFileId) throw new Error('Ese archivo no es el último cierre de este inventario; restaure desde el más reciente.');
+    // Sheets dates come as d/M/yyyy; the workflow reads them the same way as everywhere else.
+    const reopenedAt = workflow.time(inv.reopenedAt);
+    if (!(reopenedAt > workflow.time(inv.closedAt))) throw new Error('El inventario no figura reabierto después de su último cierre.');
+    const child = inv.recountInventoryId ? this.getInventoryRaw(inv.recountInventoryId) : null;
+    // Anything recorded after the reopening would be lost, so it blocks the restore.
+    const dates = ['Fecha_Ultimo_Conteo', 'Fecha_Reconteo', 'Fecha_Reconteo_2', 'Fecha_Primera_Justificacion', 'Fecha_Justificacion_2'];
+    const changed = [...inv.items, ...(child?.items || [])].filter(item => dates.some(key => workflow.time(item[key]) > reopenedAt));
+    const reviews = this.getJustificationsForInventory(inv.id).filter(j => workflow.time(j.reviewedAt) > reopenedAt);
+    if (changed.length || reviews.length) {
+      const skus = [...new Set([...changed, ...reviews].map(entry => entry.SKU || entry.sku))].slice(0, 5).join(', ');
+      throw new Error(`Hay conteos o justificaciones registrados después de la reapertura (${skus}); no se restaura para no perderlos. Ciérrelo de forma normal.`);
+    }
+    const stamp = inv.reopenedAt;
+    const restoreMarks = record => {
+      for (const key of ['countNotBefore', 'firstReviewNotBefore', 'secondReviewNotBefore', 'recount2ReviewNotBefore']) {
+        if (record[key] === stamp) {
+          if (key === 'secondReviewNotBefore' && record.recountEnabledAt) record[key] = record.recountEnabledAt;
+          else delete record[key];
+        }
+      }
+      for (const key of ['reopenedPhase', 'reopenItemKeys', 'reopenReviewNotBefore']) delete record[key];
+      (record.items || []).forEach(item => { if (item.counterEvidence?.pending) delete item.counterEvidence.pending; });
+      record.status = 'REVISADO';
+      record.isFinalized = true;
+    };
+    inv.restoredClosures = [...(inv.restoredClosures || []), {
+      at: new Date().toISOString(), by: user.displayName || user.username,
+      reopenedAt: inv.reopenedAt, reopenedBy: inv.reopenedBy || null, reopenReason: inv.reopenReason || null }];
+    restoreMarks(inv);
+    if (child) {
+      restoreMarks(child);
+      child.closedAt = child.closedAt || inv.closedAt;
+      this.saveInventory(child);
+    }
+    this.saveInventory(inv);
+    auditService.logAction({ action: 'INVENTORY_CLOSURE_RESTORED', user: user.username, center: inv.center, targetId: inv.id,
+      details: `Se restauró el cierre del ${inv.closedAt} (${inv.driveFileName || inv.driveFileId}); se deshizo la reapertura del ${stamp}.` });
+    return { success: true, inventory: inv,
+      message: `Inventario ${inv.name || inv.id} restaurado a su cierre del ${new Date(inv.closedAt).toLocaleString('es-BO', { timeZone: 'America/La_Paz' })}.` };
+  }
+
   async forceCloseInventory({ inventoryId, user }) {
     const inv = this.getInventoryRaw(inventoryId);
     if (!inv) throw new Error('Inventario no encontrado');

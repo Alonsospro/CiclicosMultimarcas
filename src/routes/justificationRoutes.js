@@ -115,6 +115,15 @@ router.post('/:id/force-close', authenticate, requireExactAlonso, async (req, re
   }
 });
 
+// POST /api/justifications/:id/restore-closure (Exclusive to the Alonso user: undoes an unused reopening)
+router.post('/:id/restore-closure', authenticate, requireExactAlonso, async (req, res) => {
+  try {
+    res.json(inventoryService.restoreLastClosure({ inventoryId: req.params.id, fileId: req.body?.fileId, user: req.user }));
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 // POST /api/justifications/:id/finish-review ("Terminar revisión" -> creates final Drive file)
 router.post('/:id/finish-review', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {

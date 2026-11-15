@@ -236,4 +236,4 @@ function assertJustification(inv, item, round, context, explanation) {
   if (!String(explanation || '').trim()) throw new Error('Es obligatorio explicar el resultado, tanto CUADRA como NO CUADRA.');
 }
 
-module.exports = {hasCount, countStage, isFinalized, review, recountKeys, activeCountKeys, recountStageOf, plan, assertJustification};
+module.exports = {time, hasCount, countStage, isFinalized, review, recountKeys, activeCountKeys, recountStageOf, plan, assertJustification};

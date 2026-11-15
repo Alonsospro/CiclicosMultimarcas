@@ -119,6 +119,11 @@ window.HistoryView = {
                     <i class="fa-solid fa-arrow-rotate-left"></i> Reabrir
                   </button>
                 ` : ''}
+                ${window.Auth.isExactAlonso?.() && item.inventoryId ? `
+                  <button class="btn btn-success btn-sm" onclick="window.HistoryView.restoreClosure('${item.inventoryId}', '${item.fileId}')" title="Deshacer una reapertura y dejar el inventario cerrado como en este archivo">
+                    <i class="fa-solid fa-clock-rotate-left"></i> Restaurar cierre
+                  </button>
+                ` : ''}
                 ${(window.Auth.isAlonso() || window.Auth.canDeleteSnapshots()) ? `
                   <button class="btn btn-danger btn-sm" onclick="window.HistoryView.deleteSnapshot('${item.fileId}', '${(item.fileName || '').replace(/'/g, "\\'")}', '${item.inventoryId || ''}')" title="Borrar snapshot y depurar cálculos consolidados" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171;">
                     <i class="fa-solid fa-trash-can"></i> Borrar
@@ -177,6 +182,17 @@ window.HistoryView = {
       }
     } catch (err) {
       window.Toast.danger(err.message || 'Error al borrar snapshot');
+    }
+  },
+
+  // Undoes a reopening nobody used: the inventory closes again with this file's dates and justifications.
+  async restoreClosure(inventoryId, fileId) {
+    if (!confirm('¿Restaurar este cierre?\n\nEl inventario vuelve a quedar finalizado con la fecha de cierre, el archivo final y las justificaciones que tenía, y se deshace la reapertura.\n\nSolo funciona si después de reabrir no se registraron conteos ni justificaciones, y si este es su último archivo final.')) return;
+    try {
+      const res = await window.API.restoreClosure(inventoryId, fileId);
+      window.Toast.success(res.message || 'Cierre restaurado.');
+    } catch (err) {
+      window.Toast.danger(err.message || 'No se pudo restaurar el cierre');
     }
   },
 

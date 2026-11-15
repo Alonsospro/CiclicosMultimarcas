@@ -1177,3 +1177,40 @@ test('the first justification can close with NO CUADRA items, keeping their diff
   assert.equal(closed.Estado,'NO CUADRA');
   assert.equal(closed.Diferencia,-2);
 });
+
+test('an unused reopening can be undone: the inventory closes again with its date, final file and justifications',async()=>{
+  const {service,put,save}=fixture(),a=counted('A'),b=counted('B');
+  put({id:'INV',type:'CICLICO',name:'CICLICO-1820-2026-10-21',status:'EN_PROGRESO',center:'1820',items:[a,b]});
+  service.submitInventoryForReview({inventoryId:'INV',user});
+  await save('INV',a,'CUADRA',1,'Guía A.'); await save('INV',b,'NO CUADRA',1,'Con administración.');
+  await service.finishReviewAndClose({inventoryId:'INV',user});
+  const closed=structuredClone(service.getInventoryRaw('INV'));
+  assert.throws(()=>service.restoreLastClosure({inventoryId:'INV',user}),/ya está cerrado/);
+  await new Promise(resolve=>setTimeout(resolve,3));
+  await service.reopenInventory({inventoryId:'INV',user,targetPhase:'1ER_CONTEO',syncFromGAS:false});
+  assert.equal(service.getInventoryRaw('INV').status,'EN_PROGRESO');
+  assert.throws(()=>service.restoreLastClosure({inventoryId:'INV',fileId:'otro',user}),/último cierre/);
+  const result=service.restoreLastClosure({inventoryId:'INV',fileId:closed.driveFileId,user});
+  const inv=service.getInventoryRaw('INV');
+  assert.match(result.message,/restaurado/);
+  assert.deepEqual([inv.status,inv.isFinalized,inv.closedAt,inv.driveFileId],['REVISADO',true,closed.closedAt,closed.driveFileId]);
+  assert.equal(inv.countNotBefore,undefined); assert.equal(inv.firstReviewNotBefore,undefined); assert.equal(inv.reopenedPhase,undefined);
+  assert.equal(inv.restoredClosures.length,1);
+  assert.equal(inv.items.find(item=>item.SKU==='B').Estado,'NO CUADRA');
+  const task=service.getPendingJustifications(user,null,{includeFinalized:true}).find(t=>t.inventoryId==='INV');
+  assert.equal(task.isFinalized,true);
+});
+
+test('a reopening already used is not undone, so nothing recorded after it is lost',async()=>{
+  const {service,put,save}=fixture(),a=counted('A');
+  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1820',items:[a]});
+  service.submitInventoryForReview({inventoryId:'INV',user});
+  await save('INV',a,'CUADRA',1,'Guía A.');
+  await service.finishReviewAndClose({inventoryId:'INV',user});
+  await new Promise(resolve=>setTimeout(resolve,3));
+  await service.reopenInventory({inventoryId:'INV',user,targetPhase:'1ER_CONTEO',syncFromGAS:false});
+  await new Promise(resolve=>setTimeout(resolve,3));
+  await service.updateCount({inventoryId:'INV',itemId:a.id,stockFisico:9,malEstado:0,user});
+  assert.throws(()=>service.restoreLastClosure({inventoryId:'INV',user}),/después de la reapertura \(A\)/);
+  assert.equal(service.getInventoryRaw('INV').status,'EN_PROGRESO');
+});

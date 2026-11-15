@@ -369,6 +369,13 @@ window.API = {
     });
   },
 
+  restoreClosure(inventoryId, fileId) {
+    return this.request(`/justifications/${inventoryId}/restore-closure`, {
+      method: 'POST',
+      body: JSON.stringify({ fileId })
+    });
+  },
+
   forceClose(inventoryId) {
     return this.request(`/justifications/${inventoryId}/force-close`, {
       method: 'POST',

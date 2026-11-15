@@ -94,6 +94,7 @@ window.JustificationsView = {
       const syncFromGAS = document.getElementById('reopen-chk-sync-gas')?.checked ?? true;
       const reason = document.getElementById('reopen-modal-reason')?.value || 'Reapertura para actualización de cantidades';
       const itemKeys = targetPhase === 'JUSTIFICACION' ? this.selectedReopenKeys() : undefined;
+      if (targetPhase === '1ER_CONTEO' && !confirm('¿Volver al 1er conteo?\n\nEl avance queda en 0%: todos los ítems deben contarse y firmarse de nuevo, y las justificaciones se vuelven a pedir.\n\nPara corregir justificaciones, use "Solo Justificaciones".')) return;
       if (itemKeys && !itemKeys.length) {
         window.Toast.warning('Seleccione al menos un código para volver a justificar.');
         return;
@@ -1934,7 +1935,9 @@ window.JustificationsView = {
 
     const validPhases = ['1ER_CONTEO', 'RECONTEO_1', 'RECONTEO_2', 'JUSTIFICACION'];
     this.reopenFromHistory = fromHistory;
+    // A closed inventory starts on "Solo Justificaciones": going back to a count resets its progress.
     const phase = validPhases.includes(preferredPhase) ? preferredPhase
+      : task.isFinalized ? 'JUSTIFICACION'
       : validPhases.includes(task.reopenedPhase)
       ? task.reopenedPhase
       : task.hasRecount2 ? 'RECONTEO_2' : task.hasRecount ? 'RECONTEO_1' : '1ER_CONTEO';
