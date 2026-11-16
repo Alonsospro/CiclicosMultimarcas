@@ -202,7 +202,7 @@ window.HistoryView = {
     try {
       const res = await window.API.getJustifications(undefined, { status: 'REVISADO', includeFinalized: true });
       const task = (res.tasks || []).find(t => t.inventoryId === inventoryId);
-      if (!task) throw new Error('No se encontró este inventario cerrado para reabrirlo.');
+      if (!task) throw new Error('Este inventario ya no está cerrado: alguien lo reabrió. Use "Restaurar cierre" para dejarlo como en este archivo.');
       const view = window.JustificationsView;
       view.tasks = [...(view.tasks || []).filter(t => t.inventoryId !== inventoryId), task];
       view.openReopenModal(inventoryId, 'JUSTIFICACION', true);
