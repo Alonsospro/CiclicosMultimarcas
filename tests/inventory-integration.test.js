@@ -47,7 +47,7 @@ function inventoryService(gas,allowed=true){
     './inventoryWorkflow':require('../src/services/inventoryWorkflow'),
     './inventoryContract':contract,'../config':{countSheetSync:'inmediato',centersList:[{code:'1120'},{code:'1160'}],findCenter:v=>['1120','1160'].includes(v)?{code:v}:null,getCenterCode:v=>v,isSameCenter:(a,b)=>a===b},
     './storagePath':{getInventoriesDirectory:()=>'/fake',getJustificationsDirectory:()=>'/fake-just',listFiles:()=>[...records.keys()].map(id=>id+'.json'),readJson:p=>records.get(path.basename(p,'.json'))},
-    './auditService':{logAction(){},logCount(){}},'./driveService':{getPhotoAsDataUri:()=>''},'./gasService':gas,'./metricsService':{},'./snapshotService':{},'../../public/js/justificationPhotoRule':require('../public/js/justificationPhotoRule'),
+    './auditService':{logAction(){},logCount(){}},'./driveService':{getPhotoAsDataUri:()=>''},'./gasService':gas,'./metricsService':{},'./snapshotService':{isSnapshotDeleted:()=>false},'../../public/js/justificationPhotoRule':require('../public/js/justificationPhotoRule'),
     '../middlewares/authMiddleware':{isBulkInventoryCreator:()=>allowed}
   });
   service.getInventoryRaw=id=>records.get(id);
@@ -67,6 +67,20 @@ test('bulk loads each center, clears inherited counts and reports failed centers
   assert.equal(item.Stock_Sistema,10);assert.equal(item.Stock_Fisico,null);assert.equal(item.Almacen,'A');
   const retry=await service.bulkCreateInventories({date:'2026-10-08',centers:['1120'],user});
   assert.equal(retry.count,0);assert.equal(retry.existingCount,1);assert.equal(calls.length,2);
+});
+test('bulk creation can use the same chosen ending in every center and never reuses a taken one',async()=>{
+  const {service,records}=inventoryService({fetchProductsFromScript:async()=>[base]});
+  const first=await service.bulkCreateInventories({type:'SEMANAL',date:'2026-11-16',centers:['1120'],sequence:'7',user});
+  assert.equal(first.results[0].inventory.id,'INV-SEMANAL-1120-7');
+  const again=await service.bulkCreateInventories({type:'SEMANAL',date:'2026-11-23',centers:['1120','1160'],sequence:7,user});
+  assert.equal(again.results[0].status,'failed');
+  assert.match(again.results[0].error,/Ya existe un inventario INV-SEMANAL-1120-7/);
+  assert.equal(again.results[1].inventory.id,'INV-SEMANAL-1160-7','The other center still gets the chosen ending');
+  assert.equal(records.size,2);
+  const automatic=await service.bulkCreateInventories({type:'SEMANAL',date:'2026-11-30',centers:['1120'],user});
+  assert.equal(automatic.results[0].inventory.id,'INV-SEMANAL-1120-8','Without an ending, the next free number');
+  for(const sequence of [0,-1,'1.5','abc',10000])
+    await assert.rejects(service.bulkCreateInventories({type:'SEMANAL',date:'2026-12-07',centers:['1120'],sequence,user}),/terminación/);
 });
 test('bulk rejects invalid inputs and does not create empty inventories',async()=>{
   const {service,records}=inventoryService({fetchProductsFromScript:async()=>[]});

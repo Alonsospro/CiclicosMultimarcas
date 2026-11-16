@@ -23,6 +23,7 @@ window.InventoryView = {
     const previewDiv = document.getElementById('bulk-preview-names');
     const typeSelect = document.getElementById('bulk-inv-type');
     const dateInput = document.getElementById('bulk-inv-date');
+    const sequenceInput = document.getElementById('bulk-inv-sequence');
 
     const officialCenters = [
       { code: '1120', name: 'Volvo - Km 14' },
@@ -56,7 +57,8 @@ window.InventoryView = {
         return;
       }
       previewDiv.style.color = 'var(--text-main)';
-      const previewList = checkedCodes.slice(0, 4).map(c => `${type}-${c}-${date}`);
+      const sequence = String(sequenceInput?.value || '').trim();
+      const previewList = checkedCodes.slice(0, 4).map(c => `${type}-${c}-${date} (INV-${type}-${c}-${sequence || 'siguiente'})`);
       const more = checkedCodes.length > 4 ? ` ... (+${checkedCodes.length - 4} más)` : '';
       previewDiv.textContent = previewList.join(', ') + more;
     };
@@ -66,6 +68,7 @@ window.InventoryView = {
       const localDate = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
       if (dateInput) dateInput.value = localDate;
       if (typeSelect) typeSelect.value = 'CICLICO';
+      if (sequenceInput) sequenceInput.value = '';
 
       if (container) {
         container.innerHTML = officialCenters.map(c => `
@@ -97,6 +100,7 @@ window.InventoryView = {
 
     typeSelect?.addEventListener('change', updatePreview);
     dateInput?.addEventListener('input', updatePreview);
+    sequenceInput?.addEventListener('input', updatePreview);
 
     form?.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -104,6 +108,12 @@ window.InventoryView = {
       const date = dateInput?.value;
       const checkedBoxes = container ? Array.from(container.querySelectorAll('input[type="checkbox"]:checked')) : [];
       const selectedCenters = checkedBoxes.map(cb => cb.value);
+      const sequenceText = String(sequenceInput?.value || '').trim();
+      const sequence = sequenceText === '' ? null : Number(sequenceText);
+      if (sequence !== null && (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > 9999)) {
+        window.Toast.warning('La terminación debe ser un número entero de 1 a 9999, o dejarse vacía.');
+        return;
+      }
 
       if (selectedCenters.length === 0) {
         window.Toast.warning('Debe seleccionar al menos un centro para crear los inventarios.');
@@ -121,7 +131,8 @@ window.InventoryView = {
         const res = await window.API.bulkCreateInventories({
           type,
           date,
-          centers: selectedCenters
+          centers: selectedCenters,
+          sequence
         });
 
         const summary=res.count+' creados, '+res.existingCount+' ya existentes, '+res.failedCount+' fallidos.';

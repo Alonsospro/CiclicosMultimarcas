@@ -501,7 +501,7 @@ class InventoryService {
     return newInventory;
   }
 
-  async bulkCreateInventories({type='CICLICO',date=null,centers=null,user}) {
+  async bulkCreateInventories({type='CICLICO',date=null,centers=null,sequence=null,user}) {
     const {isBulkInventoryCreator}=require('../middlewares/authMiddleware');
     if(!isBulkInventoryCreator(user))throw new Error('No tiene permiso para creación masiva.');
     const cleanType=String(type).trim().toUpperCase();
@@ -509,6 +509,9 @@ class InventoryService {
     const targetDate=date||new Intl.DateTimeFormat('en-CA',{timeZone:'America/La_Paz',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
     if(!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)||!Number.isFinite(Date.parse(targetDate+'T12:00:00Z'))||new Date(targetDate+'T12:00:00Z').toISOString().slice(0,10)!==targetDate)throw new Error('Fecha inválida');
     if(centers!==null && (!Array.isArray(centers)||!centers.length))throw new Error('Seleccione al menos un centro');
+    // An ending chosen for every center, so centers counted in different weeks still share it.
+    const chosen=sequence===null||sequence===undefined||String(sequence).trim()===''?null:Number(sequence);
+    if(chosen!==null&&(!Number.isSafeInteger(chosen)||chosen<1||chosen>9999))throw new Error('La terminación debe ser un número entero de 1 a 9999.');
     const requested=centers===null?config.centersList.map(c=>c.code):centers;
     const codes=[...new Set(requested.map(center=>{
       const found=config.findCenter(center);
@@ -538,7 +541,10 @@ class InventoryService {
         // Recheck after fetching from Sheets in case another request created it.
         const raced=findExisting();
         if(raced){results.push({center,status:'existing',inventory:raced});continue;}
-        const id=this.nextInventoryId(cleanType,center);
+        const id=chosen===null?this.nextInventoryId(cleanType,center):`INV-${cleanType}-${center}-${chosen}`;
+        // An ending already used, even by a deleted inventory, would mix its closures in the reports.
+        if(chosen!==null&&(this.getInventoryRaw(id)||snapshotService.isSnapshotDeleted({inventoryId:id})))
+          throw new Error(`Ya existe un inventario ${id}; elija otra terminación para este centro.`);
         const prepared=items.map((item,index)=>({
           ...Object.fromEntries(contract.columns.slice(0,11).map(key=>[key,item[key]??''])),
           ...(contract.isWeekly(item)?{Schema_Version:contract.weeklyVersion}:{}),

@@ -1752,6 +1752,12 @@
           </div>
 
           <div class="form-group" style="margin-bottom: 1rem;">
+            <label for="bulk-inv-sequence" class="form-label" style="font-weight: 600;">Terminación del inventario (opcional)</label>
+            <input type="number" id="bulk-inv-sequence" class="form-control" min="1" max="9999" step="1" inputmode="numeric" placeholder="Automática: el siguiente número de cada centro" />
+            <p style="margin: 0.3rem 0 0; font-size: 0.76rem; color: var(--text-dim);">Con un número, todos los centros marcados terminan igual (por ejemplo 3 crea INV-CICLICO-1120-3). Si un centro ya tiene esa terminación, ese centro no se crea y se avisa.</p>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 1rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
               <label class="form-label" style="font-weight: 600; margin: 0;">Centros a Generar (<span id="bulk-selected-count">14</span> de 14)</label>
               <div style="display: flex; gap: 0.4rem;">
@@ -2952,7 +2958,7 @@
   <script src="/js/auth.js?v=progress-access-1"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
   <script src="/js/inventoryGrouping.js?v=1.0"></script>
-  <script src="/js/views/inventoryView.js?v=deer-loader-2"></script>
+  <script src="/js/views/inventoryView.js?v=bulk-sequence-1"></script>
   <script src="/js/views/barridoView.js?v=2.2"></script>
   <script src="/js/views/assignmentsView.js?v=deer-loader-2"></script>
   <script src="/js/inventoryContract.js?v=partial-justification-1"></script>

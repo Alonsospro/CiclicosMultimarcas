@@ -108,11 +108,12 @@ router.post('/', authenticate, requireInventoryCreator, restrictCenter, async (r
 // POST /api/inventories/bulk-create (Bulk create weekly inventories - Juan Carlos, Absael & Alonso only)
 router.post('/bulk-create', authenticate, requireBulkInventoryCreator, async (req, res) => {
   try {
-    const { type, date, centers } = req.body;
+    const { type, date, centers, sequence } = req.body;
     const result = await inventoryService.bulkCreateInventories({
       type,
       date,
       centers,
+      sequence,
       user: req.user
     });
     res.status(200).json({...result, success:true, complete:result.success});
