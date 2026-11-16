@@ -452,9 +452,14 @@ window.BarridoView = {
     } else {
       if (btn) btn.innerHTML = '<i class="fa-solid fa-video-slash"></i> Detener Cámara';
       this.isCameraActive = true;
-      await window.ScannerComponent.start('barrido-reader', (barcode) => {
+      const started = await window.ScannerComponent.start('barrido-reader', (barcode) => {
         this.handleBarcodeRead(barcode);
       });
+      // A camera that could not start leaves the button ready to try again.
+      if (!started) {
+        this.isCameraActive = false;
+        if (btn) btn.innerHTML = '<i class="fa-solid fa-video"></i> Activar Cámara';
+      }
     }
   },
 

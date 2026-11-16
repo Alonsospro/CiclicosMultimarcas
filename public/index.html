@@ -19,7 +19,8 @@
 
   <!-- Chart.js & Html5-QRCode & html2pdf & SheetJS Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- Barcode Detection API: the browser's own reader, or ZXing-C++ (WebAssembly) where there is none -->
+  <script src="https://cdn.jsdelivr.net/npm/barcode-detector@3.2.0/dist/iife/index.js"></script>
   <script src="/js/vendor/html2pdf.bundle.min.js"></script>
   <script>if (typeof html2pdf === 'undefined') { document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"><\\/script>'); }</script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1602,7 +1603,7 @@
           <div class="scanner-focus-box"></div>
         </div>
         <p style="text-align: center; color: var(--text-dim); font-size: 0.85rem; margin-top: 1rem;">
-          Apunte la cámara al código de barras. La lectura tiene retardo de 1s para evitar lecturas dobles.
+          Apunte la cámara al código de barras o QR. Un mismo código frente a la cámara se lee una sola vez.
         </p>
       </div>
       <div class="modal-footer">
@@ -2951,7 +2952,7 @@
   <script src="/js/components/buttonFeedback.js?v=2.2.1"></script>
   <script src="/js/components/toastNotification.js?v=2.2"></script>
   <script src="/js/components/confirmationModal.js?v=2.2"></script>
-  <script src="/js/components/scannerModal.js?v=2.2"></script>
+  <script src="/js/components/scannerModal.js?v=3.0"></script>
   <script src="/js/components/logoRotator.js?v=2.2"></script>
   <script src="/js/components/deerLoader.js?v=2.0"></script>
   <script src="/js/api.js?v=restore-closure-1"></script>
@@ -2960,7 +2961,7 @@
   <script src="/js/views/loginView.js?v=2.2"></script>
   <script src="/js/inventoryGrouping.js?v=1.0"></script>
   <script src="/js/views/inventoryView.js?v=lubricantes-1"></script>
-  <script src="/js/views/barridoView.js?v=2.2"></script>
+  <script src="/js/views/barridoView.js?v=2.3"></script>
   <script src="/js/views/assignmentsView.js?v=deer-loader-2"></script>
   <script src="/js/inventoryContract.js?v=partial-justification-1"></script>
   <script src="/js/justificationPhotoRule.js?v=1.0"></script>
