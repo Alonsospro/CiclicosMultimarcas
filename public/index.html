@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>NIBOL Inventarios</title>
-  <meta name="description" content="Sistema de gestión de inventarios (Cíclicos, Barrido, Semanales y Mensuales) NIBOL">
+  <meta name="description" content="Sistema de gestión de inventarios (Cíclicos, Barrido, Semanales y Lubricantes) NIBOL">
   <meta property="og:title" content="NIBOL Inventarios">
-  <meta property="og:description" content="Sistema de gestión de inventarios (Cíclicos, Barrido, Semanales y Mensuales) NIBOL">
+  <meta property="og:description" content="Sistema de gestión de inventarios (Cíclicos, Barrido, Semanales y Lubricantes) NIBOL">
   <link rel="icon" type="image/svg+xml" href="/nibol.svg">
   
   <!-- Google Fonts -->
@@ -234,7 +234,7 @@
                 <option value="CICLICO">Cíclico</option>
                 <option value="BARRIDO">Barrido</option>
                 <option value="SEMANAL">Semanal</option>
-                <option value="MENSUAL">Mensual</option>
+                <option value="MENSUAL">Lubricantes</option>
               </select>
 
               <select id="filter-inv-center" class="form-select role-admin-only" style="width: auto; min-width: 140px;">
@@ -729,7 +729,7 @@
           <div class="history-toolbar" style="display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin:.25rem 0 1rem;">
             <input id="history-search" class="form-input" type="search" placeholder="Buscar archivo, centro o responsable…" aria-label="Buscar en el historial" style="flex:1; min-width:220px;">
             <select id="history-filter-type" class="form-select" aria-label="Filtrar por tipo" style="width:auto; min-width:150px;">
-              <option value="">Todos los tipos</option><option value="SEMANAL">Semanal</option><option value="MENSUAL">Mensual</option><option value="CICLICO">Cíclico</option><option value="BARRIDO">Barrido</option>
+              <option value="">Todos los tipos</option><option value="SEMANAL">Semanal</option><option value="MENSUAL">Lubricantes</option><option value="CICLICO">Cíclico</option><option value="BARRIDO">Barrido</option>
             </select>
             <select id="history-grouping" class="form-select" aria-label="Agrupar historial" style="width:auto; min-width:155px;">
               <option value="week">Agrupar por semana</option><option value="month">Agrupar por mes</option>
@@ -800,7 +800,7 @@
               <option value="CICLICO">Cíclico</option>
               <option value="BARRIDO">Barrido</option>
               <option value="SEMANAL">Semanal</option>
-              <option value="MENSUAL">Mensual</option>
+              <option value="MENSUAL">Lubricantes</option>
             </select>
 
             <!-- Center Selector -->
@@ -1436,7 +1436,7 @@
             </div>
             <div class="inventory-list-tools">
               <select id="progress-filter-type" class="form-select" aria-label="Filtrar por tipo de inventario">
-                <option value="TODOS">Todos los tipos</option><option value="CICLICO">Cíclico</option><option value="BARRIDO">Barrido</option><option value="SEMANAL">Semanal</option><option value="MENSUAL">Mensual</option>
+                <option value="TODOS">Todos los tipos</option><option value="CICLICO">Cíclico</option><option value="BARRIDO">Barrido</option><option value="SEMANAL">Semanal</option><option value="MENSUAL">Lubricantes</option>
               </select>
               <select id="progress-filter-center" class="form-select role-admin-only" aria-label="Filtrar por centro"><option value="TODOS">Todos los centros</option></select>
               <select id="progress-filter-suffix" class="form-select" aria-label="Filtrar por terminación"><option value="TODOS">Todas las terminaciones</option></select>
@@ -1670,7 +1670,7 @@
                 <option value="CICLICO">Cíclico</option>
                 <option value="BARRIDO">Barrido</option>
                 <option value="SEMANAL">Semanal</option>
-                <option value="MENSUAL">Mensual</option>
+                <option value="MENSUAL">Lubricantes</option>
               </select>
             </div>
 
@@ -1742,7 +1742,7 @@
                 <option value="CICLICO" selected>Cíclico</option>
                 <option value="BARRIDO">Barrido</option>
                 <option value="SEMANAL">Semanal</option>
-                <option value="MENSUAL">Mensual</option>
+                <option value="MENSUAL">Lubricantes</option>
               </select>
             </div>
             <div class="form-group">
@@ -2715,7 +2715,7 @@
         <div id="gas-diag-loading" style="text-align: center; padding: 2.5rem; display: flex; flex-direction: column; align-items: center; gap: 0.75rem;">
           <span class="deer-loader" aria-hidden="true"><span class="deer-loader-ground"></span><img class="deer-loader-deer" src="/logos/john-deere-venado.svg" alt=""></span>
           <p style="color: #cbd5e1; font-weight: 500;">Ejecutando diagnóstico integral contra todos los endpoints (.env)...</p>
-          <small style="color: #94a3b8;">Verificando Cíclicos, Barrido, Mensuales, Semanales, hojas de cálculo y Drive...</small>
+          <small style="color: #94a3b8;">Verificando Cíclicos, Barrido, Lubricantes, Semanales, hojas de cálculo y Drive...</small>
         </div>
 
         <!-- Content Area (filled after load) -->
@@ -2947,6 +2947,7 @@
 
   <!-- App Frontend JavaScript Modules -->
   <script src="/js/config.js?v=2.2"></script>
+  <script src="/js/inventoryTypeLabel.js?v=1"></script>
   <script src="/js/components/buttonFeedback.js?v=2.2.1"></script>
   <script src="/js/components/toastNotification.js?v=2.2"></script>
   <script src="/js/components/confirmationModal.js?v=2.2"></script>
@@ -2958,21 +2959,21 @@
   <script src="/js/auth.js?v=progress-access-1"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
   <script src="/js/inventoryGrouping.js?v=1.0"></script>
-  <script src="/js/views/inventoryView.js?v=bulk-sequence-1"></script>
+  <script src="/js/views/inventoryView.js?v=lubricantes-1"></script>
   <script src="/js/views/barridoView.js?v=2.2"></script>
   <script src="/js/views/assignmentsView.js?v=deer-loader-2"></script>
   <script src="/js/inventoryContract.js?v=partial-justification-1"></script>
   <script src="/js/justificationPhotoRule.js?v=1.0"></script>
-  <script src="/js/views/justificationsView.js?v=restore-closure-1"></script>
-  <script src="/js/views/historyView.js?v=restore-closure-2"></script>
+  <script src="/js/views/justificationsView.js?v=lubricantes-1"></script>
+  <script src="/js/views/historyView.js?v=lubricantes-1"></script>
 
   <script src="/js/components/managementReport.js?v=1.17"></script>
   <script src="/js/components/metricsReportModal.js?v=deer-loader-1"></script>
-  <script src="/js/components/snapshotManagerModal.js?v=deer-loader-2"></script>
+  <script src="/js/components/snapshotManagerModal.js?v=lubricantes-1"></script>
   <script src="/js/components/counterReliabilityPanel.js?v=1.0"></script>
-  <script src="/js/views/dashboardView.js?v=deer-loader-1"></script>
-  <script src="/js/views/progressView.js?v=deer-loader-2"></script>
+  <script src="/js/views/dashboardView.js?v=lubricantes-1"></script>
+  <script src="/js/views/progressView.js?v=lubricantes-1"></script>
   <script src="/js/views/userManagementView.js?v=deer-loader-2"></script>
-  <script src="/js/app.js?v=deer-loader-1"></script>
+  <script src="/js/app.js?v=lubricantes-1"></script>
 </body>
 </html>

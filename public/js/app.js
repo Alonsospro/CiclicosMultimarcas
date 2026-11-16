@@ -283,7 +283,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       loading.innerHTML = `
         ${window.DeerLoader?.mark ?? ''}
         <p style="color: #cbd5e1; font-weight: 500;">Ejecutando diagnóstico integral contra todos los endpoints (.env)...</p>
-        <small style="color: #94a3b8;">Verificando Cíclicos, Barrido, Mensuales, Semanales, hojas de cálculo y Drive...</small>
+        <small style="color: #94a3b8;">Verificando Cíclicos, Barrido, Lubricantes, Semanales, hojas de cálculo y Drive...</small>
         <div style="margin-top: 1rem;">
           <button type="button" class="btn btn-secondary btn-sm" onclick="window.closeGasDiagnosticsModal()" style="min-height: 38px; padding: 0.4rem 1rem;">
             <i class="fa-solid fa-xmark"></i> Cancelar / Cerrar

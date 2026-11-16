@@ -479,7 +479,7 @@ class InventoryService {
 
     const newInventory = {
       id: invId,
-      name: name || `Inventario ${cleanType} - ${centerObj ? centerObj.displayName : targetCenter} (${new Date().toLocaleDateString()})`,
+      name: name || `Inventario ${cleanType === 'MENSUAL' ? 'LUBRICANTES' : cleanType} - ${centerObj ? centerObj.displayName : targetCenter} (${new Date().toLocaleDateString()})`,
       type: cleanType,
       center: targetCenter,
       status: 'EN_PROGRESO',
@@ -550,7 +550,8 @@ class InventoryService {
           ...(contract.isWeekly(item)?{Schema_Version:contract.weeklyVersion}:{}),
           id:id+'-'+index,Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null,Mal_estado:0,Estado:'Pendiente',locked:false
         }));
-        const inventory={id,name:cleanType+'-'+center+'-'+targetDate,type:cleanType,center,status:'EN_PROGRESO',
+        // MENSUAL is shown as LUBRICANTES; only the visible name changes, never the ID or type.
+        const inventory={id,name:(cleanType==='MENSUAL'?'LUBRICANTES':cleanType)+'-'+center+'-'+targetDate,type:cleanType,center,status:'EN_PROGRESO',
           inventoryDate:targetDate,bulkCreateDate:targetDate,createdAt:new Date().toISOString(),createdBy:user.username,assignedAuxiliars:[],items:prepared};
         this.saveInventory(inventory);
         results.push({center,status:'created',inventory});

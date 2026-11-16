@@ -58,7 +58,8 @@ window.InventoryView = {
       }
       previewDiv.style.color = 'var(--text-main)';
       const sequence = String(sequenceInput?.value || '').trim();
-      const previewList = checkedCodes.slice(0, 4).map(c => `${type}-${c}-${date} (INV-${type}-${c}-${sequence || 'siguiente'})`);
+      const shown = window.InventoryTypeLabel?.label(type) ?? type;
+      const previewList = checkedCodes.slice(0, 4).map(c => `${shown}-${c}-${date} (INV-${type}-${c}-${sequence || 'siguiente'})`);
       const more = checkedCodes.length > 4 ? ` ... (+${checkedCodes.length - 4} más)` : '';
       previewDiv.textContent = previewList.join(', ') + more;
     };
@@ -883,7 +884,7 @@ window.InventoryView = {
           <tr data-inv-id="${inv.id}" data-inv-counted="${displayedCountedItems}" data-inv-items="${inv.totalItems}" data-inv-status="${inv.status || ''}" data-inv-type="${inv.type || ''}" data-inv-center="${inv.center || ''}">
             <td class="inventory-code" data-label="ID / Código"><strong>${inv.id}</strong></td>
             <td class="inventory-name" data-label="Nombre del inventario"><strong>${inv.name}</strong></td>
-            <td class="role-encargado-admin col-inv-type" data-label="Tipo"><span class="badge badge-neutral">${inv.type}</span></td>
+            <td class="role-encargado-admin col-inv-type" data-label="Tipo"><span class="badge badge-neutral">${window.InventoryTypeLabel?.label(inv.type) ?? inv.type}</span></td>
             <td class="inventory-center" data-label="Centro"><span class="badge badge-neutral">${inv.center}</span></td>
             <td class="inventory-status" data-label="Estado"><span class="badge ${badgeClass}">${statusLabels[inv.status] || inv.status || 'Sin estado'}</span></td>
             <td class="inventory-progress" data-label="Progreso">
@@ -956,7 +957,7 @@ window.InventoryView = {
                 <div class="inv-group-body"><div class="inv-group-inner">
                   ${week.types.map(section => `
                     <div class="inv-type-section">
-                      ${week.types.length > 1 ? `<h4 class="inv-type-title">${section.type}${section.termination ? ` <small>${terminationLabel(section)}</small>` : ''}</h4>` : ''}
+                      ${week.types.length > 1 ? `<h4 class="inv-type-title">${window.InventoryTypeLabel?.label(section.type) ?? section.type}${section.termination ? ` <small>${terminationLabel(section)}</small>` : ''}</h4>` : ''}
                       ${table(section)}
                     </div>`).join('')}
                 </div></div>

@@ -748,7 +748,7 @@ class GasService {
     const types = [
       { name: 'Cíclicos', type: 'CICLICO', url: config.integrations.CICLICOS_URL },
       { name: 'Barrido', type: 'BARRIDO', url: config.integrations.BARRIDO_URL },
-      { name: 'Mensuales', type: 'MENSUALES', url: config.integrations.MENSUALES_URL },
+      { name: 'Lubricantes', type: 'MENSUALES', url: config.integrations.MENSUALES_URL },
       { name: 'Semanales', type: 'SEMANALES', url: config.integrations.SEMANALES_URL }
     ];
 

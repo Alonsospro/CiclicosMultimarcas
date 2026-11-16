@@ -86,7 +86,7 @@ window.SnapshotManagerModal = {
               </small>
             </td>
             <td><span class="badge badge-info">${item.center}</span></td>
-            <td><span class="badge badge-neutral">${item.type}</span></td>
+            <td><span class="badge badge-neutral">${window.InventoryTypeLabel?.label(item.type) ?? item.type}</span></td>
             <td><strong style="color: var(--primary);">${item.totalItems}</strong> <small style="color: var(--text-muted);">ítems</small></td>
             <td><small style="color: var(--text-muted);">${closedDate}</small></td>
             <td style="text-align: right;">

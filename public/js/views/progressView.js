@@ -112,7 +112,7 @@ window.ProgressView = {
           <td>${this.formatDate(inventory.createdAt)}</td>
         </tr>`;
       }).join('');
-      return `<article class="progress-group"><header><div><span class="progress-group-type">${this.escape(group.type)}</span><h3>${this.escape(group.label)}</h3><small>${group.inventories.length} inventario(s) en esta terminación</small></div><div class="progress-group-counts"><span class="progress-state is-open">${group.inventories.filter(item => item.state === 'ABIERTO').length} abiertos</span><span class="progress-state is-closed">${group.inventories.filter(item => item.state === 'FINALIZADO').length} finalizados</span></div></header><div class="table-responsive"><table class="data-table progress-table"><thead><tr><th>Inventario</th><th>Centro</th><th>Estado</th><th>Etapa actual</th><th>Avance de etapa</th><th>Historial</th><th>Lanzado</th></tr></thead><tbody>${rows}</tbody></table></div></article>`;
+      return `<article class="progress-group"><header><div><span class="progress-group-type">${this.escape(window.InventoryTypeLabel?.label(group.type) ?? group.type)}</span><h3>${this.escape(window.InventoryTypeLabel?.text(group.label) ?? group.label)}</h3><small>${group.inventories.length} inventario(s) en esta terminación</small></div><div class="progress-group-counts"><span class="progress-state is-open">${group.inventories.filter(item => item.state === 'ABIERTO').length} abiertos</span><span class="progress-state is-closed">${group.inventories.filter(item => item.state === 'FINALIZADO').length} finalizados</span></div></header><div class="table-responsive"><table class="data-table progress-table"><thead><tr><th>Inventario</th><th>Centro</th><th>Estado</th><th>Etapa actual</th><th>Avance de etapa</th><th>Historial</th><th>Lanzado</th></tr></thead><tbody>${rows}</tbody></table></div></article>`;
     }).join('');
   },
 
@@ -144,7 +144,7 @@ window.ProgressView = {
       const summary = XLSX.utils.aoa_to_sheet([
         ['Respaldo de justificaciones'],
         ['Generado', new Intl.DateTimeFormat('es-BO', {dateStyle:'short', timeStyle:'short', timeZone:'America/La_Paz'}).format(new Date())],
-        ['Filtros', `Tipo: ${type} · Centro: ${center} · Terminación: ${suffix}${query ? ` · Búsqueda: ${query}` : ''}`],
+        ['Filtros', `Tipo: ${window.InventoryTypeLabel?.label(type) ?? type} · Centro: ${center} · Terminación: ${suffix}${query ? ` · Búsqueda: ${query}` : ''}`],
         [response.drive?.checked === false ? `No se pudo buscar en Drive: ${response.drive.error || 'sin respuesta'}. Solo se revisaron los enlaces de la app.`
           : response.drive?.truncated ? 'La búsqueda en Drive no terminó a tiempo: puede haber más fotos. Vuelva a generar con un centro seleccionado.'
           : 'Revisa los enlaces de la app y busca en Drive, en todas las fechas de este grupo, las fotos sin vincular.'],

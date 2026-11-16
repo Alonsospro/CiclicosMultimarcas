@@ -99,7 +99,7 @@ window.HistoryView = {
               <strong style="color: var(--primary);"><i class="fa-solid fa-file-excel" style="color: #22c55e;"></i> ${esc(item.fileName)}</strong>
             </td>
             <td><code>${esc(item.logicalPath || item.fileName)}</code></td>
-            <td><span class="badge badge-neutral">${esc(item.type)}</span></td>
+            <td><span class="badge badge-neutral">${esc(window.InventoryTypeLabel?.label(item.type) ?? item.type)}</span></td>
             <td><span class="badge badge-info">${esc(item.center)}</span></td>
             <td><small>${esc(item.closedBy)}</small></td>
             <td><small>${closedDate}</small></td>

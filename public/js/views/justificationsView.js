@@ -445,7 +445,7 @@ window.JustificationsView = {
       const isFinalized = task.status === 'REVISADO' || task.isFinalized === true;
       const isReconteoTask = !!(task.isReconteo || task.phase === 'RECONTEO' || task.hasRecount || String(task.inventoryId).startsWith('REC-') || task.status === 'RECONTEO_COMPLETADO');
       const sourceUrl = task.spreadsheetUrl || task.driveUrl || task.previousSpreadsheetUrl || '';
-      const sourceName = task.driveFileName || (sourceUrl ? 'Archivo vinculado (nombre no guardado)' : `Hoja general ${task.type} · centro ${task.center}`);
+      const sourceName = task.driveFileName || (sourceUrl ? 'Archivo vinculado (nombre no guardado)' : `Hoja general ${window.InventoryTypeLabel?.label(task.type) ?? task.type} · centro ${task.center}`);
       // An open inventory works on the general sheet; its previous final file is rewritten when it closes again.
       const sourceLabel = isFinalized ? 'Archivo final:' : (task.driveFileName ? 'Último archivo final (se actualizará al cerrar):' : 'Fuente Sheets:');
       const escapeHtml = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -638,7 +638,7 @@ window.JustificationsView = {
             <div style="flex: 1; min-width: 250px;">
               <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem;">
                 <span class="badge badge-neutral"><i class="fa-solid fa-warehouse"></i> Centro ${task.center}</span>
-                <span class="badge badge-info">${task.type}</span>
+                <span class="badge badge-info">${window.InventoryTypeLabel?.label(task.type) ?? task.type}</span>
                 ${isReconteoTask 
                   ? '<span class="badge badge-warning" style="font-weight: 700;"><i class="fa-solid fa-rotate-right"></i> Justificación de Reconteo</span>' 
                   : '<span class="badge badge-primary" style="font-weight: 600;"><i class="fa-solid fa-clipboard-list"></i> 1ª Justificación</span>'}
@@ -1922,7 +1922,7 @@ window.JustificationsView = {
           ${task.inventoryName}
         </div>
         <div style="font-size: 0.8rem; color: var(--text-muted); font-family: var(--font-mono);">
-          ID: <strong style="color: var(--primary);">${task.inventoryId}</strong> &bull; Centro ${task.center} &bull; ${task.type}
+          ID: <strong style="color: var(--primary);">${task.inventoryId}</strong> &bull; Centro ${task.center} &bull; ${window.InventoryTypeLabel?.label(task.type) ?? task.type}
         </div>
       `;
     }

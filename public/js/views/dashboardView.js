@@ -567,7 +567,7 @@ window.DashboardView = {
           const sourceText = isFinalSource
             ? `Fuente de datos: archivo final ${selectedInventory.name || selectedInventory.id}`
             : 'Fuente de datos: inventario en curso (datos de la app, aún sin archivo final)';
-          metaEl.textContent = `Tipo: ${selectedInventory.type} | Creado: ${dateStr} | Total Ítems: ${selectedInventory.totalItems || 0} | Estado: ${selectedInventory.status || 'En Proceso'} | ${sourceText}`;
+          metaEl.textContent = `Tipo: ${window.InventoryTypeLabel?.label(selectedInventory.type) ?? selectedInventory.type} | Creado: ${dateStr} | Total Ítems: ${selectedInventory.totalItems || 0} | Estado: ${selectedInventory.status || 'En Proceso'} | ${sourceText}`;
           // Only administrators receive the link from the server.
           const sheetUrl = selectedInventory.spreadsheetUrl || selectedInventory.previousSpreadsheetUrl;
           if (/^https:\/\/docs\.google\.com\/spreadsheets\//.test(sheetUrl || '')) {
@@ -1790,7 +1790,7 @@ window.DashboardView = {
         ['NIBOL S.A. • CONTROL DE GESTIÓN Y AUDITORÍA DE INVENTARIO CÍCLICO'],
         ['CONSOLIDADO GERENCIAL DE MÉTRICAS (ERI, ERU, IMPACTO FINANCIERO)'],
         ['Fecha de Generación:', nowStr, 'Centro Operativo:', centerCode, 'Inventario:', invName],
-        ['Tipo de Inventario:', filters.type || 'TODOS', 'Período:', filters.period || 'TODO', 'Estado Cierre:', selectedInventory?.status || 'No aplica'],
+        ['Tipo de Inventario:', window.InventoryTypeLabel?.label(filters.type || 'TODOS') ?? (filters.type || 'TODOS'), 'Período:', filters.period || 'TODO', 'Estado Cierre:', selectedInventory?.status || 'No aplica'],
         [],
         ['1. MATRIZ DE EXACTITUD DE REGISTRO (LOS 3 ERIs OFICIALES)'],
         ['Indicador de Exactitud', '1er Conteo (%)', 'Conteo Final (%)', 'Conformes / Exactos', 'Total Evaluado', 'Escala Corporativa', 'Dictamen Gerencial'],
