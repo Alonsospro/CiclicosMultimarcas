@@ -34,6 +34,18 @@ window.BarridoView = {
     else if (this.warehouses.length === 1) select.value = this.warehouses[0];
   },
 
+  async compressPhoto(file) {
+    try {
+      return await (window.JustificationsView?.compressImage?.(file, 1600, 0.8) ?? file);
+    } catch (_) {
+      return file;
+    }
+  },
+
+  isInDrive(url) {
+    return /^https:\/\/(drive|docs)\.google\.com\//.test(String(url || ''));
+  },
+
   getSelectedWarehouse() {
     return String(document.getElementById('barrido-select-warehouse')?.value || '').trim().toUpperCase();
   },
@@ -213,8 +225,10 @@ window.BarridoView = {
     photoZone?.addEventListener('click', () => photoInput?.click());
 
     photoInput?.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
+      const raw = e.target.files[0];
+      if (!raw) return;
+      // A phone photo is reduced to 1600 px JPEG before leaving the device: it uploads in a fraction of the time.
+      const file = await this.compressPhoto(raw);
 
       // Leer localmente como DataURL Base64 de inmediato para previsualizar y asegurar el payload
       const reader = new FileReader();
@@ -274,8 +288,9 @@ window.BarridoView = {
     justPhotoZone?.addEventListener('click', () => justPhotoInput?.click());
 
     justPhotoInput?.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
+      const raw = e.target.files[0];
+      if (!raw) return;
+      const file = await this.compressPhoto(raw);
 
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -384,9 +399,10 @@ window.BarridoView = {
           isNewLocation: isNewLoc,
           center,
           photoUrl: this.uploadedPhotoUrl,
-          photoBase64: this.uploadedPhotoBase64 || '',
+          // A photo already in Drive is not sent again with the count.
+          photoBase64: this.isInDrive(this.uploadedPhotoUrl) ? '' : (this.uploadedPhotoBase64 || ''),
           justificationPhotoUrl: this.uploadedJustPhotoUrl,
-          justificationPhoto: this.uploadedJustPhotoBase64 || '',
+          justificationPhoto: this.isInDrive(this.uploadedJustPhotoUrl) ? '' : (this.uploadedJustPhotoBase64 || ''),
           comentario: comment,
           categoria: 'repuesto',
           reason: isNewDiscovery 

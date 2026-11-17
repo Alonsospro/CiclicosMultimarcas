@@ -247,7 +247,9 @@ function upsertCount_(p) {
     row[COL.Responsable] = p.responsable || p.user || '';
   }
 
-  const rowNumber = found ? found.rowNumber : Math.max(sh.getLastRow(), 1) + 1;
+  // A new code takes the first empty row, so the sweep fills the tab from the top even after rows were cleared.
+  const emptyIndex = found ? -1 : rows.findIndex(r => r.every(v => !has_(v)));
+  const rowNumber = found ? found.rowNumber : emptyIndex >= 0 ? emptyIndex + 2 : Math.max(sh.getLastRow(), 1) + 1;
   sh.getRange(rowNumber, 1, 1, BARRIDO_COLUMNS.length).setValues([row]);
 
   const photos = [];

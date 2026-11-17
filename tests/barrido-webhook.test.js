@@ -145,3 +145,15 @@ test('products of a center are read from its tab, and a retried operation is not
   assert.equal(center.grid.filter(r => r[0] === 'NEW').length, 1);
   assert.match(post({ action: 'upsertCount', center: '1120', sku: 'NEW', almacen: 'AL04', stockBuenEstado: 2, operationId: 'same' }).error, /reutilizado/);
 });
+
+test('a new code takes the first empty row of the tab, even when an old row sits further down', () => {
+  const empty = Array(44).fill('');
+  const old = ['AL15071', 'al15071', 'repuesto', ...Array(41).fill('')];
+  const { post, center } = script({ rows: [empty, empty, empty, old] });
+  const saved = post({ action: 'upsertCount', center: '1120', sku: 'RE15143', almacen: 'AL04', stockBuenEstado: 2 });
+  assert.equal(saved.item.row, 2);
+  assert.equal(center.grid[1][0], 'RE15143');
+  assert.equal(center.grid[4][0], 'AL15071', 'The old row is left as it is');
+  const next = post({ action: 'upsertCount', center: '1120', sku: 'RE99', almacen: 'AL04', stockBuenEstado: 1 });
+  assert.equal(next.item.row, 3);
+});
