@@ -285,6 +285,17 @@ window.API = {
     return this.request(`/barrido/search?${params.toString()}`);
   },
 
+  getBarridoWarehouses() {
+    return this.request('/barrido/warehouses');
+  },
+
+  setBarridoWarehouses(warehouses) {
+    return this.request('/barrido/warehouses', {
+      method: 'POST',
+      body: JSON.stringify({ warehouses })
+    });
+  },
+
   registerBarridoCount(payload) {
     return this.request('/barrido/count', {
       method: 'POST',

@@ -23,3 +23,14 @@ Copia del webhook semanal desplegado (commit base 2c68670), con estos cambios:
 - Contrato sincronizado con `src/services/inventoryContract.js` (incluye la lectura de fechas d/M/aaaa de Sheets).
 
 Ver [docs/semanales-44-columnas.md](../../../docs/semanales-44-columnas.md).
+
+## Barrido (`BarridoWebhook.gs`)
+
+Script de la planilla **BARRIDO NIBOL MULTIMARCAS** (pestañas por centro con las 44 columnas A:AR). Se pega en Extensiones → Apps Script de esa planilla y se publica como aplicación web (su URL `/exec` es `BARRIDO_URL`).
+
+- **Conteos:** cada conteo de la appweb se escribe en la pestaña del centro. Si el código no está en ese almacén, agrega la fila; si está, actualiza Total, B/E, M/E, Cantidad Física Final, Diferencia, fecha y responsable. Una ubicación nueva va a Ubicación 1 o 2.
+- **Almacenes:** lista en la propiedad `BARRIDO_ALMACENES` (por defecto `AL04, RJD0, AM01`). Se aplica como desplegable en la columna H de cada centro, la appweb la muestra al registrar y un administrador la cambia desde Barrido (botón del lápiz). Un almacén fuera de la lista se rechaza.
+- **Fotos:** carpeta de barridos (`BARRIDO_FOLDER_ID`, por defecto `1SucBFevV5PEzM-ONZCriDQiBag31byD1`), subcarpeta `AAAA-MM-DD · centro nombre` y archivo con el código ingresado (`RE505881.jpg`; otra foto del mismo código, `RE505881 (2).jpg`). El enlace queda como nota en la celda del SKU.
+- **Finalizar:** copia la pestaña del centro a `Inventario_BARRIDO_<centro>_FINAL_<fecha>` dentro de la subcarpeta del día.
+- **Propiedades:** `APPS_SCRIPT_TOKEN` (igual a `BARRIDO_APPS_SCRIPT_TOKEN` de la appweb) y, opcional, `BARRIDO_FOLDER_ID`.
+- Después de pegarlo: Implementar → Administrar implementaciones → editar → Nueva versión, y en la planilla 📦 Barrido → Aplicar lista de almacenes.

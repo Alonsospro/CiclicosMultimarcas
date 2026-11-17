@@ -4,6 +4,7 @@ window.BarridoView = {
   isCameraActive: false,
   uploadedPhotoUrl: null,
   uploadedJustPhotoUrl: null,
+  warehouses: [],
 
   init() {
     this.setupListeners();
@@ -12,6 +13,44 @@ window.BarridoView = {
 
   initCenters() {
     this.updateCenterAccess();
+  },
+
+  // The warehouse list comes from the barrido spreadsheet; the last one used is kept on this device.
+  async loadWarehouses() {
+    const select = document.getElementById('barrido-select-warehouse');
+    if (!select) return;
+    try {
+      const res = await window.API.getBarridoWarehouses();
+      this.warehouses = res.warehouses || [];
+    } catch (err) {
+      this.warehouses = [];
+      window.Toast.warning(err.message || 'No se pudo leer la lista de almacenes del barrido.');
+    }
+    let remembered = '';
+    try { remembered = localStorage.getItem('nibol_barrido_almacen') || ''; } catch (_) {}
+    const current = select.value || remembered;
+    select.innerHTML = '<option value="">Seleccione</option>' + this.warehouses.map(code => `<option value="${code}">${code}</option>`).join('');
+    if (this.warehouses.includes(current)) select.value = current;
+    else if (this.warehouses.length === 1) select.value = this.warehouses[0];
+  },
+
+  getSelectedWarehouse() {
+    return String(document.getElementById('barrido-select-warehouse')?.value || '').trim().toUpperCase();
+  },
+
+  async editWarehouses() {
+    const current = this.warehouses.join(', ');
+    const typed = prompt('Almacenes del barrido, separados por coma.\nSe aplican como lista desplegable en la planilla de barrido.', current);
+    if (typed === null) return;
+    const list = typed.split(',').map(v => v.trim().toUpperCase()).filter(Boolean);
+    if (!list.length) { window.Toast.warning('La lista no puede quedar vacía.'); return; }
+    try {
+      const res = await window.API.setBarridoWarehouses(list);
+      window.Toast.success(`Almacenes del barrido: ${(res.warehouses || list).join(', ')}`);
+      await this.loadWarehouses();
+    } catch (err) {
+      window.Toast.danger(err.message || 'No se pudo guardar la lista de almacenes.');
+    }
   },
 
   updateCenterAccess() {
@@ -105,6 +144,11 @@ window.BarridoView = {
       window.Toast.info(`Centro seleccionado para Barrido: ${center}`);
     });
 
+    document.getElementById('barrido-select-warehouse')?.addEventListener('change', () => {
+      try { localStorage.setItem('nibol_barrido_almacen', this.getSelectedWarehouse()); } catch (_) {}
+    });
+    document.getElementById('btn-edit-barrido-warehouses')?.addEventListener('click', () => this.editWarehouses());
+
     // Toggle Camera in Barrido
     document.getElementById('btn-toggle-barrido-cam')?.addEventListener('click', () => {
       this.toggleCamera();
@@ -186,8 +230,9 @@ window.BarridoView = {
       const center = this.getSelectedCenter();
       const product = this.currentScannedProduct?.item || this.currentScannedProduct;
       const sku = product?.SKU || document.getElementById('barrido-input-code')?.value || '';
-      const almacen = product?.Almacen || product?.almacen || product?.warehouse || '';
-      const dateStr = new Date().toISOString().split('T')[0];
+      // The photo is named after the code entered and stored by date and center.
+      const almacen = this.getSelectedWarehouse() || product?.Almacen || product?.almacen || product?.warehouse || '';
+      const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date());
 
       try {
         window.Toast.info('Subiendo evidencia a Google Drive...');
@@ -245,8 +290,9 @@ window.BarridoView = {
       const center = this.getSelectedCenter();
       const product = this.currentScannedProduct?.item || this.currentScannedProduct;
       const sku = product?.SKU || document.getElementById('barrido-input-code')?.value || '';
-      const almacen = product?.Almacen || product?.almacen || product?.warehouse || '';
-      const dateStr = new Date().toISOString().split('T')[0];
+      // The photo is named after the code entered and stored by date and center.
+      const almacen = this.getSelectedWarehouse() || product?.Almacen || product?.almacen || product?.warehouse || '';
+      const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date());
 
       try {
         window.Toast.info('Subiendo foto de justificación a Google Drive...');
@@ -315,10 +361,19 @@ window.BarridoView = {
 
         const center = this.getSelectedCenter();
         const comment = document.getElementById('barrido-input-comment')?.value.trim() || '';
+        const almacen = this.getSelectedWarehouse();
+        if (!almacen) {
+          window.Toast.warning('Seleccione el almacén del barrido.');
+          document.getElementById('barrido-select-warehouse')?.focus();
+          return;
+        }
+        // The same code in another warehouse is another row of the sweep.
+        const sameWarehouse = String(item.Almacen || '').trim().toUpperCase() === almacen;
 
         await window.API.registerBarridoCount({
           inventoryId: this.currentScannedProduct.inventoryId || null,
-          itemId: item.id || null,
+          itemId: sameWarehouse ? (item.id || null) : null,
+          almacen,
           sku: item.SKU,
           barcode: item.Codigo_Barras || '',
           descripcion: itemDesc,

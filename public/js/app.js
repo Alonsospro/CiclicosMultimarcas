@@ -116,6 +116,7 @@ window.Router = {
       case 'barrido':
         window.BarridoView.updateCenterAccess();
         window.BarridoView.resetBarridoForm();
+        window.BarridoView.loadWarehouses();
         break;
       case 'assignments':
         window.AssignmentsView.loadView();

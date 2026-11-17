@@ -31,6 +31,26 @@ router.get('/search', authenticate, restrictCenter, async (req, res) => {
   }
 });
 
+// GET /api/barrido/warehouses (list of the barrido spreadsheet)
+router.get('/warehouses', authenticate, async (req, res) => {
+  try {
+    res.json({ success: true, warehouses: await gasService.getBarridoWarehouses() });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/barrido/warehouses (administrators change the list; the spreadsheet dropdown follows)
+router.post('/warehouses', authenticate, async (req, res) => {
+  try {
+    if (!(req.user.isSuperadmin || req.user.role === 'ADMIN')) throw new Error('Solo un administrador puede cambiar la lista de almacenes.');
+    const list = Array.isArray(req.body?.warehouses) ? req.body.warehouses : String(req.body?.warehouses || '').split(',');
+    res.json({ success: true, warehouses: await gasService.setBarridoWarehouses(list.map(v => String(v).trim().toUpperCase()).filter(Boolean)) });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 // POST /api/barrido/count
 router.post('/count', authenticate, restrictCenter, async (req, res) => {
   try {
@@ -45,6 +65,7 @@ router.post('/count', authenticate, restrictCenter, async (req, res) => {
       stockFisico,
       malEstado,
       location,
+      almacen,
       isNewLocation,
       reason,
       center,
@@ -65,7 +86,11 @@ router.post('/count', authenticate, restrictCenter, async (req, res) => {
       ? req.user.center
       : (center || (req.user.center !== 'GLOBAL' ? req.user.center : '1120'));
     const targetCenter = config.getCenterCode ? config.getCenterCode(effectiveCenter) : effectiveCenter;
-    const targetInvId = inventoryId || `INV-BARRIDO-${targetCenter}-001`;
+    // A sweep always writes to its own inventory and the barrido spreadsheet, even when the code was found in another inventory.
+    const isSweep = String(inventoryId || '').includes('BARRIDO');
+    const targetInvId = isSweep ? inventoryId : `INV-BARRIDO-${targetCenter}-001`;
+    const cleanAlmacen = String(almacen || '').trim().toUpperCase();
+    if (!cleanAlmacen) throw new Error('Seleccione el almacén del barrido.');
 
     const cleanCategoria = (categoria && !['BARRIDO', 'CICLICO', 'GENERAL', 'EXPRESS'].includes(String(categoria).toUpperCase().trim()))
       ? categoria
@@ -74,8 +99,9 @@ router.post('/count', authenticate, restrictCenter, async (req, res) => {
     const result = await inventoryService.updateCount({
       inventoryId: targetInvId,
       type: 'BARRIDO',
-      itemId,
+      itemId: isSweep ? itemId : null,
       sku,
+      almacen: cleanAlmacen,
       barcode: barcode || codigoBarras || '',
       descripcion: descripcion || description || '',
       stockFisico,

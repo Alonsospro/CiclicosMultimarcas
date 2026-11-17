@@ -398,6 +398,13 @@
                 </div>
               </div>
 
+              <!-- Almacén del barrido: lista de la planilla de barrido -->
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <label for="barrido-select-warehouse" style="font-size: 0.8rem; font-weight: 600; color: var(--text-dim);"><i class="fa-solid fa-boxes-stacked"></i> Almacén:</label>
+                <select id="barrido-select-warehouse" class="form-select" style="min-width: 120px;"><option value="">Cargando...</option></select>
+                <button type="button" class="btn btn-secondary role-admin-only" id="btn-edit-barrido-warehouses" title="Cambiar la lista de almacenes del barrido" style="padding: 0.35rem 0.6rem;"><i class="fa-solid fa-pen"></i></button>
+              </div>
+
               <button class="btn btn-warning" id="btn-finish-barrido">
                 <i class="fa-solid fa-cloud-arrow-up"></i> Finalizar y Sincronizar Barrido
               </button>
@@ -2955,13 +2962,13 @@
   <script src="/js/components/scannerModal.js?v=3.0"></script>
   <script src="/js/components/logoRotator.js?v=2.2"></script>
   <script src="/js/components/deerLoader.js?v=2.0"></script>
-  <script src="/js/api.js?v=restore-closure-1"></script>
+  <script src="/js/api.js?v=barrido-almacen-1"></script>
   <script src="/js/components/firestoreUsageIndicator.js?v=1.1"></script>
   <script src="/js/auth.js?v=progress-access-1"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
   <script src="/js/inventoryGrouping.js?v=1.0"></script>
   <script src="/js/views/inventoryView.js?v=lubricantes-1"></script>
-  <script src="/js/views/barridoView.js?v=2.3"></script>
+  <script src="/js/views/barridoView.js?v=barrido-almacen-1"></script>
   <script src="/js/views/assignmentsView.js?v=deer-loader-2"></script>
   <script src="/js/inventoryContract.js?v=partial-justification-1"></script>
   <script src="/js/justificationPhotoRule.js?v=1.0"></script>
@@ -2975,6 +2982,6 @@
   <script src="/js/views/dashboardView.js?v=lubricantes-1"></script>
   <script src="/js/views/progressView.js?v=lubricantes-1"></script>
   <script src="/js/views/userManagementView.js?v=deer-loader-2"></script>
-  <script src="/js/app.js?v=lubricantes-1"></script>
+  <script src="/js/app.js?v=barrido-almacen-1"></script>
 </body>
 </html>

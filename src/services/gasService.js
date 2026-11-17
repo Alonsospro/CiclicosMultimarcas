@@ -691,6 +691,18 @@ class GasService {
     return {success:true,found:found.length===1,item:found[0]||null};
   }
 
+  // Warehouses of the sweep: a list kept in the barrido spreadsheet, shown as its dropdown.
+  async getBarridoWarehouses() {
+    const result=await gasRequest(this.getUrlForType('BARRIDO'),{action:'getWarehouses',type:'BARRIDO'});
+    if(!Array.isArray(result.warehouses))throw new Error('El Apps Script de barrido no devolvió la lista de almacenes; pegue la versión nueva.');
+    return result.warehouses;
+  }
+
+  async setBarridoWarehouses(warehouses) {
+    const result=await gasRequest(this.getUrlForType('BARRIDO'),{action:'setWarehouses',type:'BARRIDO',warehouses});
+    return result.warehouses;
+  }
+
   async upsertCountToGAS(type,payload) {
     const postBody={...payload,action:'upsertCount',type:String(type||payload.type||'CICLICO').toUpperCase(),
       ...(contract.isWeeklyType(type)?{schemaVersion:contract.weeklyVersion}:{}),
