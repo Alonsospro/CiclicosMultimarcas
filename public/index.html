@@ -1719,6 +1719,13 @@
             </p>
           </div>
 
+          <!-- Barrido: equipo de varias personas, sin elegir ítems -->
+          <div class="form-group" id="new-inv-team-box" style="margin-top: 0.75rem; display: none;">
+            <label class="form-label"><i class="fa-solid fa-people-group" style="color: var(--primary);"></i> Equipo del barrido (opcional)</label>
+            <div id="new-inv-team" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.3rem; max-height: 190px; overflow-y: auto; padding: 0.5rem; border: 1px solid var(--border-glass); border-radius: var(--radius-sm);"></div>
+            <p style="font-size: 0.78rem; color: var(--text-dim); margin-top: 0.25rem;">Todas las personas marcadas ven el barrido y registran códigos. El barrido se puede crear aunque la hoja del centro no tenga productos.</p>
+          </div>
+
           <div style="margin-top: 0.5rem; margin-bottom: 1rem;">
             <button type="button" class="btn btn-secondary btn-sm" id="btn-fetch-gas-template">
               <i class="fa-solid fa-cloud-arrow-down"></i> Cargar productos desde Google Apps Script
@@ -1818,11 +1825,17 @@
             <div id="quick-assign-center-note" style="margin-top: 0.5rem; font-size: 0.82rem; line-height: 1.4;"></div>
           </div>
 
-          <div class="form-group">
+          <input type="hidden" id="quick-assign-inv-type">
+          <div class="form-group" id="quick-assign-single-box">
             <label class="form-label" for="quick-assign-aux-select">Seleccione el Auxiliar Responsable</label>
-            <select id="quick-assign-aux-select" class="form-select" required>
+            <select id="quick-assign-aux-select" class="form-select">
               <!-- Dynamically populated -->
             </select>
+          </div>
+          <div class="form-group" id="quick-assign-team-box" style="display: none;">
+            <label class="form-label"><i class="fa-solid fa-people-group"></i> Personas del barrido</label>
+            <div id="quick-assign-team" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.3rem; max-height: 220px; overflow-y: auto; padding: 0.5rem; border: 1px solid var(--border-glass); border-radius: var(--radius-sm);"></div>
+            <p style="font-size: 0.78rem; color: var(--text-dim); margin-top: 0.25rem;">Las marcadas quedan como equipo del barrido; quien se desmarca deja de verlo. No se eligen ítems.</p>
           </div>
 
           <div style="background: rgba(56,189,248,0.08); border: 1px solid rgba(56,189,248,0.2); border-radius: var(--radius-md); padding: 0.75rem; margin-bottom: 1rem;">
@@ -2971,7 +2984,7 @@
   <script src="/js/auth.js?v=progress-access-1"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
   <script src="/js/inventoryGrouping.js?v=1.0"></script>
-  <script src="/js/views/inventoryView.js?v=lubricantes-1"></script>
+  <script src="/js/views/inventoryView.js?v=barrido-equipo-1"></script>
   <script src="/js/views/barridoView.js?v=barrido-prefijos-1"></script>
   <script src="/js/views/assignmentsView.js?v=deer-loader-2"></script>
   <script src="/js/inventoryContract.js?v=partial-justification-1"></script>

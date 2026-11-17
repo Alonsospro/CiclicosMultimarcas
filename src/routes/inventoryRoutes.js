@@ -89,7 +89,7 @@ router.get('/:id', authenticate, async (req, res) => {
 // POST /api/inventories (Create new - Juan Carlos & Alonso Only)
 router.post('/', authenticate, requireInventoryCreator, restrictCenter, async (req, res) => {
   try {
-    const { type, center, name, items, assignedAuxiliar } = req.body;
+    const { type, center, name, items, assignedAuxiliar, assignedAuxiliars } = req.body;
     const targetCenter = (req.user.role === 'ADMIN' || req.user.isSuperadmin) ? (center || '1120') : req.user.center;
     const newInv = await inventoryService.createInventory({
       type,
@@ -97,7 +97,8 @@ router.post('/', authenticate, requireInventoryCreator, restrictCenter, async (r
       name,
       items,
       user: req.user,
-      assignedAuxiliar
+      assignedAuxiliar,
+      assignedAuxiliars
     });
     res.status(201).json({ success: true, inventory: newInv });
   } catch (err) {
@@ -219,14 +220,15 @@ router.delete('/:id/items/:itemId', authenticate, async (req, res) => {
 // POST /api/inventories/:id/reassign (Reassign items)
 router.post('/:id/reassign', authenticate, requireRole(['ADMIN', 'ENCARGADO']), (req, res) => {
   try {
-    const { itemIds, toUser, reason, assignAll } = req.body;
+    const { itemIds, toUser, reason, assignAll, team } = req.body;
     const result = inventoryService.reassignTasks({
       inventoryId: req.params.id,
       itemIds,
       toUser,
       requestingUser: req.user,
       reason,
-      assignAll
+      assignAll,
+      team
     });
     res.json(result);
   } catch (err) {

@@ -48,12 +48,16 @@ function inventoryService(gas,allowed=true){
     './inventoryContract':contract,'../config':{countSheetSync:'inmediato',centersList:[{code:'1120'},{code:'1160'}],findCenter:v=>['1120','1160'].includes(v)?{code:v}:null,getCenterCode:v=>v,isSameCenter:(a,b)=>a===b},
     './storagePath':{getInventoriesDirectory:()=>'/fake',getJustificationsDirectory:()=>'/fake-just',listFiles:()=>[...records.keys()].map(id=>id+'.json'),readJson:p=>records.get(path.basename(p,'.json'))},
     './auditService':{logAction(){},logCount(){}},'./driveService':{getPhotoAsDataUri:()=>''},'./gasService':gas,'./metricsService':{},'./snapshotService':{isSnapshotDeleted:()=>false},'../../public/js/justificationPhotoRule':require('../public/js/justificationPhotoRule'),
-    '../middlewares/authMiddleware':{isBulkInventoryCreator:()=>allowed}
+    '../middlewares/authMiddleware':{isBulkInventoryCreator:()=>allowed},
+    './authService':{getUsersList:()=>people}
   });
   service.getInventoryRaw=id=>records.get(id);
   service.saveInventory=inv=>records.set(inv.id,inv);
   return {service,records};
 }
+const people=[{username:'Erick',displayName:'Erick Morales',role:'AUXILIAR',center:'1120'},{username:'Manuel',displayName:'Jose Manuel Duran',role:'AUXILIAR',center:'1120'},
+  {username:'Javier',displayName:'Javier Eduardo López',role:'ENCARGADO',center:'1120'},{username:'Otro',displayName:'De otro centro',role:'AUXILIAR',center:'1160'},
+  {username:'Visor',displayName:'Solo lectura',role:'CONSULTA',center:'1120'}];
 const user={username:'test'};
 test('bulk loads each center, clears inherited counts and reports failed centers',async()=>{
   const calls=[];
@@ -245,4 +249,27 @@ test('a reclosure asks Google to rewrite the previous final file; a first closur
   await drive.createFinalDriveFile({inventory:{...inventory,closedAt:'2026-10-14T18:00:00.000Z',driveFileId:'file-1'},justifications:[],user});
   assert.equal('replaceFileId' in payloads[0],false);
   assert.equal(payloads[1].replaceFileId,'file-1');
+});
+
+test('a sweep can be created with an empty sheet and given to several people without choosing items',async()=>{
+  const {service,records}=inventoryService({fetchProductsFromScript:async()=>[]});
+  service.canCreateInventory=()=>true;
+  const admin={username:'alonso',role:'ADMIN',isSuperadmin:true};
+  const sweep=await service.createInventory({type:'BARRIDO',center:'1120',user:admin,assignedAuxiliars:['Erick','Javier']});
+  assert.equal(sweep.items.length,0);
+  assert.equal(sweep.assignedAuxiliars.join(),'Erick,Erick Morales,Javier,Javier Eduardo López');
+  await assert.rejects(service.createInventory({type:'CICLICO',center:'1120',user:admin}),/hoja del centro está vacía/);
+  assert.equal(service.activeBarridoInventory('1120').id,sweep.id,'The barrido screen writes to it');
+
+  const team=service.reassignTasks({inventoryId:sweep.id,team:['Manuel','Erick'],requestingUser:admin});
+  assert.equal(team.team.join(),'Jose Manuel Duran,Erick Morales');
+  assert.equal(records.get(sweep.id).assignedAuxiliars.join(),'Manuel,Jose Manuel Duran,Erick,Erick Morales','The list replaces the previous team');
+  const encargado={username:'Javier',role:'ENCARGADO',center:'1120'};
+  assert.throws(()=>service.reassignTasks({inventoryId:sweep.id,team:['Otro'],requestingUser:encargado}),/propio centro/);
+  assert.throws(()=>service.reassignTasks({inventoryId:sweep.id,team:['Visor'],requestingUser:admin}),/perfil operativo/);
+  assert.throws(()=>service.reassignTasks({inventoryId:sweep.id,team:[],requestingUser:admin}),/al menos una persona/);
+
+  const bulk=await service.bulkCreateInventories({type:'BARRIDO',date:'2026-11-18',centers:['1160'],user});
+  assert.equal(bulk.results[0].status,'created','Bulk sweeps can start empty too');
+  assert.equal(bulk.results[0].inventory.items.length,0);
 });

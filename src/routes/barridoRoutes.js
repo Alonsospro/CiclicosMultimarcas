@@ -99,7 +99,8 @@ router.post('/count', authenticate, restrictCenter, async (req, res) => {
     const targetCenter = config.getCenterCode ? config.getCenterCode(effectiveCenter) : effectiveCenter;
     // A sweep always writes to its own inventory and the barrido spreadsheet, even when the code was found in another inventory.
     const isSweep = String(inventoryId || '').includes('BARRIDO');
-    const targetInvId = isSweep ? inventoryId : `INV-BARRIDO-${targetCenter}-001`;
+    // A sweep created in Inventarios, with its team, is the one the screen writes to.
+    const targetInvId = isSweep ? inventoryId : (inventoryService.activeBarridoInventory(targetCenter)?.id || `INV-BARRIDO-${targetCenter}-001`);
     const cleanAlmacen = String(almacen || '').trim().toUpperCase();
     if (!cleanAlmacen) throw new Error('Seleccione el almacén del barrido.');
 
@@ -148,7 +149,8 @@ router.post('/finish', authenticate, restrictCenter, async (req, res) => {
       ? req.user.center
       : (center || (req.user.center !== 'GLOBAL' ? req.user.center : '1120'));
     const cleanCenter = config.getCenterCode ? config.getCenterCode(effectiveCenter) : effectiveCenter;
-    const targetInvId = inventoryId || `INV-BARRIDO-${cleanCenter}-001`;
+    const targetInvId = String(inventoryId || '').includes('BARRIDO') ? inventoryId
+      : (inventoryService.activeBarridoInventory(cleanCenter)?.id || `INV-BARRIDO-${cleanCenter}-001`);
 
     const inv = inventoryService.getInventoryRaw(targetInvId);
     if (!inv || !inv.items || inv.items.length === 0) {

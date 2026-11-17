@@ -228,6 +228,8 @@ window.InventoryView = {
       if (auxSelect) {
         auxSelect.innerHTML = '<option value="">-- Sin asignar (asignar posteriormente) --</option>';
         window.API.getUsers().then(uRes => {
+          this.operationalUsers = (uRes.users || []).filter(u => ['AUXILIAR', 'ENCARGADO'].includes(u.role));
+          this.renderNewTeam();
           const auxs = (uRes.users || []).filter(u => u.role === 'AUXILIAR');
           auxSelect.innerHTML = '<option value="">-- Sin asignar (asignar posteriormente) --</option>' +
             auxs.map(u => `<option value="${u.username}">${u.displayName || u.username} (${u.centerName || u.center || 'Sin Centro'})</option>`).join('');
@@ -241,9 +243,11 @@ window.InventoryView = {
 
     // Auto-fetch when center or type changes in modal
     document.getElementById('new-inv-center')?.addEventListener('change', () => {
+      this.renderNewTeam();
       this.triggerAutoFetchGas();
     });
     document.getElementById('new-inv-type')?.addEventListener('change', () => {
+      this.renderNewTeam();
       this.triggerAutoFetchGas();
     });
 
@@ -258,6 +262,21 @@ window.InventoryView = {
       const invId = document.getElementById('quick-assign-inv-id')?.value;
       const toUser = document.getElementById('quick-assign-aux-select')?.value;
       const invName = document.getElementById('quick-assign-inv-name')?.textContent || invId;
+      const isSweep = document.getElementById('quick-assign-inv-type')?.value === 'BARRIDO';
+
+      if (isSweep) {
+        const team = this.checkedPeople('quick-assign-team');
+        if (!team.length) { window.Toast.warning('Marque al menos una persona para el barrido.'); return; }
+        try {
+          const res = await window.API.reassignTasks(invId, { team, reason: 'Equipo de barrido desde panel de inventarios' });
+          window.Toast.success(`Barrido ${invName} asignado a: ${(res.team || team).join(', ')}.`);
+          window.ModalHelper.close('modal-quick-assign');
+          await this.loadInventories();
+        } catch (err) {
+          window.Toast.danger(err.message || 'Error al asignar el barrido');
+        }
+        return;
+      }
 
       if (!invId || !toUser) {
         window.Toast.warning('Seleccione un auxiliar para realizar la asignación.');
@@ -298,7 +317,8 @@ window.InventoryView = {
       const center = (window.Auth.currentUser?.role === 'ENCARGADO')
         ? window.Auth.currentUser.center
         : document.getElementById('new-inv-center').value;
-      const assignedAuxiliar = document.getElementById('new-inv-auxiliar')?.value || '';
+      const assignedAuxiliar = type === 'BARRIDO' ? '' : (document.getElementById('new-inv-auxiliar')?.value || '');
+      const assignedAuxiliars = type === 'BARRIDO' ? this.checkedPeople('new-inv-team') : [];
 
       const submitBtn = e.target.querySelector('button[type="submit"]');
       if (submitBtn) {
@@ -325,11 +345,12 @@ window.InventoryView = {
           type,
           center,
           assignedAuxiliar,
+          assignedAuxiliars,
           items: this.gasFetchedItems
         });
 
         const itemCount = res.inventory?.items?.length || this.gasFetchedItems.length || 0;
-        const auxNotice = assignedAuxiliar ? ` y asignado a ${assignedAuxiliar}` : '';
+        const auxNotice = assignedAuxiliars.length ? ` con ${assignedAuxiliars.length} persona(s) en el equipo` : assignedAuxiliar ? ` y asignado a ${assignedAuxiliar}` : '';
         window.Toast.success(`Inventario creado exitosamente${auxNotice} con ${itemCount} productos de la hoja del centro ${center}`);
         window.ModalHelper.close('modal-new-inventory');
         this.loadInventories();
@@ -807,6 +828,8 @@ window.InventoryView = {
     try {
       const res = await window.API.getInventories({ type, center });
       let list = res.inventories || [];
+      // Kept to show who is already in a sweep's team when assigning it.
+      this.inventories = list;
 
       const cacheKey = 'nibol_cached_inventories';
       if (list.length > 0) {
@@ -910,7 +933,7 @@ window.InventoryView = {
                     <i class="fa-solid fa-rotate"></i>
                     <span class="inventory-action-label">Sincronizar</span>
                   </button>
-                  <button class="btn btn-secondary btn-sm" onclick="window.InventoryView.promptAssign('${inv.id}', '${safeName}', '${inv.center}')" title="Asignar tareas a Auxiliar de este centro">
+                  <button class="btn btn-secondary btn-sm" onclick="window.InventoryView.promptAssign('${inv.id}', '${safeName}', '${inv.center}', '${inv.type}')" title="Asignar tareas a Auxiliar de este centro">
                     <i class="fa-solid fa-user-tag"></i> Asignar
                   </button>
                   <button class="btn btn-danger btn-sm" onclick="window.InventoryView.promptDelete('${inv.id}', ${inv.countedItems || 0})" title="Eliminar inventario/tarea" aria-label="Eliminar inventario">
@@ -2689,7 +2712,37 @@ window.InventoryView = {
     }
   },
 
-  async promptAssign(invId, rawInvName, rawInvCenter) {
+  // People of the center who can sweep, as checkboxes; marked are the ones given.
+  peopleCheckboxes(containerId, center, marked = []) {
+    const box = document.getElementById(containerId);
+    if (!box) return;
+    const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    const isAdmin = window.Auth.hasRole(['ADMIN']);
+    const people = (this.operationalUsers || []).filter(u => !center || window.Auth.isSameCenter(u.center, center) || (isAdmin && !center));
+    const wanted = new Set(marked.map(v => String(v).toLowerCase()));
+    box.innerHTML = people.map(u => `<label style="display:flex; gap:0.4rem; align-items:center; font-size:0.82rem; cursor:pointer;">
+        <input type="checkbox" value="${esc(u.username)}" ${wanted.has(String(u.username).toLowerCase()) || wanted.has(String(u.displayName || '').toLowerCase()) ? 'checked' : ''}>
+        <span>${esc(u.displayName || u.username)} <small style="color:var(--text-dim);">${esc(u.role === 'ENCARGADO' ? 'Encargado' : 'Auxiliar')}</small></span></label>`).join('')
+      || '<p style="margin:0; font-size:0.82rem; color:var(--text-dim);">No hay personas registradas en este centro.</p>';
+  },
+
+  checkedPeople(containerId) {
+    return Array.from(document.querySelectorAll(`#${containerId} input[type="checkbox"]:checked`)).map(input => input.value);
+  },
+
+  renderNewTeam() {
+    const type = document.getElementById('new-inv-type')?.value;
+    const isSweep = type === 'BARRIDO';
+    const teamBox = document.getElementById('new-inv-team-box');
+    const single = document.getElementById('new-inv-auxiliar')?.closest('.form-group');
+    if (teamBox) teamBox.style.display = isSweep ? '' : 'none';
+    if (single) single.style.display = isSweep ? 'none' : '';
+    if (!isSweep) return;
+    const center = (window.Auth.currentUser?.role === 'ENCARGADO') ? window.Auth.currentUser.center : document.getElementById('new-inv-center')?.value;
+    this.peopleCheckboxes('new-inv-team', center, this.checkedPeople('new-inv-team'));
+  },
+
+  async promptAssign(invId, rawInvName, rawInvCenter, invType = '') {
     if (!invId) return;
     const modal = document.getElementById('modal-quick-assign');
     if (!modal) return;
@@ -2709,6 +2762,14 @@ window.InventoryView = {
 
     if (invInput) invInput.value = invId;
     if (nameSpan) nameSpan.textContent = decodeURIComponent(rawInvName || invId);
+    // A sweep is given to several people at once, without choosing items.
+    const isSweep = String(invType).toUpperCase() === 'BARRIDO';
+    const typeInput = document.getElementById('quick-assign-inv-type');
+    if (typeInput) typeInput.value = isSweep ? 'BARRIDO' : '';
+    const singleBox = document.getElementById('quick-assign-single-box');
+    const teamBox = document.getElementById('quick-assign-team-box');
+    if (singleBox) singleBox.style.display = isSweep ? 'none' : '';
+    if (teamBox) teamBox.style.display = isSweep ? '' : 'none';
     if (auxSelect) auxSelect.innerHTML = '<option value="">Cargando auxiliares...</option>';
 
     if (noteEl) {
@@ -2724,6 +2785,11 @@ window.InventoryView = {
 
     try {
       const uRes = await window.API.getUsers();
+      this.operationalUsers = (uRes.users || []).filter(u => ['AUXILIAR', 'ENCARGADO'].includes(u.role));
+      if (isSweep) {
+        const current = (this.inventories || []).find(inv => inv.id === invId)?.assignedAuxiliars || [];
+        this.peopleCheckboxes('quick-assign-team', isAdmin ? rawInvCenter : currentUser?.center, current);
+      }
       let auxs = (uRes.users || []).filter(u => u.role === 'AUXILIAR');
       
       // If Encargado, strictly filter by center

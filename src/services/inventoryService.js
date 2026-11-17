@@ -420,7 +420,35 @@ class InventoryService {
     return false;
   }
 
-  async createInventory({ type, center, name, items, user, assignedAuxiliar }) {
+  // People of a sweep: each one sees and counts the whole inventory; items are not split between them.
+  resolveTeam(people, requestingUser) {
+    const authService = require('./authService');
+    const allUsers = authService.getUsersList();
+    const isAdmin = requestingUser.role === 'ADMIN' || requestingUser.isSuperadmin;
+    const identities = [], names = [];
+    for (const person of [...new Set((people || []).map(p => String(p || '').trim()).filter(Boolean))]) {
+      const key = person.toLowerCase();
+      const found = allUsers.find(u => [u.username, u.displayName, u.id].some(v => v && String(v).toLowerCase() === key));
+      if (!found) throw new Error(`El usuario '${person}' no fue encontrado en el sistema`);
+      if (!['AUXILIAR', 'ENCARGADO', 'ADMIN'].includes(found.role)) throw new Error(`${found.displayName || found.username} no tiene un perfil operativo para barridos`);
+      if (!isAdmin && !config.isSameCenter(found.center, requestingUser.center))
+        throw new Error(`Como Encargado solo puede asignar personas de su propio centro; ${found.displayName || found.username} es de ${found.centerName || found.center}.`);
+      [found.username, found.displayName].filter(Boolean).forEach(value => { if (!identities.includes(value)) identities.push(value); });
+      names.push(found.displayName || found.username);
+    }
+    return { identities, names };
+  }
+
+  // The sweep the barrido screen writes to: the newest one in progress for the center.
+  activeBarridoInventory(center) {
+    return this.getAllInventoryFiles()
+      .map(file => storagePath.readJson(path.join(this.invDir, file), null))
+      .filter(inv => inv && String(inv.type || '').toUpperCase() === 'BARRIDO' && inv.status === 'EN_PROGRESO'
+        && config.isSameCenter(inv.center, center) && !snapshotService.isSnapshotDeleted(inv))
+      .sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0))[0] || null;
+  }
+
+  async createInventory({ type, center, name, items, user, assignedAuxiliar, assignedAuxiliars: team = null }) {
     if (!type || !center) {
       throw new Error('Tipo y Centro son requeridos');
     }
@@ -437,7 +465,8 @@ class InventoryService {
       mappedItems = gasService.mapRawRowsToColumns(items, cleanType);
     } else {
       mappedItems=await gasService.fetchProductsFromScript(cleanType,targetCenter);
-      if(!mappedItems.length)throw new Error('La hoja del centro está vacía; no se creó el inventario.');
+      // A sweep finds what is on the shelves, so it can start with an empty sheet.
+      if(!mappedItems.length&&cleanType!=='BARRIDO')throw new Error('La hoja del centro está vacía; no se creó el inventario.');
       mappedItems=mappedItems.map((item,index)=>({
         ...Object.fromEntries(contract.columns.slice(0,11).map(key=>[key,item[key]??''])),
         ...(contract.isWeekly(item)?{Schema_Version:contract.weeklyVersion}:{}),
@@ -450,7 +479,9 @@ class InventoryService {
 
     // Resolve assigned Auxiliar if selected during creation
     let assignedAuxiliars = [];
-    if (assignedAuxiliar) {
+    if (cleanType === 'BARRIDO' && Array.isArray(team) && team.length) {
+      assignedAuxiliars = this.resolveTeam(team, user).identities;
+    } else if (assignedAuxiliar) {
       const authService = require('./authService');
       const allUsers = authService.getUsersList();
       const targetUser = allUsers.find(u =>
@@ -530,7 +561,7 @@ class InventoryService {
       if(existing){results.push({center,status:'existing',inventory:existing});continue;}
       try{
         const fetched=await gasService.fetchProductsFromScript(cleanType,center);
-        if(!fetched.length)throw new Error('La hoja del centro está vacía; no se creó el inventario.');
+        if(!fetched.length&&cleanType!=='BARRIDO')throw new Error('La hoja del centro está vacía; no se creó el inventario.');
         const items=fetched.map(contract.normalize);
         const identities=items.map(contract.member);
         if(new Set(identities).size!==identities.length)throw new Error('La hoja contiene SKU/almacén/ubicación duplicados.');
@@ -1211,10 +1242,23 @@ class InventoryService {
     };
   }
 
-  reassignTasks({ inventoryId, itemIds, toUser, requestingUser, reason, assignAll }) {
+  reassignTasks({ inventoryId, itemIds, toUser, requestingUser, reason, assignAll, team = null }) {
     const inv = this.getInventoryRaw(inventoryId);
     if (!inv) {
       throw new Error('Inventario no encontrado');
+    }
+    // A sweep is given to a team without choosing items: the list replaces the previous one.
+    if (Array.isArray(team)) {
+      if (String(inv.type || '').toUpperCase() !== 'BARRIDO') throw new Error('Solo un barrido se asigna a varias personas sin elegir ítems.');
+      if (!(requestingUser.role === 'ADMIN' || requestingUser.isSuperadmin || (requestingUser.role === 'ENCARGADO' && config.isSameCenter(inv.center, requestingUser.center))))
+        throw new Error('No tiene permisos para asignar este barrido.');
+      if (!team.length) throw new Error('Seleccione al menos una persona para el barrido.');
+      const resolved = this.resolveTeam(team, requestingUser);
+      inv.assignedAuxiliars = resolved.identities;
+      this.saveInventory(inv);
+      auditService.logAction({ action: 'BARRIDO_TEAM_ASSIGNED', details: `Equipo de ${inv.name || inv.id}: ${resolved.names.join(', ')}${reason ? ` · ${reason}` : ''}`,
+        user: requestingUser.username, center: inv.center, targetId: inv.id });
+      return { success: true, count: 0, team: resolved.names, targetDisplayName: resolved.names.join(', '), inventory: inv };
     }
 
     const isAdmin = requestingUser.role === 'ADMIN' || requestingUser.isSuperadmin;
