@@ -296,6 +296,13 @@ window.API = {
     });
   },
 
+  setBarridoPrefixes(prefixes) {
+    return this.request('/barrido/prefixes', {
+      method: 'POST',
+      body: JSON.stringify({ prefixes })
+    });
+  },
+
   registerBarridoCount(payload) {
     return this.request('/barrido/count', {
       method: 'POST',

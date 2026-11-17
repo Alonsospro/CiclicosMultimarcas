@@ -34,7 +34,7 @@ router.get('/search', authenticate, restrictCenter, async (req, res) => {
 // GET /api/barrido/warehouses (list of the barrido spreadsheet)
 router.get('/warehouses', authenticate, async (req, res) => {
   try {
-    res.json({ success: true, warehouses: await gasService.getBarridoWarehouses() });
+    res.json({ success: true, ...(await gasService.getBarridoSettings()) });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
@@ -46,6 +46,17 @@ router.post('/warehouses', authenticate, async (req, res) => {
     if (!(req.user.isSuperadmin || req.user.role === 'ADMIN')) throw new Error('Solo un administrador puede cambiar la lista de almacenes.');
     const list = Array.isArray(req.body?.warehouses) ? req.body.warehouses : String(req.body?.warehouses || '').split(',');
     res.json({ success: true, warehouses: await gasService.setBarridoWarehouses(list.map(v => String(v).trim().toUpperCase()).filter(Boolean)) });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/barrido/prefixes (administrators change the brand prefixes of the sweep)
+router.post('/prefixes', authenticate, async (req, res) => {
+  try {
+    if (!(req.user.isSuperadmin || req.user.role === 'ADMIN')) throw new Error('Solo un administrador puede cambiar los prefijos.');
+    const list = Array.isArray(req.body?.prefixes) ? req.body.prefixes : String(req.body?.prefixes || '').split(',');
+    res.json({ success: true, prefixes: await gasService.setBarridoPrefixes(list.map(v => String(v).trim().toUpperCase()).filter(Boolean)) });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }

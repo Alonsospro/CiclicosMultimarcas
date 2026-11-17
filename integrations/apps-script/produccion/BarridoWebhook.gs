@@ -9,6 +9,8 @@
  *    la appweb la lee y la puede cambiar.
  *  - Guarda las fotos en la carpeta de barridos: una subcarpeta por fecha y centro
  *    ("2026-11-17 · 1120 Volvo - Km 14") y cada archivo con el código ingresado ("RE505881.jpg").
+ *  - Prefijos de marca (JD_, WI_, KL_, AI_, JI_, HA_, VG_ por defecto, propiedad BARRIDO_PREFIJOS): la appweb
+ *    guarda el SKU con el prefijo y el código de barras sin él. La lista se cambia desde la appweb.
  *  - Al finalizar el barrido crea una copia de la pestaña del centro en esa misma subcarpeta.
  *
  * Instalación:
@@ -23,6 +25,8 @@
 
 const BARRIDO_DEFAULT_FOLDER_ID = '1SucBFevV5PEzM-ONZCriDQiBag31byD1';
 const BARRIDO_DEFAULT_WAREHOUSES = ['AL04', 'RJD0', 'AM01'];
+// Prefijos de marca: la appweb los antepone al código para el SKU; el código de barras queda sin prefijo.
+const BARRIDO_DEFAULT_PREFIXES = ['JD_', 'WI_', 'KL_', 'AI_', 'JI_', 'HA_', 'VG_'];
 const BARRIDO_TZ = 'America/La_Paz';
 
 // Las 44 columnas de las pestañas de centro, en orden (A:AR).
@@ -103,6 +107,21 @@ function setWarehouses_(p) {
   PropertiesService.getScriptProperties().setProperty('BARRIDO_ALMACENES', unique.join(','));
   applyWarehouseValidation_();
   return { warehouses: unique };
+}
+function prefixes_() {
+  const saved = property_('BARRIDO_PREFIJOS');
+  const list = saved ? saved.split(',').map(identity_).filter(Boolean) : BARRIDO_DEFAULT_PREFIXES;
+  return [...new Set(list)];
+}
+function setPrefixes_(p) {
+  const list = (Array.isArray(p.prefixes) ? p.prefixes : String(p.prefixes || '').split(','))
+    .map(identity_).filter(Boolean).map(code => code.endsWith('_') ? code : code + '_');
+  const unique = [...new Set(list)];
+  if (!unique.length) throw new Error('La lista de prefijos no puede quedar vacía.');
+  const invalid = unique.filter(code => !/^[A-Z0-9]{1,6}_$/.test(code));
+  if (invalid.length) throw new Error('Prefijos inválidos: ' + invalid.join(', ') + '. Use letras o números seguidos de guion bajo (JD_).');
+  PropertiesService.getScriptProperties().setProperty('BARRIDO_PREFIJOS', unique.join(','));
+  return { prefixes: unique };
 }
 // Desplegable en la columna Almacen (H) de cada pestaña de centro; permite escribir otro valor con advertencia.
 function applyWarehouseValidation_() {
@@ -306,27 +325,27 @@ function confirmOperation_(id, hash, result) {
 
 function dispatchRead_(p) {
   switch (p.action) {
-    case 'ping': return { success: true, version: 'barrido-1' };
-    case 'getWarehouses': return { success: true, warehouses: warehouses_() };
+    case 'ping': return { success: true, version: 'barrido-2' };
+    case 'getWarehouses': case 'getSettings': return { success: true, warehouses: warehouses_(), prefixes: prefixes_() };
     case 'getItems': case 'getProducts': case 'readItems': {
       const sh = centerSheet_(p.center || p.centro);
       const items = rows_(sh).map((row, index) => rowToItem_(row, index + 2)).filter(item => item.SKU);
       return { success: true, items, warehouses: warehouses_() };
     }
-    case 'diagnostic': return { success: true, version: 'barrido-1', warehouses: warehouses_(),
+    case 'diagnostic': return { success: true, version: 'barrido-2', warehouses: warehouses_(), prefixes: prefixes_(),
       sheets: centerSheets_().map(sh => ({ name: sh.getName(), rows: sh.getLastRow(), cols: sh.getLastColumn() })) };
     default: throw new Error('Acción no soportada: ' + p.action);
   }
 }
 
-function doGet() { return json_({ success: true, service: 'Barrido NIBOL', version: 'barrido-1' }); }
+function doGet() { return json_({ success: true, service: 'Barrido NIBOL', version: 'barrido-2' }); }
 
 function doPost(e) {
   let lock;
   try {
     const body = JSON.parse(e?.postData?.contents || '{}');
     authenticate_(body);
-    if (['ping', 'getWarehouses', 'getItems', 'getProducts', 'readItems', 'diagnostic'].indexOf(body.action) >= 0) return json_(dispatchRead_(body));
+    if (['ping', 'getWarehouses', 'getSettings', 'getItems', 'getProducts', 'readItems', 'diagnostic'].indexOf(body.action) >= 0) return json_(dispatchRead_(body));
     if (body.action === 'savePhoto' || body.action === 'uploadPhoto') {
       const photoLock = LockService.getUserLock();
       if (!photoLock.tryLock(25000)) return json_({ success: false, retryable: true, error: 'Servidor ocupado al guardar la foto. Reintente.' });
@@ -346,6 +365,7 @@ function doPost(e) {
     switch (body.action) {
       case 'upsertCount': result = upsertCount_(body); break;
       case 'setWarehouses': result = { success: true, ...setWarehouses_(body) }; break;
+      case 'setPrefixes': result = { success: true, ...setPrefixes_(body) }; break;
       case 'createFinalFile': result = createFinalFile_(body); break;
       default: throw new Error('Acción no soportada en barrido: ' + body.action);
     }

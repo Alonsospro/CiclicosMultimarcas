@@ -692,10 +692,17 @@ class GasService {
   }
 
   // Warehouses of the sweep: a list kept in the barrido spreadsheet, shown as its dropdown.
-  async getBarridoWarehouses() {
+  // Warehouses and brand prefixes of the sweep. A script without prefixes yet keeps the agreed list.
+  async getBarridoSettings() {
     const result=await gasRequest(this.getUrlForType('BARRIDO'),{action:'getWarehouses',type:'BARRIDO'});
     if(!Array.isArray(result.warehouses))throw new Error('El Apps Script de barrido no devolvió la lista de almacenes; pegue la versión nueva.');
-    return result.warehouses;
+    return {warehouses:result.warehouses,prefixes:Array.isArray(result.prefixes)?result.prefixes:['JD_','WI_','KL_','AI_','JI_','HA_','VG_'],
+      prefixesSaved:Array.isArray(result.prefixes)};
+  }
+
+  async setBarridoPrefixes(prefixes) {
+    const result=await gasRequest(this.getUrlForType('BARRIDO'),{action:'setPrefixes',type:'BARRIDO',prefixes});
+    return result.prefixes;
   }
 
   async setBarridoWarehouses(warehouses) {

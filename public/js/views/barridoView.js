@@ -5,6 +5,8 @@ window.BarridoView = {
   uploadedPhotoUrl: null,
   uploadedJustPhotoUrl: null,
   warehouses: [],
+  prefixes: ['JD_', 'WI_', 'KL_', 'AI_', 'JI_', 'HA_', 'VG_'],
+  lastLocation: '',
 
   init() {
     this.setupListeners();
@@ -15,19 +17,29 @@ window.BarridoView = {
     this.updateCenterAccess();
   },
 
-  // The warehouse list comes from the barrido spreadsheet; the last one used is kept on this device.
+  // What this device was working on: center, warehouse, prefix and last location survive each record and visit.
+  remember(key, value) {
+    try { localStorage.setItem('nibol_barrido_' + key, value || ''); } catch (_) {}
+  },
+
+  recall(key) {
+    try { return localStorage.getItem('nibol_barrido_' + key) || ''; } catch (_) { return ''; }
+  },
+
+  // Warehouses and prefixes come from the barrido spreadsheet; the last ones used are kept on this device.
   async loadWarehouses() {
     const select = document.getElementById('barrido-select-warehouse');
     if (!select) return;
     try {
       const res = await window.API.getBarridoWarehouses();
       this.warehouses = res.warehouses || [];
+      if (Array.isArray(res.prefixes) && res.prefixes.length) this.prefixes = res.prefixes;
     } catch (err) {
       this.warehouses = [];
       window.Toast.warning(err.message || 'No se pudo leer la lista de almacenes del barrido.');
     }
-    let remembered = '';
-    try { remembered = localStorage.getItem('nibol_barrido_almacen') || ''; } catch (_) {}
+    this.renderPrefixes();
+    const remembered = this.recall('almacen');
     const current = select.value || remembered;
     select.innerHTML = '<option value="">Seleccione</option>' + this.warehouses.map(code => `<option value="${code}">${code}</option>`).join('');
     if (this.warehouses.includes(current)) select.value = current;
@@ -44,6 +56,49 @@ window.BarridoView = {
 
   isInDrive(url) {
     return /^https:\/\/(drive|docs)\.google\.com\//.test(String(url || ''));
+  },
+
+  renderPrefixes() {
+    const select = document.getElementById('barrido-select-prefix');
+    if (!select) return;
+    const current = select.value || this.recall('prefijo');
+    select.innerHTML = '<option value="">Sin prefijo</option>' + this.prefixes.map(code => `<option value="${code}">${code}</option>`).join('');
+    select.value = this.prefixes.includes(current) ? current : '';
+  },
+
+  getSelectedPrefix() {
+    return String(document.getElementById('barrido-select-prefix')?.value || '').trim().toUpperCase();
+  },
+
+  // The code read or typed, without any brand prefix: that is the barcode column.
+  stripPrefix(code) {
+    const text = String(code || '').trim().toUpperCase();
+    const known = this.prefixes.find(prefix => text.startsWith(prefix));
+    if (known) return text.slice(known.length);
+    return text.replace(/^(?:[A-Z]{2}_|JD-)(?=\w)/, '');
+  },
+
+  // SKU with the selected prefix; a code that already brings a prefix keeps it.
+  skuFor(code) {
+    const text = String(code || '').trim().toUpperCase();
+    const prefix = this.getSelectedPrefix();
+    if (!prefix || this.stripPrefix(text) !== text) return text;
+    return prefix + text;
+  },
+
+  async editPrefixes() {
+    const typed = prompt('Prefijos de marca, separados por coma (por ejemplo JD_, WI_).\nEl SKU se guarda con el prefijo y el código de barras sin él.', this.prefixes.join(', '));
+    if (typed === null) return;
+    const list = typed.split(',').map(v => v.trim().toUpperCase()).filter(Boolean).map(v => v.endsWith('_') ? v : v + '_');
+    if (!list.length) { window.Toast.warning('La lista no puede quedar vacía.'); return; }
+    try {
+      const res = await window.API.setBarridoPrefixes(list);
+      this.prefixes = res.prefixes || list;
+      this.renderPrefixes();
+      window.Toast.success(`Prefijos del barrido: ${this.prefixes.join(', ')}`);
+    } catch (err) {
+      window.Toast.danger(err.message || 'No se pudieron guardar los prefijos. Revise que el Apps Script de barrido esté actualizado.');
+    }
   },
 
   getSelectedWarehouse() {
@@ -98,7 +153,11 @@ window.BarridoView = {
       if (select) {
         select.disabled = false;
         select.innerHTML = centers.map(c => `<option value="${c.code}">${c.displayName || c.name || c.code}</option>`).join('');
-        if (user && user.center && user.center !== 'GLOBAL') {
+        // The center chosen last on this device wins over the user's own center.
+        const remembered = this.recall('centro');
+        if (remembered && centers.some(c => c.code === remembered)) {
+          select.value = remembered;
+        } else if (user && user.center && user.center !== 'GLOBAL') {
           select.value = user.center;
         } else if (!select.value) {
           select.value = '1120';
@@ -151,14 +210,15 @@ window.BarridoView = {
 
     // Center selector change
     document.getElementById('barrido-select-center')?.addEventListener('change', () => {
+      this.remember('centro', this.getSelectedCenter());
       this.resetBarridoForm();
       const center = this.getSelectedCenter();
       window.Toast.info(`Centro seleccionado para Barrido: ${center}`);
     });
 
-    document.getElementById('barrido-select-warehouse')?.addEventListener('change', () => {
-      try { localStorage.setItem('nibol_barrido_almacen', this.getSelectedWarehouse()); } catch (_) {}
-    });
+    document.getElementById('barrido-select-warehouse')?.addEventListener('change', () => this.remember('almacen', this.getSelectedWarehouse()));
+    document.getElementById('barrido-select-prefix')?.addEventListener('change', () => this.remember('prefijo', this.getSelectedPrefix()));
+    document.getElementById('btn-edit-barrido-prefixes')?.addEventListener('click', () => this.editPrefixes());
     document.getElementById('btn-edit-barrido-warehouses')?.addEventListener('click', () => this.editWarehouses());
 
     // Toggle Camera in Barrido
@@ -417,7 +477,11 @@ window.BarridoView = {
                 ? `✅ Registrado ${qty} unid. de ${item.SKU} como ubicación adicional en '${loc}'`
                 : `✅ Registrado ${qty} unid. de ${item.SKU} en '${loc}'`)
         );
+        this.lastLocation = loc.toUpperCase();
+        this.remember('ubicacion', this.lastLocation);
+        // Center, warehouse and prefix stay; only the item is cleared, ready for the next code.
         this.resetBarridoForm();
+        document.getElementById('input-barrido-manual')?.focus();
       } catch (err) {
         window.Toast.danger(err.message || 'Error registrando conteo en barrido');
       } finally {
@@ -560,15 +624,27 @@ window.BarridoView = {
 
   async handleBarcodeRead(barcode) {
     const center = this.getSelectedCenter();
+    // The SKU carries the brand prefix; the barcode is the code without it.
+    const code = this.stripPrefix(barcode);
+    const sku = this.skuFor(barcode);
     try {
-      const res = await window.API.searchBarrido(barcode, center);
+      let res = await window.API.searchBarrido(sku, center);
+      if (!res.found && code !== sku) {
+        const byCode = await window.API.searchBarrido(code, center);
+        if (byCode.found) res = byCode;
+      }
+      if (!res.found) {
+        res.item = { ...res.item, SKU: sku, Codigo_Barras: code, Descripcion: `Ítem Descubierto en Barrido (${sku})` };
+      } else if (!res.item.Codigo_Barras) {
+        res.item = { ...res.item, Codigo_Barras: code };
+      }
       this.displayScannedItem(res);
       if (res.source === 'GOOGLE_SHEETS') {
         window.Toast.success(`✅ Encontrado en Google Sheets (Centro ${center}): ${res.item.SKU}`);
       } else if (res.source === 'EXISTING_INVENTORY') {
         window.Toast.success(`✅ Encontrado en inventario activo: ${res.item.SKU}`);
       } else {
-        window.Toast.info(`ℹ️ SKU no registrado previamente: ${barcode}`);
+        window.Toast.info(`ℹ️ SKU no registrado previamente: ${sku}`);
       }
     } catch (err) {
       window.Toast.danger(err.message || 'Error al buscar producto');
@@ -646,7 +722,8 @@ window.BarridoView = {
       if (locDiffAlert) locDiffAlert.style.display = 'none';
       if (isNewLocInput) isNewLocInput.value = 'false';
       if (locInput) {
-        locInput.value = item.Ubicacion || '';
+        // A sweep usually goes shelf by shelf: a new code starts on the last location used.
+        locInput.value = item.Ubicacion || this.lastLocation || this.recall('ubicacion') || '';
         locInput.placeholder = 'Ej: RACK-A1-02 (Asignar como Ubicación Principal)...';
       }
       if (descInput && !descInput.value) {

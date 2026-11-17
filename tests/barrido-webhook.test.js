@@ -157,3 +157,12 @@ test('a new code takes the first empty row of the tab, even when an old row sits
   const next = post({ action: 'upsertCount', center: '1120', sku: 'RE99', almacen: 'AL04', stockBuenEstado: 1 });
   assert.equal(next.item.row, 3);
 });
+
+test('brand prefixes are kept in the barrido spreadsheet and can be extended from the app', () => {
+  const { post, props } = script();
+  assert.equal(post({ action: 'getWarehouses' }).prefixes.join(), 'JD_,WI_,KL_,AI_,JI_,HA_,VG_');
+  const saved = post({ action: 'setPrefixes', prefixes: ['JD_', 'wi_', 'KL', 'ZX_', 'JD_'] });
+  assert.equal(saved.prefixes.join(), 'JD_,WI_,KL_,ZX_');
+  assert.equal(props.BARRIDO_PREFIJOS, 'JD_,WI_,KL_,ZX_');
+  assert.match(post({ action: 'setPrefixes', prefixes: ['J D_'] }).error, /inválidos/);
+});

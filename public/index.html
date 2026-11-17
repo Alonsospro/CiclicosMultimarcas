@@ -431,7 +431,11 @@
                   <i class="fa-solid fa-keyboard"></i> Ingreso Manual o Lector Láser (Columna B / SKU)
                 </label>
                 <div style="display: flex; gap: 0.5rem;">
-                  <input type="text" id="input-barrido-manual" class="form-input" placeholder="Escanee o escriba código (soporta con/sin prefijo JD_)...">
+                  <select id="barrido-select-prefix" class="form-select" title="Prefijo de marca: el SKU se guarda con el prefijo y el código de barras sin él" style="width: auto; min-width: 92px; font-weight: 700;">
+                    <option value="">Sin prefijo</option>
+                  </select>
+                  <button type="button" class="btn btn-secondary role-admin-only" id="btn-edit-barrido-prefixes" title="Agregar o quitar prefijos" style="padding: 0.35rem 0.6rem;"><i class="fa-solid fa-plus"></i></button>
+                  <input type="text" id="input-barrido-manual" class="form-input" placeholder="Escanee o escriba el código...">
                   <button class="btn btn-secondary" id="btn-search-barrido-manual">
                     <i class="fa-solid fa-magnifying-glass"></i>
                   </button>
@@ -2962,13 +2966,13 @@
   <script src="/js/components/scannerModal.js?v=3.0"></script>
   <script src="/js/components/logoRotator.js?v=2.2"></script>
   <script src="/js/components/deerLoader.js?v=2.0"></script>
-  <script src="/js/api.js?v=barrido-almacen-1"></script>
+  <script src="/js/api.js?v=barrido-prefijos-1"></script>
   <script src="/js/components/firestoreUsageIndicator.js?v=1.1"></script>
   <script src="/js/auth.js?v=progress-access-1"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
   <script src="/js/inventoryGrouping.js?v=1.0"></script>
   <script src="/js/views/inventoryView.js?v=lubricantes-1"></script>
-  <script src="/js/views/barridoView.js?v=barrido-almacen-2"></script>
+  <script src="/js/views/barridoView.js?v=barrido-prefijos-1"></script>
   <script src="/js/views/assignmentsView.js?v=deer-loader-2"></script>
   <script src="/js/inventoryContract.js?v=partial-justification-1"></script>
   <script src="/js/justificationPhotoRule.js?v=1.0"></script>
