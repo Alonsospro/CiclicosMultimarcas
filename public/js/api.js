@@ -429,6 +429,10 @@ window.API = {
     return this.request(`/dashboard/metrics${this.buildQueryString(params)}`, { timeoutMs: 60000 });
   },
 
+  getMonthlyReport(params = {}) {
+    return this.request(`/dashboard/monthly-report${this.buildQueryString(params)}`, { timeoutMs: 180000 });
+  },
+
   getInventoryTracking(params = {}) {
     return this.request(`/dashboard/tracking${this.buildQueryString(params)}`, { timeoutMs: 60000 });
   },

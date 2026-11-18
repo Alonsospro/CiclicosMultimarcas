@@ -120,6 +120,12 @@ window.DashboardView = {
       };
     }
 
+    const monthlyButton = document.getElementById('btn-dash-monthly-report');
+    if (monthlyButton) monthlyButton.onclick = (event) => {
+      event.preventDefault();
+      window.MetricsReportModal?.generateMonthlyReport();
+    };
+
     // Tabs navigation
     document.querySelectorAll('.dash-tab-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {

@@ -6,6 +6,7 @@
 window.MetricsReportModal = {
   currentInventory: null,
   currentMetrics: null,
+  currentMonthly: null,
   reportCharts: [],
   isGenerating: false,
   isExporting: false,
@@ -105,6 +106,7 @@ window.MetricsReportModal = {
     }
     this.currentInventory = inventoryObj;
     this.currentMetrics = metricsData;
+    this.currentMonthly = null;
 
     // The sheets are measured to paginate, so the modal must be visible first.
     window.ModalHelper?.open('modal-metrics-report');
@@ -191,6 +193,57 @@ window.MetricsReportModal = {
     }
   },
 
+  // Month from the dashboard's month filter; any other period uses the current month in Bolivia.
+  selectedMonth() {
+    const current = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit' }).format(new Date());
+    const period = document.getElementById('dash-filter-period')?.value || 'TODO';
+    const chosen = document.getElementById('dash-filter-month')?.value || '';
+    if (period === 'MES_ESPECIFICO' && /^\d{4}-\d{2}$/.test(chosen)) return chosen;
+    if (period === 'MES_ANTERIOR') {
+      const [year, month] = current.split('-').map(Number);
+      return month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, '0')}`;
+    }
+    return current;
+  },
+
+  async generateMonthlyReport() {
+    if (this.isGenerating) return;
+    this.isGenerating = true;
+    const user = window.Auth?.currentUser;
+    const isAdmin = user && (user.role === 'ADMIN' || user.isSuperadmin);
+    const center = isAdmin ? (document.getElementById('dash-filter-center')?.value || 'TODOS') : (user?.center || 'TODOS');
+    const type = document.getElementById('dash-filter-type')?.value || 'TODOS';
+    const month = this.selectedMonth();
+    const endWait = window.DeerLoader?.show('Preparando el informe mensual...');
+    try {
+      const data = await window.API.getMonthlyReport({ month, type, center });
+      if (data.months?.some(row => row.metricsComplete === false)) {
+        window.Toast?.warning('Hay archivos sin validar en alguno de los meses. Revise las fuentes antes de usar el informe.');
+      }
+      this.currentInventory = { id: `MENSUAL-${month}`, name: `Informe mensual ${month}`, center, type };
+      this.currentMetrics = data.current;
+      this.currentMonthly = data;
+      window.ModalHelper?.open('modal-metrics-report');
+      const container = document.getElementById('report-printable-area');
+      const title = document.getElementById('report-modal-title');
+      const subtitle = document.getElementById('report-modal-subtitle');
+      if (title) title.textContent = 'Informe mensual';
+      if (subtitle) subtitle.textContent = 'Productividad por centro, evolución y clasificación de códigos del mes';
+      if (container) {
+        container.innerHTML = window.ManagementReport.renderMonthly(data);
+        window.ManagementReport.paginate(container);
+        window.ManagementReport.bindInteractions(container);
+      }
+      window.Toast?.success('Informe mensual generado');
+    } catch (err) {
+      console.error('[MetricsReport] Error mensual:', err);
+      window.Toast?.danger(err.message || 'No se pudo generar el informe mensual.');
+    } finally {
+      endWait?.();
+      this.isGenerating = false;
+    }
+  },
+
   buildReportDOM(inv, metrics) {
     const container = document.getElementById('report-printable-area');
     if (!container) return;
@@ -234,7 +287,9 @@ window.MetricsReportModal = {
     const inv = this.currentInventory || {};
     const safe = value => String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_');
     const dateStr = new Date().toISOString().slice(0, 10);
-    const filename = consolidated
+    const filename = this.currentMonthly
+      ? `Informe_Mensual_${safe(this.currentMonthly.month)}_${dateStr}.pdf`
+      : consolidated
       ? `Informe_Consolidado_${dateStr}.pdf`
       : `Informe_Centro_${safe(inv.center)}_${safe(inv.id)}_${dateStr}.pdf`;
 

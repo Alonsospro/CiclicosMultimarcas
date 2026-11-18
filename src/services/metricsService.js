@@ -114,6 +114,21 @@ function invalidateMetricsCache({sources = false} = {}) {
   if (sources) metricsSources.invalidate();
 }
 
+// Only the quantities the monthly comparison needs: the detail stays with the month's own report.
+function monthlyCenter(entry) {
+  const keep = group => ({
+    name: group.name, lines: group.lines, skus: group.skus, skusExact: group.skusExact,
+    units: group.units, unitsExact: group.unitsExact, value: group.value, valueExact: group.valueExact
+  });
+  return {
+    ...keep(entry), center: entry.center,
+    shortage: entry.shortage, surplus: entry.surplus, damage: entry.damage, eru: entry.eru,
+    inventories: (entry.inventories || []).length,
+    forcedLines: (entry.durations || []).reduce((total, row) => total + (Number(row.forcedLines) || 0), 0),
+    byClass: (entry.byClass || []).map(keep)
+  };
+}
+
 class MetricsService {
   constructor() {
     this.invDir = storagePath.getInventoriesDirectory();
@@ -1894,6 +1909,30 @@ class MetricsService {
     });
 
     return result;
+  }
+
+  // Monthly report: the selected creation month and the months before it, each computed with the
+  // same rules as the dashboard's "Creados en un mes" filter so both always show the same figures.
+  async getMonthlyReport({ type = 'TODOS', center = 'TODOS', month, months = 6 } = {}) {
+    if (!/^\d{4}-\d{2}$/.test(String(month || ''))) throw new Error('Mes inválido: use el formato AAAA-MM.');
+    const [year, number] = month.split('-').map(Number);
+    const keys = Array.from({ length: months }, (_, index) => {
+      const date = new Date(Date.UTC(year, number - months + index, 1));
+      return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+    });
+    const series = [];
+    let current = null;
+    for (const key of keys) {
+      const data = await this.getDashboardMetrics({ type, center, period: 'MES_ESPECIFICO', month: key });
+      if (key === month) current = data;
+      series.push({
+        month: key,
+        metricsComplete: data.metricsComplete !== false,
+        centers: (data.reportData?.centers || []).map(monthlyCenter),
+        pendingCenters: data.reportData?.pendingCenters || []
+      });
+    }
+    return { month, type, center, months: series, current };
   }
 
   invalidateCache(options) {

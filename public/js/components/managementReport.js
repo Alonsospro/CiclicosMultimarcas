@@ -497,10 +497,225 @@
     return [page1, page2, page3, page4, page5, page6, pageTime, closing].join('');
   }
 
+  // ===== Monthly report: the selected creation month against the months before it. =====
+  const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const monthLabel = key => { const [year, month] = String(key).split('-'); return `${MONTH_NAMES[Number(month) - 1] || ''} ${year || ''}`.trim(); };
+  const shortMonth = key => { const [year, month] = String(key).split('-'); return `${(MONTH_NAMES[Number(month) - 1] || '').slice(0, 3)} ${String(year || '').slice(2)}`; };
+  // The result of a center is its lowest indicator, the same one that sets its compliance level.
+  const lowestOf = i => [i.units, i.codes, i.money].some(value => value === null) ? null : Math.min(i.units, i.codes, i.money);
+  const TREND_STEP = 0.5;
+  const TRENDS = {
+    up: { key: 'up', icon: '▲', label: 'Mejoró' },
+    down: { key: 'down', icon: '▼', label: 'Empeoró' },
+    same: { key: 'same', icon: '=', label: 'Se mantuvo' },
+    new: { key: 'new', icon: '•', label: 'Sin mes anterior' },
+    none: { key: 'none', icon: '–', label: 'Sin cierre en el mes' }
+  };
+  const trendOf = (now, before) => now === null ? TRENDS.none : before === null ? TRENDS.new
+    : now - before >= TREND_STEP ? TRENDS.up : before - now >= TREND_STEP ? TRENDS.down : TRENDS.same;
+  const trendChip = trend => `<span class="mr-trend t-${trend.key}">${trend.icon} ${esc(trend.label)}</span>`;
+  const points = value => `${value >= 0 ? '+' : '−'}${Math.abs(value).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const share = value => `${num(value).toLocaleString('es-BO', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  const change = (now, before) => before > 0 ? `${now >= before ? '+' : '−'}${Math.abs(Math.round((now - before) / before * 100))}%` : now > 0 ? 'nuevo' : '—';
+  const monthTotal = centers => ({
+    units: sum(centers, c => c.units), unitsExact: sum(centers, c => c.unitsExact),
+    skus: sum(centers, c => c.skus), skusExact: sum(centers, c => c.skusExact),
+    value: sum(centers, c => c.value), valueExact: sum(centers, c => c.valueExact),
+    inventories: sum(centers, c => c.inventories), lines: sum(centers, c => c.lines)
+  });
+  // The scale starts at 80% like the bullet bars, so the compliance marks (95% and 98%) are readable.
+  const scalePos = value => Math.max(0, Math.min(100, (value - 80) * 5));
+  const CLASS_COLORS = { A: '#17305f', B: '#2a78d6', C: '#8fb8ea' };
+  const OTHER_COLORS = ['#eda100', '#6f7888', '#b7c0ce', '#a86400'];
+  const className = name => name === 'Sin almacén' || !String(name || '').trim() ? 'Sin clase' : String(name).trim();
+  const interactiveNote = '<p class="mr-hint" data-html2canvas-ignore="true">Pase el cursor sobre el gráfico para ver el detalle y use los botones para filtrar. El PDF guarda la vista que quede en pantalla.</p>';
+
+  function monthlyModel(data) {
+    const months = (data.months || []).slice();
+    const last = months.length - 1;
+    const codes = [...new Set(months.flatMap(month => month.centers.map(c => c.center)))];
+    const names = Object.fromEntries(months.flatMap(month => month.centers.map(c => [c.center, c.name || c.center])));
+    const at = (index, code) => months[index]?.centers.find(c => c.center === code) || null;
+    const resultAt = (index, code) => { const c = at(index, code); return c ? lowestOf(indicators(c)) : null; };
+    const centers = codes.map(code => {
+      const now = at(last, code), before = at(last - 1, code);
+      const result = resultAt(last, code), previous = resultAt(last - 1, code);
+      return {
+        code, name: names[code], now, before, result, previous, trend: trendOf(result, previous),
+        delta: result !== null && previous !== null ? result - previous : null,
+        series: months.map((_, index) => ({ month: months[index].month, result: resultAt(index, code), center: at(index, code) }))
+      };
+    }).sort((a, b) => (a.result ?? 101) - (b.result ?? 101) || String(a.name).localeCompare(String(b.name)));
+    const totals = months.map(month => ({ month: month.month, total: monthTotal(month.centers) }));
+    const totalResult = index => totals[index] && totals[index].total.skus ? lowestOf(indicators(totals[index].total)) : null;
+    // Codes counted by ABC class, month by month.
+    const classMix = months.map(month => {
+      const counts = {};
+      month.centers.forEach(c => (c.byClass || []).forEach(group => { counts[className(group.name)] = (counts[className(group.name)] || 0) + num(group.skus); }));
+      return { month: month.month, counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
+    });
+    const classes = [...new Set(classMix.flatMap(row => Object.keys(row.counts)))].sort((a, b) =>
+      (a === 'Sin clase') - (b === 'Sin clase') || (a in CLASS_COLORS ? 0 : 1) - (b in CLASS_COLORS ? 0 : 1) || a.localeCompare(b));
+    const colorOf = name => CLASS_COLORS[name] || OTHER_COLORS[classes.filter(c => !(c in CLASS_COLORS)).indexOf(name) % OTHER_COLORS.length];
+    return { months, last, centers, totals, totalResult, classMix, classes, colorOf };
+  }
+
+  // Previous month and this month for every center on one scale; the dots carry the detail on hover.
+  function productivityChart(model) {
+    const nowKey = model.months[model.last]?.month, beforeKey = model.months[model.last - 1]?.month;
+    const counts = Object.fromEntries(Object.keys(TRENDS).map(key => [key, model.centers.filter(c => c.trend.key === key).length]));
+    const filters = [['all', `Todos (${model.centers.length})`], ...Object.values(TRENDS).filter(t => counts[t.key]).map(t => [t.key, `${t.icon} ${t.label} (${counts[t.key]})`])];
+    const tip = (key, c, value) => `${c.name} · ${monthLabel(key)}: resultado ${pct(value)}`;
+    const rows = model.centers.map(c => {
+      const a = c.previous, b = c.result;
+      const link = a !== null && b !== null ? `<i class="mr-db-link" style="left:${Math.min(scalePos(a), scalePos(b))}%;width:${Math.abs(scalePos(b) - scalePos(a))}%"></i>` : '';
+      const before = a !== null ? `<b class="mr-db-dot prev" data-series="prev" style="left:${scalePos(a)}%" data-tip="${esc(tip(beforeKey, c, a))}"></b>` : '';
+      const now = b !== null ? `<b class="mr-db-dot now t-${c.trend.key}" data-series="now" style="left:${scalePos(b)}%" data-tip="${esc(tip(nowKey, c, b))}${c.now ? ` · ${qty(c.now.skus)} códigos` : ''}"></b>` : '';
+      const label = b === null ? 'Sin cierre' : `${pct(b)}${c.delta !== null ? ` <small>(${points(c.delta)})</small>` : ''}`;
+      return `<div class="mr-db-row" data-trend="${c.trend.key}"><span class="mr-db-name">${esc(c.name)}</span><div class="mr-db-track"><u style="left:75%"></u><u style="left:90%"></u>${link}${before}${now}</div><span class="mr-db-val">${label}</span>${trendChip(c.trend)}</div>`;
+    }).join('');
+    const axis = `<div class="mr-db-row mr-db-axis"><span class="mr-db-name"></span><div class="mr-db-track mr-db-ticks">${[80, 85, 90, 95, 100].map(v => `<span style="left:${scalePos(v)}%">${v}%</span>`).join('')}</div><span class="mr-db-val"></span><span></span></div>`;
+    return `<div class="mr-controls"><span class="mr-toggles">${filters.map(([key, label], index) => `<button type="button" class="mr-btn${index ? '' : ' mr-on'}" data-mr-filter="${key}">${esc(label)}</button>`).join('')}</span>
+      <span class="mr-toggles"><button type="button" class="mr-btn mr-on mr-key" data-mr-toggle="prev"><i class="mr-db-dot prev"></i>${esc(beforeKey ? monthLabel(beforeKey) : 'Mes anterior')}</button><button type="button" class="mr-btn mr-on mr-key" data-mr-toggle="now"><i class="mr-db-dot now t-same"></i>${esc(monthLabel(nowKey))}</button></span></div>
+      <div class="mr-db">${rows || '<p class="mr-more">Sin centros con cierre en estos meses.</p>'}${rows ? axis : ''}</div>${interactiveNote}`;
+  }
+
+  function productivityTable(model) {
+    const nowKey = model.months[model.last]?.month, beforeKey = model.months[model.last - 1]?.month;
+    const pair = (before, now, format) => `<td class="num">${before === null || before === undefined ? '—' : format(before)}</td><td class="num mr-strong">${now === null || now === undefined ? '—' : format(now)}</td>`;
+    const indicator = (c, key) => pair(c.before ? indicators(c.before)[key] : null, c.now ? indicators(c.now)[key] : null, pct);
+    const rows = model.centers.map(c => `<tr><td class="mr-strong">${esc(c.name)}</td>
+      ${pair(c.before?.inventories, c.now?.inventories, qty)}
+      ${pair(c.before?.skus, c.now?.skus, qty)}<td class="num">${change(num(c.now?.skus), num(c.before?.skus))}</td>
+      ${indicator(c, 'units')}${indicator(c, 'codes')}${indicator(c, 'money')}
+      <td class="num">${c.delta === null ? '—' : points(c.delta)}</td><td>${trendChip(c.trend)}</td></tr>`).join('');
+    const head = label => `<th class="mr-group" colspan="2">${label}</th>`;
+    const months = `<th class="num">${esc(shortMonth(beforeKey))}</th><th class="num">${esc(shortMonth(nowKey))}</th>`;
+    return `<table data-split class="mr-prod"><thead><tr><th rowspan="2">Centro</th>${head('Inventarios cerrados')}<th class="mr-group" colspan="3">Códigos inventariados</th>${head('Unidades correctas')}${head('Códigos correctos')}${head('Valor correcto')}<th class="num" rowspan="2">Resultado<br>(puntos)</th><th rowspan="2">Tendencia</th></tr>
+      <tr>${months}${months}<th class="num">Cambio</th>${months}${months}${months}</tr></thead>
+      <tbody>${rows || '<tr><td colspan="13">Sin centros con cierre en estos meses.</td></tr>'}</tbody></table>`;
+  }
+
+  // One column per month for the center chosen with the buttons; the consolidated view is shown first.
+  function evolutionChart(model) {
+    const views = [{ code: 'ALL', name: 'Consolidado', series: model.totals.map((row, index) => ({ month: row.month, result: model.totalResult(index), center: row.total })) },
+      ...model.centers.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)))];
+    const columns = view => view.series.map(point => {
+      const value = point.result, lvl = level(value);
+      const detail = point.center ? `${qty(point.center.skus)} códigos · ${qty(point.center.inventories)} inv.` : 'Sin cierre';
+      return `<div class="mr-col" data-tip="${esc(`${view.name} · ${monthLabel(point.month)}: ${value === null ? 'sin cierre' : `resultado ${pct(value)}`} · ${detail}`)}">
+        <span class="mr-col-val">${value === null ? '—' : pct(value)}</span>
+        <div class="mr-col-bar">${value === null ? '' : `<i class="lvl-${lvl.key}" style="height:${Math.max(2, scalePos(value))}%"></i>`}<u style="bottom:75%"></u><u style="bottom:90%"></u></div>
+        <span class="mr-col-month">${esc(shortMonth(point.month))}</span><span class="mr-col-sub">${esc(detail)}</span></div>`;
+    }).join('');
+    return `<div class="mr-controls"><span class="mr-toggles mr-pick-list">${views.map((view, index) => `<button type="button" class="mr-btn${index ? '' : ' mr-on'}" data-mr-pick="${esc(view.code)}">${esc(view.name)}</button>`).join('')}</span></div>
+      ${views.map((view, index) => `<div class="mr-cols${index ? ' mr-hide' : ''}" data-pick="${esc(view.code)}">${columns(view)}</div>`).join('')}
+      <div class="mr-legend"><span>Altura: resultado del mes en escala de 80% a 100%. Líneas en 95% (mínimo) y 98% (cumplimiento).</span></div>${interactiveNote}`;
+  }
+
+  function evolutionTable(model) {
+    const cell = value => `<td class="mr-cell lvl-${level(value).key}">${value === null ? '—' : pct(value)}</td>`;
+    const rows = model.centers.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)))
+      .map(c => `<tr><th>${esc(c.name)}</th>${c.series.map(point => point.result === null ? '<td class="mr-center mr-more">—</td>' : cell(point.result)).join('')}<td>${trendChip(c.trend)}</td></tr>`).join('');
+    return `<table class="mr-heat" data-split><thead><tr><th>Centro</th>${model.months.map(month => `<th>${esc(shortMonth(month.month))}</th>`).join('')}<th>Último mes</th></tr></thead>
+      <tbody>${rows}</tbody><tfoot><tr><th>Consolidado</th>${model.totals.map((_, index) => model.totalResult(index) === null ? '<td class="mr-center">—</td>' : cell(model.totalResult(index))).join('')}<td></td></tr></tfoot></table>`;
+  }
+
+  function classChart(model) {
+    const legend = `<div class="mr-legend">${model.classes.map(name => `<span><i style="background:${model.colorOf(name)}"></i>Clase ${esc(name)}</span>`).join('')}</div>`;
+    const rows = model.classMix.map(row => `<div class="mr-cls-row"><span class="mr-cls-month">${esc(shortMonth(row.month))}</span><div class="mr-cls-bar">${row.total ? model.classes.filter(name => row.counts[name]).map(name => {
+      const part = row.counts[name] / row.total * 100;
+      return `<i style="width:${part}%;background:${model.colorOf(name)}" data-tip="${esc(`${monthLabel(row.month)} · clase ${name}: ${share(part)} (${qty(row.counts[name])} de ${qty(row.total)} códigos)`)}">${part >= 8 ? `${esc(name)} ${share(part)}` : ''}</i>`;
+    }).join('') : '<em>Sin códigos inventariados</em>'}</div><span class="mr-cls-total">${qty(row.total)} códigos</span></div>`).join('');
+    return `${legend}<div class="mr-cls">${rows}</div>${interactiveNote}`;
+  }
+
+  function classTable(model) {
+    const rows = model.classMix.map(row => `<tr><td class="mr-strong">${esc(monthLabel(row.month))}</td>${model.classes.map(name => `<td class="num">${row.total && row.counts[name] ? `${share(row.counts[name] / row.total * 100)} <small class="mr-more">(${qty(row.counts[name])})</small>` : '—'}</td>`).join('')}<td class="num mr-strong">${qty(row.total)}</td></tr>`).join('');
+    return `<table data-split><thead><tr><th>Mes</th>${model.classes.map(name => `<th class="num">Clase ${esc(name)}</th>`).join('')}<th class="num">Códigos</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function classByCenterTable(model) {
+    const current = model.months[model.last];
+    const rows = (current?.centers || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name))).map(c => {
+      const counts = {};
+      (c.byClass || []).forEach(group => { counts[className(group.name)] = (counts[className(group.name)] || 0) + num(group.skus); });
+      const total = Object.values(counts).reduce((a, b) => a + b, 0);
+      return `<tr><td class="mr-strong">${esc(c.name)}</td>${model.classes.map(name => `<td class="num">${total && counts[name] ? share(counts[name] / total * 100) : '—'}</td>`).join('')}<td class="num">${qty(total)}</td></tr>`;
+    }).join('');
+    return `<table data-split><thead><tr><th>Centro</th>${model.classes.map(name => `<th class="num">Clase ${esc(name)}</th>`).join('')}<th class="num">Códigos</th></tr></thead><tbody>${rows || `<tr><td colspan="${model.classes.length + 2}">Sin cierres en el mes.</td></tr>`}</tbody></table>`;
+  }
+
+  function renderMonthly(data) {
+    const model = monthlyModel(data);
+    const nowKey = data.month, beforeKey = model.months[model.last - 1]?.month;
+    const label = monthLabel(nowKey), beforeLabel = beforeKey ? monthLabel(beforeKey) : 'el mes anterior';
+    const right = `Inventarios creados en ${esc(label)}`;
+    const now = model.totals[model.last]?.total || monthTotal([]), before = model.totals[model.last - 1]?.total || monthTotal([]);
+    const result = model.totalResult(model.last), previous = model.totalResult(model.last - 1);
+    const total = trendOf(result, previous);
+    const count = key => model.centers.filter(c => c.trend.key === key).length;
+    const rule = `Resultado: el menor de unidades, códigos y valor correctos. Se considera que se mantuvo si cambió menos de ${TREND_STEP.toLocaleString('es-BO', { minimumFractionDigits: 2 })} puntos frente a ${esc(beforeLabel)}.`;
+    const pending = (model.months[model.last]?.pendingCenters || []).length;
+    const page1 = sheet(`Informe mensual · ${label}`, right, `
+      <div class="mr-row mr-c4">
+        <div class="mr-kpi top-${level(result).key}"><div class="mr-kpi-top"><span>Resultado consolidado</span>${trendChip(total)}</div><strong>${result === null ? '—' : pct(result)}</strong><span class="mr-qty">${previous === null ? `Sin cierres en ${esc(beforeLabel)}` : `${esc(beforeLabel)}: ${pct(previous)}${result !== null ? ` · ${points(result - previous)} puntos` : ''}`}</span></div>
+        <div class="mr-kpi top-info"><div class="mr-kpi-top"><span>Códigos inventariados</span></div><strong>${qty(now.skus)}</strong><span class="mr-qty">${esc(beforeLabel)}: ${qty(before.skus)} · ${change(now.skus, before.skus)}</span></div>
+        <div class="mr-kpi top-info"><div class="mr-kpi-top"><span>Inventarios cerrados</span></div><strong>${qty(now.inventories)}</strong><span class="mr-qty">${esc(beforeLabel)}: ${qty(before.inventories)}${pending ? ` · ${qty(pending)} centros sin cierre` : ''}</span></div>
+        <div class="mr-kpi top-info"><div class="mr-kpi-top"><span>Centros frente a ${esc(beforeLabel)}</span></div><strong>${count('up')} ▲ · ${count('down')} ▼</strong><span class="mr-qty">${count('up')} mejoraron · ${count('down')} empeoraron · ${count('same')} se mantuvieron${count('new') ? ` · ${count('new')} sin mes anterior` : ''}${count('none') ? ` · ${count('none')} sin cierre` : ''}</span></div>
+      </div>
+      ${panel(`Productividad por centro · ${beforeLabel} frente a ${label}`, productivityChart(model), 'mr-interactive')}
+      ${panel(`Detalle de cada centro en ${beforeLabel} y ${label}`, productivityTable(model), 'mr-plain')}`,
+      `${rule} Códigos inventariados: códigos por almacén revisados en los inventarios del mes.`);
+    const page3 = sheet(`Evolución de los últimos ${model.months.length} meses`, right, `
+      ${panel('Resultado mes a mes · elija el consolidado o un centro', evolutionChart(model), 'mr-interactive')}
+      ${panel('Resultado de cada centro por mes', evolutionTable(model), 'mr-plain')}${scaleLegend}`, 'Cada mes agrupa los inventarios creados en ese mes, sin importar cuándo se cerraron.');
+    const page4 = sheet('Clasificación de los códigos inventariados', right, `
+      <div class="mr-row mr-c2">
+        ${panel('Consolidado por mes · porcentaje de códigos de cada clase', classChart(model), 'mr-interactive')}
+        ${panel(`Por centro · ${label}`, classByCenterTable(model), 'mr-plain')}
+      </div>
+      ${panel('Consolidado por mes', classTable(model), 'mr-plain')}`, 'Porcentaje sobre los códigos por almacén revisados en el mes, según la clasificación ABC del inventario.');
+    const current = data.current?.reportData;
+    const inv = { id: `MENSUAL-${nowKey}`, name: `Informe mensual ${label}`, center: current?.centers?.[0]?.center || '', type: data.type || 'TODOS', status: 'COMPLETO' };
+    const detail = !current?.centers?.length ? sheet(`Detalle de ${label}`, right, `<p class="mr-empty">No hay inventarios cerrados creados en ${esc(label)}.</p>`, 'Sin datos para el detalle del mes.')
+      : current.centers.length > 1 ? renderConsolidated(inv, data.current, current) : renderCenter(inv, data.current, current.centers[0]);
+    return [page1, page3, page4, detail].join('');
+  }
+
+  // Charts react in the preview; whatever is on screen is what the PDF captures.
+  function bindInteractions(container) {
+    if (!container || container.dataset.mrInteractive) return;
+    container.dataset.mrInteractive = 'true';
+    container.addEventListener('click', event => {
+      const button = event.target.closest('[data-mr-filter], [data-mr-toggle], [data-mr-pick]');
+      const area = button?.closest('.mr-panel');
+      if (!area) return;
+      if (button.dataset.mrToggle) {
+        const off = button.classList.toggle('mr-on') === false;
+        area.querySelectorAll(`[data-series="${button.dataset.mrToggle}"]`).forEach(node => node.classList.toggle('mr-hide', off));
+        return;
+      }
+      const group = button.dataset.mrFilter ? '[data-mr-filter]' : '[data-mr-pick]';
+      area.querySelectorAll(group).forEach(node => node.classList.toggle('mr-on', node === button));
+      if (button.dataset.mrFilter) {
+        const value = button.dataset.mrFilter;
+        area.querySelectorAll('.mr-db-row[data-trend]').forEach(row => row.classList.toggle('mr-hide', value !== 'all' && row.dataset.trend !== value));
+      } else {
+        area.querySelectorAll('[data-pick]').forEach(node => node.classList.toggle('mr-hide', node.dataset.pick !== button.dataset.mrPick));
+      }
+    });
+  }
+
   window.ManagementReport = {
     level,
     worst,
     indicators,
+    bindInteractions,
+    renderMonthly(data) {
+      const pageRule = '<style>@media print { @page { size: A4 landscape; margin: 0; } }</style>';
+      return `${pageRule}<div class="mr-report">${renderMonthly(data)}</div>`;
+    },
     kind(metrics) {
       return (metrics?.reportData?.centers || []).length > 1 ? 'consolidado' : 'centro';
     },
