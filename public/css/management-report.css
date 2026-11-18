@@ -114,11 +114,6 @@
 .mr-sheet table.mr-history .mr-track { width: 80px; }
 
 /* Monthly report: trend chips, interactive charts and their controls. */
-.mr-trend { display: inline-block; padding: 3px 7px; font-size: 10.5px; font-weight: 700; line-height: 1; white-space: nowrap; border-radius: 2px; color: #fff; background: #6f7888; }
-.mr-trend.t-up { background: #12875c; }
-.mr-trend.t-down { background: #c9373f; }
-.mr-trend.t-same { background: #2b4c8c; }
-.mr-trend.t-new, .mr-trend.t-none { background: #8a93a3; }
 .mr-hide { display: none !important; }
 .mr-hint { margin: 0; color: var(--mr-soft); font-size: 10.5px; font-style: italic; }
 .mr-controls { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; }

@@ -102,13 +102,13 @@ router.get('/metrics', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/dashboard/monthly-report — one creation month compared with the months before it
+// GET /api/dashboard/monthly-report — how the selected inventories of one creation month advanced
 router.get('/monthly-report', authenticate, async (req, res) => {
   try {
-    const { type, center, month } = req.query;
+    const { type, center, month, inventoryId } = req.query;
     const clean = value => (!value || value === 'undefined' || value === 'null') ? 'TODOS' : value;
     const targetCenter = (req.user.role === 'ADMIN' || req.user.isSuperadmin) ? clean(center) : req.user.center;
-    const data = await metricsService.getMonthlyReport({ type: clean(type), center: targetCenter || 'TODOS', month });
+    const data = await metricsService.getMonthlyReport({ type: clean(type), center: targetCenter || 'TODOS', inventoryId: clean(inventoryId), month });
     res.json({ success: true, ...data });
   } catch (err) {
     console.error('[dashboardRoutes] Error in /monthly-report:', err);

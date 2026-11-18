@@ -114,18 +114,40 @@ function invalidateMetricsCache({sources = false} = {}) {
   if (sources) metricsSources.invalidate();
 }
 
-// Only the quantities the monthly comparison needs: the detail stays with the month's own report.
-function monthlyCenter(entry) {
-  const keep = group => ({
-    name: group.name, lines: group.lines, skus: group.skus, skusExact: group.skusExact,
-    units: group.units, unitsExact: group.unitsExact, value: group.value, valueExact: group.valueExact
+// Count day in Bolivia. Sheets writes d/M/yyyy, which Date.parse would read as month/day.
+const dayFormat = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit', day: '2-digit' });
+function countDay(value) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? '').trim())) return String(value).trim();
+  const local = String(value ?? '').trim().match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (local) return `${local[3]}-${local[2].padStart(2, '0')}-${local[1].padStart(2, '0')}`;
+  const date = new Date(value);
+  return value && Number.isFinite(date.getTime()) ? dayFormat.format(date) : '';
+}
+
+// How the month advanced: every line of the selected inventories (open ones too) by the day of its
+// first count, and the result of each closed inventory in date order.
+function monthTimeline(inventories, closures, isClosed) {
+  const centers = {};
+  inventories.forEach(inv => {
+    const code = inv.center || 'GENERAL';
+    const found = config.findCenter(code);
+    const entry = centers[code] = centers[code] || { name: found ? `${found.code} - ${found.name}` : code, lines: 0, counted: 0, inventories: 0, closed: 0, byDay: {} };
+    entry.inventories += 1;
+    if (isClosed(inv)) entry.closed += 1;
+    (inv.items || []).forEach(item => {
+      entry.lines += 1;
+      const physical = item.Stock_Fisico !== undefined ? item.Stock_Fisico : item.stock_fisico;
+      if (!contract.has(physical) && !contract.has(item.Fecha_Ultimo_Conteo)) return;
+      entry.counted += 1;
+      const day = countDay(item.Fecha_Ultimo_Conteo) || countDay(inv.closedAt) || countDay(inv.createdAt);
+      if (day) entry.byDay[day] = (entry.byDay[day] || 0) + 1;
+    });
   });
   return {
-    ...keep(entry), center: entry.center,
-    shortage: entry.shortage, surplus: entry.surplus, damage: entry.damage, eru: entry.eru,
-    inventories: (entry.inventories || []).length,
-    forcedLines: (entry.durations || []).reduce((total, row) => total + (Number(row.forcedLines) || 0), 0),
-    byClass: (entry.byClass || []).map(keep)
+    centers,
+    closures: closures.map(closure => ({ id: closure.id, name: closure.name, center: closure.center || 'GENERAL', number: closure.number || '', date: closure.date,
+      totalUnits: closure.totalUnits, exactUnits: closure.exactUnits, totalCodes: closure.totalCodes, exactCodes: closure.exactCodes,
+      totalValue: closure.totalValue, exactValue: closure.exactValue }))
   };
 }
 
@@ -1533,6 +1555,9 @@ class MetricsService {
     // Ordenar cronológicamente ascendente (antiguo -> reciente)
     closedInventories.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+    const selectedKeys = new Set(filtered.flatMap(inv => [inv.id, inv.fileId, inv.inventoryId].filter(Boolean).map(String)));
+    const timeline = creationMonth ? monthTimeline(matching, closedInventories.filter(closure => selectedKeys.has(String(closure.id))), isClosedInventory) : null;
+
     // Solo cierres reales: con menos de 5 inventarios cerrados la serie tiene menos puntos.
     const trendSeries = closedInventories.slice(-5);
     const closureHistory = {};
@@ -1635,7 +1660,7 @@ class MetricsService {
 
     const result = {
       metricsValid, metricsComplete, sourceDiagnostics, excludedInProgress,
-      reportSignatories,
+      reportSignatories, monthTimeline: timeline,
       filters: {
         type: cleanType,
         center: cleanCenter,
@@ -1911,28 +1936,12 @@ class MetricsService {
     return result;
   }
 
-  // Monthly report: the selected creation month and the months before it, each computed with the
-  // same rules as the dashboard's "Creados en un mes" filter so both always show the same figures.
-  async getMonthlyReport({ type = 'TODOS', center = 'TODOS', month, months = 6 } = {}) {
+  // Monthly report: only the inventories selected for one creation month, with the same rules as the
+  // dashboard's "Creados en un mes" filter so both always show the same figures.
+  async getMonthlyReport({ type = 'TODOS', center = 'TODOS', inventoryId = 'TODOS', month } = {}) {
     if (!/^\d{4}-\d{2}$/.test(String(month || ''))) throw new Error('Mes inválido: use el formato AAAA-MM.');
-    const [year, number] = month.split('-').map(Number);
-    const keys = Array.from({ length: months }, (_, index) => {
-      const date = new Date(Date.UTC(year, number - months + index, 1));
-      return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-    });
-    const series = [];
-    let current = null;
-    for (const key of keys) {
-      const data = await this.getDashboardMetrics({ type, center, period: 'MES_ESPECIFICO', month: key });
-      if (key === month) current = data;
-      series.push({
-        month: key,
-        metricsComplete: data.metricsComplete !== false,
-        centers: (data.reportData?.centers || []).map(monthlyCenter),
-        pendingCenters: data.reportData?.pendingCenters || []
-      });
-    }
-    return { month, type, center, months: series, current };
+    const current = await this.getDashboardMetrics({ type, center, inventoryId, period: 'MES_ESPECIFICO', month });
+    return { month, type, center, inventoryId, current };
   }
 
   invalidateCache(options) {

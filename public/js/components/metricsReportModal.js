@@ -213,12 +213,13 @@ window.MetricsReportModal = {
     const isAdmin = user && (user.role === 'ADMIN' || user.isSuperadmin);
     const center = isAdmin ? (document.getElementById('dash-filter-center')?.value || 'TODOS') : (user?.center || 'TODOS');
     const type = document.getElementById('dash-filter-type')?.value || 'TODOS';
+    const inventoryId = document.getElementById('dash-filter-inventory')?.value || 'TODOS';
     const month = this.selectedMonth();
     const endWait = window.DeerLoader?.show('Preparando el informe mensual...');
     try {
-      const data = await window.API.getMonthlyReport({ month, type, center });
-      if (data.months?.some(row => row.metricsComplete === false)) {
-        window.Toast?.warning('Hay archivos sin validar en alguno de los meses. Revise las fuentes antes de usar el informe.');
+      const data = await window.API.getMonthlyReport({ month, type, center, inventoryId });
+      if (data.current?.metricsComplete === false) {
+        window.Toast?.warning('Hay archivos sin validar en el mes. Revise las fuentes antes de usar el informe.');
       }
       this.currentInventory = { id: `MENSUAL-${month}`, name: `Informe mensual ${month}`, center, type };
       this.currentMetrics = data.current;
@@ -228,7 +229,7 @@ window.MetricsReportModal = {
       const title = document.getElementById('report-modal-title');
       const subtitle = document.getElementById('report-modal-subtitle');
       if (title) title.textContent = 'Informe mensual';
-      if (subtitle) subtitle.textContent = 'Productividad por centro, evolución y clasificación de códigos del mes';
+      if (subtitle) subtitle.textContent = 'Avance del mes de los inventarios seleccionados, general y por centro';
       if (container) {
         container.innerHTML = window.ManagementReport.renderMonthly(data);
         window.ManagementReport.paginate(container);

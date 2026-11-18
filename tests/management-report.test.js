@@ -696,66 +696,61 @@ test('the center report title shows the center and, below it, the name the inven
   assert.equal(html.includes('Inventario_SEMANAL_1300_FINAL'), false);
 });
 
-// Monthly report: one creation month against the months before it.
+// Monthly report: only the selected inventories of one creation month.
 async function monthly(inventories, month, filters = {}) {
   const service = metricsService();
   service.getAllInventoriesData = async () => inventories;
   return JSON.parse(JSON.stringify(await service.getMonthlyReport({ month, ...filters })));
 }
-const exactLines = (prefix, n, abc = 'A') => Array.from({ length: n }, (_, k) => line(`${prefix}${k}`, { Clasificacion_ABC: abc }));
-const shortLine = (sku, abc = 'A') => line(sku, { Stock_Fisico: 7, Stock_Total: 7, Diferencia: -3, Clasificacion_ABC: abc });
+const counted = (sku, day, overrides = {}) => line(sku, { Fecha_Ultimo_Conteo: day, ...overrides });
 const monthlyInventories = () => [
-  inventory('INV-1160-10', '1160', exactLines('A', 4), '2026-10-10'),
-  inventory('INV-1160-11', '1160', [...exactLines('B', 3), shortLine('BS')], '2026-11-10'),
-  inventory('INV-1120-10', '1120', [...exactLines('C', 3), shortLine('CS')], '2026-10-12'),
-  inventory('INV-1120-11', '1120', [...exactLines('D', 3, 'B'), line('DX', { Clasificacion_ABC: 'C' })], '2026-11-12'),
-  inventory('INV-5100-10', '5100', exactLines('E', 2), '2026-10-14'),
-  inventory('INV-5100-11', '5100', exactLines('F', 2, 'B'), '2026-11-14')
+  inventory('INV-1160-9', '1160', [counted('OLD', '2026-09-20')], '2026-09-20'),
+  inventory('INV-1160-1', '1160', [counted('A1', '2026-10-02', { Clasificacion_ABC: 'A' }), counted('A2', '2026-10-03', { Clasificacion_ABC: 'B', Stock_Fisico: 7, Stock_Total: 7, Diferencia: -3 })], '2026-10-05'),
+  inventory('INV-1160-2', '1160', [counted('B1', '2026-10-12', { Clasificacion_ABC: 'A' }), counted('B2', '2026-10-12', { Clasificacion_ABC: 'A' })], '2026-10-13'),
+  inventory('INV-1120-1', '1120', [counted('C1', '2026-10-04', { Clasificacion_ABC: 'C' }), counted('C2', '2026-10-04', { Clasificacion_ABC: 'B' })], '2026-10-06'),
+  { ...inventory('INV-1120-2', '1120', [counted('D1', '2026-10-15'), line('D2', { Stock_Fisico: '', Stock_Total: '', Diferencia: '' })], '2026-10-14'), isHistory: false, status: 'EN_PROCESO' }
 ];
 
-test('the monthly report computes each month with the dashboard month rules', async () => {
-  const data = await monthly(monthlyInventories(), '2026-11');
-  assert.deepEqual(data.months.map(row => row.month), ['2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11']);
-  const november = data.months.at(-1), october = data.months.at(-2);
-  assert.deepEqual(november.centers.map(c => c.center).sort(), ['1120', '1160', '5100']);
-  assert.equal(october.centers.find(c => c.center === '1160').skus, 4);
-  assert.equal(november.centers.find(c => c.center === '1160').inventories, 1);
-  const dashboard = await load(monthlyInventories(), { period: 'MES_ESPECIFICO', month: '2026-11' });
-  assert.equal(november.centers.find(c => c.center === '1160').unitsExact, dashboard.reportData.centers.find(c => c.center === '1160').unitsExact);
-  assert.equal(data.current.reportData.centers.length, 3);
-  assert.equal(data.months[0].centers.length, 0);
-  await assert.rejects(monthly([], '2026/11'), /Mes inválido/);
-  const january = await monthly([], '2027-01', { months: 2 });
-  assert.deepEqual(january.months.map(row => row.month), ['2026-12', '2027-01']);
+test('the monthly report holds only the selected month and how it advanced day by day', async () => {
+  const data = await monthly(monthlyInventories(), '2026-10');
+  assert.equal(data.months, undefined, 'no other months are compared');
+  const timeline = data.current.monthTimeline;
+  assert.deepEqual(timeline.centers['1160'], { name: '1160 - Centro 1160', lines: 4, counted: 4, inventories: 2, closed: 2, byDay: { '2026-10-02': 1, '2026-10-03': 1, '2026-10-12': 2 } });
+  assert.deepEqual({ ...timeline.centers['1120'], byDay: undefined }, { name: '1120 - Centro 1120', lines: 4, counted: 3, inventories: 2, closed: 1, byDay: undefined });
+  assert.deepEqual(timeline.closures.map(closure => closure.id).sort(), ['INV-1120-1', 'INV-1160-1', 'INV-1160-2'], 'September and the open inventory are not closures of the month');
+  const group = await monthly(monthlyInventories(), '2026-10', { inventoryId: 'GRUPO:2' });
+  assert.deepEqual(Object.keys(group.current.monthTimeline.centers).sort(), ['1120', '1160'], 'the selected group only');
+  assert.deepEqual(group.current.monthTimeline.closures.map(closure => closure.id), ['INV-1160-2']);
+  await assert.rejects(monthly([], '2026/10'), /Mes inválido/);
 });
 
-test('the monthly report says which centers improved, worsened or stayed, and the class mix of each month', async () => {
-  const html = report.renderMonthly(await monthly(monthlyInventories(), '2026-11'));
+test('the monthly charts show the month in general and for each center, without other months', async () => {
+  const html = report.renderMonthly(await monthly(monthlyInventories(), '2026-10'));
   const titles = [...html.matchAll(/<header class="mr-band"><b>([^<]*)/g)].map(match => match[1]);
-  assert.deepEqual(titles.slice(0, 3), ['Informe mensual · Noviembre 2026', 'Evolución de los últimos 6 meses', 'Clasificación de los códigos inventariados']);
-  assert.ok(titles.includes('Consolidado nacional · 3 centros'), 'the month detail follows');
-  const trendOf = name => html.match(new RegExp(`<tr data-trend="([a-z]+)"><td class="mr-strong">[^<]*Centro ${name}<`))?.[1];
-  assert.equal(trendOf('1160'), 'down');
-  assert.equal(trendOf('1120'), 'up');
-  assert.equal(trendOf('5100'), 'same');
-  assert.match(html, /1 mejoraron · 1 empeoraron · 1 se mantuvieron/);
+  assert.deepEqual(titles.slice(0, 3), ['Informe mensual · Octubre 2026', 'Resultado de cada inventario cerrado', 'Clasificación de los códigos inventariados']);
+  assert.ok(titles.some(title => title.startsWith('Consolidado nacional')), 'the month detail follows');
+  assert.doesNotMatch(html, /Septiembre|mes anterior|Mejoró|Empeoró/);
+  // One view per center plus the general one, in each chart.
+  assert.equal((html.match(/data-mr-pick="ALL"/g) || []).length, 2);
+  assert.equal((html.match(/data-pick="1120"/g) || []).length, 2);
+  assert.match(html, /7 de 8 líneas contadas/);
+  assert.match(html, /<td>General<\/td><td class="num">3 de 4<\/td><td class="num">7 de 8<\/td><td class="num">87,5%<\/td>/);
+  // The general progress ends at 7 of 8 lines; each closure is drawn by termination.
+  const general = html.slice(html.indexOf('data-pick="ALL"'), html.indexOf('data-pick="1120"'));
+  assert.match(general, />88%<\/text>/);
+  assert.match(html, />T1 · 05\/10</);
+  assert.match(html, /<th>T1<\/th><th>T2<\/th><th>Mes<\/th>/);
   // Lines are drawn with SVG attributes only, so the PDF capture keeps them; extra indicators start hidden.
   const chart = html.slice(html.indexOf('<svg class="mr-lines"'), html.indexOf('</svg>') + 6);
   assert.doesNotMatch(chart, /\sclass="(?!mr-lines")/);
-  assert.match(chart, /<g data-series="prev"><path/);
-  assert.match(chart, /<g data-series="units" style="display:none">/);
-  assert.deepEqual([...chart.matchAll(/text-anchor="middle" font-size="11" fill="#172033"[^>]*>(\d{4})</g)].map(m => m[1]), ['1120', '1160', '5100']);
-  // October: 10 codes, all class A. November: 4 A, 6 B... plus 1 C out of 10.
-  const classRow = month => html.slice(html.indexOf(`<td class="mr-strong">${month}</td>`)).split('</tr>')[0];
-  assert.match(classRow('Octubre 2026'), /100,0%/);
-  assert.match(classRow('Noviembre 2026'), /40,0%.*50,0%.*10,0%/);
+  assert.match(html, /<g data-series="money" style="display:none">/);
+  // Classes: 3 A, 2 B, 1 C among the 6 codes of the closed inventories.
+  assert.match(html, /<td class="mr-strong">General<\/td><td class="num">50,0%.*?<td class="num">33,3%.*?<td class="num">16,7%/);
   assert.doesNotMatch(html, /[Nn]eto\b|NETO/);
 });
 
-test('without a previous month the centers say so instead of a trend', async () => {
-  const html = report.renderMonthly(await monthly(monthlyInventories().filter(inv => inv.id.endsWith('-11')), '2026-11'));
-  assert.match(html, /data-trend="new"/);
-  assert.doesNotMatch(html, /data-trend="(up|down|same)"/);
-  const empty = report.renderMonthly(await monthly([], '2026-11'));
-  assert.match(empty, /No hay inventarios cerrados creados en Noviembre 2026/);
+test('a month without selected inventories says so', async () => {
+  const empty = report.renderMonthly(await monthly([], '2026-10'));
+  assert.match(empty, /No hay inventarios cerrados creados en Octubre 2026/);
+  assert.match(empty, /Sin inventarios seleccionados en el mes/);
 });
