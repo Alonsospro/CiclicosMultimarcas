@@ -590,20 +590,66 @@
     return { month, days, today, centers, closures, groups, groupKey, asGroup, progress, report };
   }
 
-  // Cumulative share of lines counted, day by day.
+  // Cumulative share of lines counted, day by day, for one view (general or a center).
+  function progressLine(model, view, { width = 1040, height = 195, every = 3 } = {}) {
+    const values = model.progress(view.entries);
+    const end = values.reduce((found, value, index) => value === null ? found : index, -1);
+    const daily = model.days.map(day => sum(view.entries, c => c.byDay[day]));
+    const tips = model.days.map((day, index) => `${view.name} · ${dayLabel(day)}: ${values[index] === null ? 'sin datos' : `${share(values[index])} contado`} · ${qty(daily[index])} líneas ese día`);
+    const series = [{ key: 'progress', label: 'Líneas contadas (acumulado)', color: '#172033', labels: true, width: 3, dot: 2.6, values, tips,
+      labelAt: index => index === end || (daily[index] && index % 5 === 0) }];
+    return lineChart({ categories: model.days.map(dayLabel), series, width, height, every, low: 0 });
+  }
+  const progressViews = model => [{ code: 'ALL', name: 'General', entries: model.centers }, ...model.centers.map(c => ({ code: c.code, name: c.name, entries: [c] }))];
+
   function progressChart(model) {
-    const views = [{ code: 'ALL', name: 'General', entries: model.centers }, ...model.centers.map(c => ({ code: c.code, name: c.name, entries: [c] }))];
-    const lastIndex = values => values.reduce((found, value, index) => value === null ? found : index, -1);
-    const draw = view => {
-      const values = model.progress(view.entries);
-      const end = lastIndex(values);
-      const daily = model.days.map(day => sum(view.entries, c => c.byDay[day]));
-      const tips = model.days.map((day, index) => `${view.name} · ${dayLabel(day)}: ${values[index] === null ? 'sin datos' : `${share(values[index])} contado`} · ${qty(daily[index])} líneas ese día`);
-      const series = [{ key: 'progress', label: 'Líneas contadas (acumulado)', color: '#172033', labels: true, width: 3, dot: 2.6, values, tips,
-        labelAt: index => index === end || (daily[index] && index % 5 === 0) }];
-      return lineChart({ categories: model.days.map(dayLabel), series, height: 195, every: 3, low: 0 });
+    const views = progressViews(model);
+    return `<div class="mr-controls">${pickButtons(views)}</div>${pickViews(views, view => progressLine(model, view))}${interactiveNote}`;
+  }
+
+  // Result of each closed inventory in date order: by termination in general, one by one for a center.
+  function closureViews(model) {
+    const points = (name, list) => list.map(entry => ({ label: entry.label, tip: `${name} · ${entry.tip}`, i: indicators(model.asGroup(entry.closures)) }));
+    const general = model.groups.map(key => {
+      const list = model.closures.filter(closure => model.groupKey(closure) === key);
+      return { label: `${key} · ${dayLabel(countDayOf(list[0].date))}`, tip: `${key} (${qty(list.length)} inventarios)`, closures: list };
+    });
+    return [{ code: 'ALL', name: 'General', points: points('General', general) }, ...model.centers.map(c => ({ code: c.code, name: c.name,
+      points: points(c.name, model.closures.filter(closure => closure.center === c.code).map(closure => ({ label: `${model.groupKey(closure)} · ${dayLabel(countDayOf(closure.date))}`, tip: closure.name || model.groupKey(closure), closures: [closure] }))) }))];
+  }
+  function closureSeries(view, { allVisible = false } = {}) {
+    const line = (key, label, color, extra = {}) => {
+      const values = view.points.map(point => key === 'result' ? lowestOf(point.i) : point.i[key]);
+      return { key, label, color, width: 2, values, tips: view.points.map((point, index) => `${point.tip} · ${label.toLowerCase()}: ${pct(values[index])}`), ...extra };
     };
-    return `<div class="mr-controls">${pickButtons(views)}</div>${pickViews(views, draw)}${interactiveNote}`;
+    return [
+      line('result', 'Resultado', '#172033', { labels: true, marks: true, width: 3 }),
+      line('units', 'Unidades correctas', '#2a78d6'),
+      line('codes', 'Códigos correctos', '#c9373f'),
+      line('money', 'Valor correcto', '#c026d3', { hidden: !allVisible })
+    ];
+  }
+  const closureLine = (view, options = {}) => view.points.length
+    ? lineChart({ categories: view.points.map(point => point.label), series: closureSeries(view, options), height: 200, ...options })
+    : '<p class="mr-more">Sin inventarios cerrados en el mes.</p>';
+
+  function closureChart(model) {
+    const views = closureViews(model);
+    return `<div class="mr-controls">${pickButtons(views)}${lineLegend(closureSeries(views[0]))}</div>${pickViews(views, view => closureLine(view))}${interactiveNote}`;
+  }
+
+  // The PDF keeps only what is on screen, so every center also gets its own fixed charts, with every line shown.
+  function centerCharts(model) {
+    const progress = progressViews(model).slice(1), closures = closureViews(model).slice(1);
+    const legend = `<div class="mr-legend">${closureSeries({ points: [] }, { allVisible: true }).map(line => `<span><i style="background:${line.color}"></i>${esc(line.label)}</span>`).join('')}<span>Líneas punteadas: 95% y 98%.</span></div>`;
+    const blocks = progress.map((view, index) => {
+      const entry = view.entries[0];
+      const line = `${qty(entry.counted)} de ${qty(entry.lines)} líneas contadas · ${qty(entry.closed)} de ${qty(entry.inventories)} inventarios cerrados`;
+      return `<section class="mr-panel mr-center-block"><h3>${esc(view.name)} <small class="mr-more">${line}</small></h3>
+        <div class="mr-row mr-c2"><div><p class="mr-more">Avance del conteo (acumulado)</p>${progressLine(model, view, { width: 505, height: 165, every: 6 })}</div>
+        <div><p class="mr-more">Resultado de cada inventario cerrado</p>${closureLine(closures[index], { width: 505, height: 165, allVisible: true })}</div></div></section>`;
+    }).join('');
+    return `${legend}${blocks}`;
   }
 
   function progressTable(model) {
@@ -616,29 +662,6 @@
     return `<table data-split><thead><tr><th>Centro</th><th class="num">Inventarios cerrados</th><th class="num">Líneas contadas</th><th class="num">Avance</th><th class="num">Último conteo</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="5">Sin inventarios seleccionados en el mes.</td></tr>'}</tbody>
       <tfoot><tr><td>General</td><td class="num">${qty(total.closed)} de ${qty(total.inventories)}</td><td class="num">${qty(total.counted)} de ${qty(total.lines)}</td><td class="num">${total.lines ? share(total.counted / total.lines * 100) : '—'}</td><td></td></tr></tfoot></table>`;
-  }
-
-  // Result of each closed inventory in date order: by termination in general, one by one for a center.
-  function closureChart(model) {
-    const points = (name, list) => list.map(entry => ({ label: entry.label, tip: `${name} · ${entry.tip}`, i: indicators(model.asGroup(entry.closures)) }));
-    const general = model.groups.map(key => {
-      const list = model.closures.filter(closure => model.groupKey(closure) === key);
-      return { label: `${key} · ${dayLabel(countDayOf(list[0].date))}`, tip: `${key} (${qty(list.length)} inventarios)`, closures: list };
-    });
-    const views = [{ code: 'ALL', name: 'General', points: points('General', general) }, ...model.centers.map(c => ({ code: c.code, name: c.name,
-      points: points(c.name, model.closures.filter(closure => closure.center === c.code).map(closure => ({ label: `${model.groupKey(closure)} · ${dayLabel(countDayOf(closure.date))}`, tip: closure.name || model.groupKey(closure), closures: [closure] }))) }))];
-    const seriesOf = view => {
-      const tips = key => view.points.map(point => `${point.tip} · ${key}`);
-      const values = key => view.points.map(point => key === 'result' ? lowestOf(point.i) : point.i[key]);
-      return [
-        { key: 'result', label: 'Resultado', color: '#172033', labels: true, marks: true, width: 3, values: values('result'), tips: tips('resultado').map((tip, index) => `${tip}: ${pct(values('result')[index])}`) },
-        { key: 'units', label: 'Unidades correctas', color: '#2a78d6', width: 2, values: values('units'), tips: tips('unidades').map((tip, index) => `${tip}: ${pct(values('units')[index])}`) },
-        { key: 'codes', label: 'Códigos correctos', color: '#c9373f', width: 2, values: values('codes'), tips: tips('códigos').map((tip, index) => `${tip}: ${pct(values('codes')[index])}`) },
-        { key: 'money', label: 'Valor correcto', color: '#c026d3', width: 2, hidden: true, values: values('money'), tips: tips('valor').map((tip, index) => `${tip}: ${pct(values('money')[index])}`) }
-      ];
-    };
-    const draw = view => view.points.length ? lineChart({ categories: view.points.map(point => point.label), series: seriesOf(view), height: 200 }) : '<p class="mr-more">Sin inventarios cerrados en el mes.</p>';
-    return `<div class="mr-controls">${pickButtons(views)}${lineLegend(seriesOf(views[0]))}</div>${pickViews(views, draw)}${interactiveNote}`;
   }
 
   function closureTable(model) {
@@ -708,6 +731,8 @@
       ${panel('Inventarios cerrados en orden de fecha · general por terminación, o un centro', closureChart(model), 'mr-interactive')}
       ${panel('Resultado de cada centro por terminación', closureTable(model), 'mr-plain')}${scaleLegend}`,
       'Resultado: el menor de unidades, códigos y valor correctos. Solo cuentan los inventarios cerrados.');
+    const page2b = model.centers.length ? sheet('Avance por centro', right, centerCharts(model),
+      'Cada centro con sus dos gráficos fijos, para el PDF. Resultado: el menor de unidades, códigos y valor correctos.') : '';
     const mix = classRows(model);
     const page3 = sheet('Clasificación de los códigos inventariados', right, `
       ${panel('Porcentaje de códigos de cada clase · general y por centro', classChart(mix), 'mr-interactive')}
@@ -716,7 +741,7 @@
     const inv = { id: `MENSUAL-${data.month}`, name: `Informe mensual ${label}`, center: current?.centers?.[0]?.center || '', type: data.type || 'TODOS', status: 'COMPLETO' };
     const detail = !current?.centers?.length ? sheet(`Detalle de ${label}`, right, `<p class="mr-empty">No hay inventarios cerrados creados en ${esc(label)}.</p>`, 'Sin datos para el detalle del mes.')
       : current.centers.length > 1 ? renderConsolidated(inv, data.current, current) : renderCenter(inv, data.current, current.centers[0]);
-    return [page1, page2, page3, detail].join('');
+    return [page1, page2, page2b, page3, detail].join('');
   }
   // A date-only value is that calendar day, not midnight UTC.
   const countDayOf = value => {

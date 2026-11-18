@@ -727,7 +727,7 @@ test('the monthly report holds only the selected month and how it advanced day b
 test('the monthly charts show the month in general and for each center, without other months', async () => {
   const html = report.renderMonthly(await monthly(monthlyInventories(), '2026-10'));
   const titles = [...html.matchAll(/<header class="mr-band"><b>([^<]*)/g)].map(match => match[1]);
-  assert.deepEqual(titles.slice(0, 3), ['Informe mensual · Octubre 2026', 'Resultado de cada inventario cerrado', 'Clasificación de los códigos inventariados']);
+  assert.deepEqual(titles.slice(0, 4), ['Informe mensual · Octubre 2026', 'Resultado de cada inventario cerrado', 'Avance por centro', 'Clasificación de los códigos inventariados']);
   assert.ok(titles.some(title => title.startsWith('Consolidado nacional')), 'the month detail follows');
   assert.doesNotMatch(html, /Septiembre|mes anterior|Mejoró|Empeoró/);
   // One view per center plus the general one, in each chart.
@@ -747,6 +747,18 @@ test('the monthly charts show the month in general and for each center, without 
   // Classes: 3 A, 2 B, 1 C among the 6 codes of the closed inventories.
   assert.match(html, /<td class="mr-strong">General<\/td><td class="num">50,0%.*?<td class="num">33,3%.*?<td class="num">16,7%/);
   assert.doesNotMatch(html, /[Nn]eto\b|NETO/);
+});
+
+test('the PDF gets fixed charts for every center, since it keeps only what is on screen', async () => {
+  const html = report.renderMonthly(await monthly(monthlyInventories(), '2026-10'));
+  const titles = [...html.matchAll(/<header class="mr-band"><b>([^<]*)/g)].map(match => match[1]);
+  assert.equal(titles[2], 'Avance por centro');
+  const start = html.indexOf('<b>Avance por centro</b>');
+  const centers = html.slice(start, html.indexOf('</section><section class="mr-sheet"', start));
+  assert.deepEqual([...centers.matchAll(/<section class="mr-panel mr-center-block"><h3>([^<]*)/g)].map(match => match[1].trim()), ['1120 - Centro 1120', '1160 - Centro 1160']);
+  assert.equal((centers.match(/<svg class="mr-lines"/g) || []).length, 4, 'two charts per center');
+  assert.doesNotMatch(centers, /display:none|data-mr-|data-pick/, 'nothing hidden and no buttons');
+  assert.match(centers, /3 de 4 líneas contadas · 1 de 2 inventarios cerrados/);
 });
 
 test('a month without selected inventories says so', async () => {
