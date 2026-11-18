@@ -513,22 +513,25 @@
 
   // Line chart drawn only with SVG attributes, never classes: the PDF capture redraws the SVG
   // on its own and would lose any color or visibility set from the stylesheet.
+  // Dark card, every series filled with a translucent area, hollow markers and slanted dates.
+  const CHART = { bg: '#1e2026', grid: '#363a44', text: '#a7adb9', mark: '#7a8090' };
   function lineChart({ categories, series, height = 250, width = 1040, every = 1, low: floor = null }) {
     const values = series.flatMap(line => line.values).filter(value => value !== null && value !== undefined);
     if (!values.length) return '<p class="mr-more">Sin datos para graficar.</p>';
     const low = floor ?? Math.max(0, Math.min(90, Math.floor((Math.min(...values) - 2) / 5) * 5));
     const step = 100 - low > 40 ? 20 : 5;
-    const left = 44, right = 70, top = 16, bottom = 30;
+    const slanted = categories.length > 8;
+    const left = 46, right = 72, top = 18, bottom = slanted ? 46 : 30;
     const plotW = width - left - right, plotH = height - top - bottom;
     const x = index => left + (categories.length === 1 ? plotW / 2 : index * plotW / (categories.length - 1));
     const y = value => top + (100 - value) / (100 - low) * plotH;
     const font = 'font-family="Inter, Segoe UI, Arial, sans-serif"';
     const grid = [];
     for (let value = low; value <= 100; value += step) {
-      grid.push(`<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" stroke="#e3e8ef" stroke-width="1"/><text x="${left - 8}" y="${y(value) + 4}" text-anchor="end" font-size="11" fill="#55637a" ${font}>${value}%</text>`);
+      grid.push(`<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" stroke="${CHART.grid}" stroke-width="1"/><text x="${left - 8}" y="${y(value) + 4}" text-anchor="end" font-size="11" fill="${CHART.text}" ${font}>${value}%</text>`);
     }
     const marks = series.some(line => line.marks) ? [[95, 'Mínimo 95%'], [98, 'Cumple 98%']].filter(([value]) => value > low).map(([value, label]) =>
-      `<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" stroke="#8a93a3" stroke-width="1" stroke-dasharray="4 4"/><text x="${width - right + 6}" y="${y(value) + 4}" font-size="10" fill="#55637a" ${font}>${label}</text>`) : [];
+      `<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" stroke="${CHART.mark}" stroke-width="1" stroke-dasharray="4 4"/><text x="${width - right + 6}" y="${y(value) + 4}" font-size="10" fill="${CHART.text}" ${font}>${label}</text>`) : [];
     const labelled = series.filter(line => line.labels);
     const above = (line, index) => {
       const shown = labelled.map(other => other.values[index]).filter(value => value !== null && value !== undefined);
@@ -545,16 +548,19 @@
       const drawn = segments.filter(segment => segment.length);
       const path = drawn.map(segment => segment.map(([px, py], index) => `${index ? 'L' : 'M'}${px} ${py}`).join(' ')).join(' ');
       const base = y(low).toFixed(1);
-      const area = line.area ? drawn.map(segment => `<path d="M${segment[0][0]} ${base} ${segment.map(([px, py]) => `L${px} ${py}`).join(' ')} L${segment[segment.length - 1][0]} ${base} Z" fill="${line.color}" fill-opacity="${line.area}" stroke="none"/>`).join('') : '';
+      const fill = line.area ?? 0.14;
+      const area = fill ? drawn.map(segment => `<path d="M${segment[0][0]} ${base} ${segment.map(([px, py]) => `L${px} ${py}`).join(' ')} L${segment[segment.length - 1][0]} ${base} Z" fill="${line.color}" fill-opacity="${fill}" stroke="none"/>`).join('') : '';
       const showLabel = index => line.labels && (!line.labelAt || line.labelAt(index));
       const points = line.values.map((value, index) => value === null || value === undefined ? '' :
-        `<circle cx="${x(index).toFixed(1)}" cy="${y(value).toFixed(1)}" r="${line.dot || 3.6}" fill="${line.color}" stroke="#fff" stroke-width="1.5"><title>${esc(line.tips?.[index] || `${categories[index]} · ${line.label}: ${pct(value)}`)}</title></circle>`
+        `<circle cx="${x(index).toFixed(1)}" cy="${y(value).toFixed(1)}" r="${line.dot || 3.4}" fill="${CHART.bg}" stroke="${line.color}" stroke-width="2"><title>${esc(line.tips?.[index] || `${categories[index]} · ${line.label}: ${pct(value)}`)}</title></circle>`
         + (showLabel(index) ? `<text x="${x(index).toFixed(1)}" y="${(y(value) + (above(line, index) ? -8 : 16)).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${line.text || line.color}" ${font}>${Math.round(value)}%</text>` : '')).join('');
-      return `<g data-series="${esc(line.key)}"${line.hidden ? ' style="display:none"' : ''}>${area}<path d="${path}" fill="none" stroke="${line.color}" stroke-width="${line.width || 2.5}" stroke-linejoin="round" stroke-linecap="round"/>${points}</g>`;
+      return `<g data-series="${esc(line.key)}"${line.hidden ? ' style="display:none"' : ''}>${area}<path d="${path}" fill="none" stroke="${line.color}" stroke-width="${line.width || 2}" stroke-linejoin="round" stroke-linecap="round"/>${points}</g>`;
     }).join('');
-    const axis = categories.map((name, index) => index % every && index !== categories.length - 1 ? '' :
-      `<text x="${x(index).toFixed(1)}" y="${height - 8}" text-anchor="middle" font-size="11" fill="#172033" ${font}>${esc(name)}</text>`).join('');
-    return `<svg class="mr-lines" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">${grid.join('')}${marks.join('')}${lines}${axis}</svg>`;
+    const axisY = height - bottom + 14;
+    const axis = categories.map((name, index) => (slanted ? index % Math.max(1, Math.ceil(every / 2)) : index % every) && index !== categories.length - 1 ? '' : slanted
+      ? `<text x="${x(index).toFixed(1)}" y="${axisY}" text-anchor="end" font-size="10.5" fill="${CHART.text}" transform="rotate(-45 ${x(index).toFixed(1)} ${axisY})" ${font}>${esc(name)}</text>`
+      : `<text x="${x(index).toFixed(1)}" y="${height - 8}" text-anchor="middle" font-size="11" fill="${CHART.text}" ${font}>${esc(name)}</text>`).join('');
+    return `<svg class="mr-lines" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="${width}" height="${height}" rx="6" fill="${CHART.bg}"/>${grid.join('')}${marks.join('')}${lines}${axis}</svg>`;
   }
   const lineLegend = series => `<span class="mr-toggles">${series.map(line => `<button type="button" class="mr-btn mr-key${line.hidden ? '' : ' mr-on'}" data-mr-toggle="${esc(line.key)}"><i class="mr-dot" style="background:${line.color}"></i>${esc(line.label)}</button>`).join('')}</span>`;
   const pickButtons = views => `<span class="mr-toggles mr-pick-list">${views.map((view, index) => `<button type="button" class="mr-btn${index ? '' : ' mr-on'}" data-mr-pick="${esc(view.code)}">${esc(view.name)}</button>`).join('')}</span>`;
@@ -612,13 +618,13 @@
     const tip = (values, daily, what, unit) => model.days.map((day, index) => values[index] === null ? '' :
       `${view.name} · ${dayLabel(day)}: ${share(values[index])} ${what} · ${qty(daily[index])} ${unit} ese día`);
     return [
-      { key: 'counted', label: 'Líneas contadas', color: '#2a78d6', area: 0.25, labels: true, width: 2.5, dot: 2.4, values: counted,
+      { key: 'counted', label: 'Líneas contadas', color: '#5b9bf5', area: 0.22, labels: true, width: 2.5, dot: 2.4, values: counted,
         tips: tip(counted, dailyLines, 'de las líneas contadas', 'líneas'), labelAt: index => index === lastOf(counted) || (dailyLines[index] > 0 && index % 5 === 0) },
-      { key: 'closed', label: 'Inventarios cerrados', color: '#12875c', area: 0.3, labels: true, width: 2.5, dot: 2.4, values: closed,
+      { key: 'closed', label: 'Inventarios cerrados', color: '#4fbf6a', area: 0.22, labels: true, width: 2.5, dot: 2.4, values: closed,
         tips: tip(closed, dailyClosed, 'de los inventarios cerrados', 'cierres'), labelAt: index => index === lastOf(closed) || dailyClosed[index] > 0 }
     ];
   }
-  const progressArea = (model, view, { width = 1040, height = 175, every = 3 } = {}) =>
+  const progressArea = (model, view, { width = 1040, height = 190, every = 3 } = {}) =>
     lineChart({ categories: model.days.map(dayLabel), series: progressSeries(model, view), width, height, every, low: 0 });
   const progressViews = model => [{ code: 'ALL', name: 'General', entries: model.centers }, ...model.centers.map(c => ({ code: c.code, name: c.name, entries: [c] }))];
 
@@ -628,11 +634,11 @@
   }
 
   // Every center on one time axis, one line with markers each.
-  const CENTER_COLORS = ['#17305f', '#2a78d6', '#c9373f', '#12875c', '#eda100', '#c026d3', '#0e9aa7', '#a86400', '#6f7888', '#8fb8ea', '#e4572e', '#4b3f72', '#7cb518', '#b5838d'];
+  const CENTER_COLORS = ['#5b9bf5', '#e5534b', '#a78bfa', '#e9b949', '#2bb3c0', '#4fbf6a', '#f08c4b', '#e879c6', '#a0a4ad', '#8fd3ff', '#ffd166', '#c3e88d', '#ff8fa3', '#b5a1ff'];
   function centersChart(model) {
     const series = model.centers.map((c, index) => {
       const values = model.progress([c]);
-      return { key: `c-${c.code}`, label: c.name, color: CENTER_COLORS[index % CENTER_COLORS.length], width: 2, dot: 2.6, values,
+      return { key: `c-${c.code}`, label: c.name, color: CENTER_COLORS[index % CENTER_COLORS.length], width: 2, dot: 2.6, area: 0.07, values,
         tips: model.days.map((day, i) => values[i] === null ? '' : `${c.name} · ${dayLabel(day)}: ${share(values[i])} de las líneas contadas`) };
     });
     return `<div class="mr-controls">${lineLegend(series)}</div>${lineChart({ categories: model.days.map(dayLabel), series, height: 330, every: 2, low: 0 })}${interactiveNote}`;
@@ -652,13 +658,13 @@
         tips: values.map((value, index) => value === null ? '' : `${view.name} · ${dayLabel(model.days[index])} (${names[index]}) · ${label.toLowerCase()}: ${pct(value)}`) };
     };
     return [
-      line('result', 'Resultado', '#172033', { labels: true, marks: true, width: 3 }),
-      line('units', 'Unidades correctas', '#2a78d6'),
-      line('codes', 'Códigos correctos', '#c9373f'),
-      line('money', 'Valor correcto', '#c026d3', { hidden: !allVisible })
+      line('result', 'Resultado', '#a78bfa', { labels: true, marks: true, width: 2.5 }),
+      line('units', 'Unidades correctas', '#5b9bf5'),
+      line('codes', 'Códigos correctos', '#e5534b'),
+      line('money', 'Valor correcto', '#e9b949', { hidden: !allVisible })
     ];
   }
-  const closureLine = (model, view, { width = 1040, height = 200, every = 3, allVisible = false } = {}) => view.count
+  const closureLine = (model, view, { width = 1040, height = 215, every = 3, allVisible = false } = {}) => view.count
     ? lineChart({ categories: model.days.map(dayLabel), series: closureSeries(model, view, { allVisible }), width, height, every })
     : '<p class="mr-more">Sin inventarios cerrados en el mes.</p>';
 
@@ -676,8 +682,8 @@
       const entry = view.entries[0];
       const line = `${qty(entry.counted)} de ${qty(entry.lines)} líneas contadas · ${qty(entry.closed)} de ${qty(entry.inventories)} inventarios cerrados`;
       return `<section class="mr-panel mr-center-block"><h3>${esc(view.name)} <small class="mr-more">${line}</small></h3>
-        <div class="mr-row mr-c2"><div><p class="mr-more">Avance del conteo y de los cierres (acumulado)</p>${progressArea(model, view, { width: 505, height: 165, every: 6 })}</div>
-        <div><p class="mr-more">Resultado de cada inventario cerrado, en su día de cierre</p>${closureLine(model, closures[index], { width: 505, height: 165, every: 6, allVisible: true })}</div></div></section>`;
+        <div class="mr-row mr-c2"><div><p class="mr-more">Avance del conteo y de los cierres (acumulado)</p>${progressArea(model, view, { width: 505, height: 178, every: 6 })}</div>
+        <div><p class="mr-more">Resultado de cada inventario cerrado, en su día de cierre</p>${closureLine(model, closures[index], { width: 505, height: 178, every: 6, allVisible: true })}</div></div></section>`;
     }).join('');
     return `${legend}${blocks}`;
   }

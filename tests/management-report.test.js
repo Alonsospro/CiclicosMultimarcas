@@ -739,8 +739,8 @@ test('the monthly charts show the month in general and for each center, without 
   const general = html.slice(html.indexOf('data-pick="ALL"'), html.indexOf('data-pick="1120"'));
   assert.match(general, />88%<\/text>/);
   // Overlapping areas: lines counted and inventories closed, both filled under their line.
-  assert.match(general, /<g data-series="counted"><path d="M[^"]+Z" fill="#2a78d6" fill-opacity="0.25"/);
-  assert.match(general, /<g data-series="closed"><path d="M[^"]+Z" fill="#12875c" fill-opacity="0.3"/);
+  assert.match(general, /<g data-series="counted"><path d="M[^"]+Z" fill="#5b9bf5" fill-opacity="0.22"/);
+  assert.match(general, /<g data-series="closed"><path d="M[^"]+Z" fill="#4fbf6a" fill-opacity="0.22"/);
   assert.match(general, />75%<\/text>/, '3 of 4 inventories closed');
   // One line with markers per center, and results on the day each inventory closed.
   const lines = html.slice(html.indexOf('<b>Avance de cada centro día a día</b>'), html.indexOf('<b>Resultado de cada inventario cerrado</b>'));
