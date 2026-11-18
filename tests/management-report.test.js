@@ -727,7 +727,7 @@ test('the monthly report holds only the selected month and how it advanced day b
 test('the monthly charts show the month in general and for each center, without other months', async () => {
   const html = report.renderMonthly(await monthly(monthlyInventories(), '2026-10'));
   const titles = [...html.matchAll(/<header class="mr-band"><b>([^<]*)/g)].map(match => match[1]);
-  assert.deepEqual(titles.slice(0, 4), ['Informe mensual · Octubre 2026', 'Resultado de cada inventario cerrado', 'Avance por centro', 'Clasificación de los códigos inventariados']);
+  assert.deepEqual(titles.slice(0, 5), ['Informe mensual · Octubre 2026', 'Avance de cada centro día a día', 'Resultado de cada inventario cerrado', 'Avance por centro', 'Clasificación de los códigos inventariados']);
   assert.ok(titles.some(title => title.startsWith('Consolidado nacional')), 'the month detail follows');
   assert.doesNotMatch(html, /Septiembre|mes anterior|Mejoró|Empeoró/);
   // One view per center plus the general one, in each chart.
@@ -738,7 +738,16 @@ test('the monthly charts show the month in general and for each center, without 
   // The general progress ends at 7 of 8 lines; each closure is drawn by termination.
   const general = html.slice(html.indexOf('data-pick="ALL"'), html.indexOf('data-pick="1120"'));
   assert.match(general, />88%<\/text>/);
-  assert.match(html, />T1 · 05\/10</);
+  // Overlapping areas: lines counted and inventories closed, both filled under their line.
+  assert.match(general, /<g data-series="counted"><path d="M[^"]+Z" fill="#2a78d6" fill-opacity="0.25"/);
+  assert.match(general, /<g data-series="closed"><path d="M[^"]+Z" fill="#12875c" fill-opacity="0.3"/);
+  assert.match(general, />75%<\/text>/, '3 of 4 inventories closed');
+  // One line with markers per center, and results on the day each inventory closed.
+  const lines = html.slice(html.indexOf('<b>Avance de cada centro día a día</b>'), html.indexOf('<b>Resultado de cada inventario cerrado</b>'));
+  assert.deepEqual([...lines.matchAll(/<g data-series="(c-\d+)">/g)].map(m => m[1]), ['c-1120', 'c-1160']);
+  const results = html.slice(html.indexOf('<b>Resultado de cada inventario cerrado</b>'));
+  assert.match(results, /<title>General · 05\/10 \(T1 1160\) · resultado: /);
+  assert.match(results, /<title>General · 13\/10 \(T2 1160\) · resultado: /);
   assert.match(html, /<th>T1<\/th><th>T2<\/th><th>Mes<\/th>/);
   // Lines are drawn with SVG attributes only, so the PDF capture keeps them; extra indicators start hidden.
   const chart = html.slice(html.indexOf('<svg class="mr-lines"'), html.indexOf('</svg>') + 6);
@@ -752,7 +761,7 @@ test('the monthly charts show the month in general and for each center, without 
 test('the PDF gets fixed charts for every center, since it keeps only what is on screen', async () => {
   const html = report.renderMonthly(await monthly(monthlyInventories(), '2026-10'));
   const titles = [...html.matchAll(/<header class="mr-band"><b>([^<]*)/g)].map(match => match[1]);
-  assert.equal(titles[2], 'Avance por centro');
+  assert.equal(titles[3], 'Avance por centro');
   const start = html.indexOf('<b>Avance por centro</b>');
   const centers = html.slice(start, html.indexOf('</section><section class="mr-sheet"', start));
   assert.deepEqual([...centers.matchAll(/<section class="mr-panel mr-center-block"><h3>([^<]*)/g)].map(match => match[1].trim()), ['1120 - Centro 1120', '1160 - Centro 1160']);
