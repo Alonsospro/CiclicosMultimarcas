@@ -1,6 +1,6 @@
 // Management reports built only from the frozen dashboard snapshot:
 // one document per center and a separate consolidated document.
-// Charts are plain HTML boxes because the PDF export cannot read CSS inside SVG.
+// Charts are plain HTML boxes, or SVG styled only through attributes, because the PDF export cannot read CSS inside SVG.
 (function () {
   const LEVELS = {
     perfect: { key: 'perfect', icon: '★', label: 'Perfecto cumplimiento', rank: 3 },
@@ -523,12 +523,10 @@
     value: sum(centers, c => c.value), valueExact: sum(centers, c => c.valueExact),
     inventories: sum(centers, c => c.inventories), lines: sum(centers, c => c.lines)
   });
-  // The scale starts at 80% like the bullet bars, so the compliance marks (95% and 98%) are readable.
-  const scalePos = value => Math.max(0, Math.min(100, (value - 80) * 5));
   const CLASS_COLORS = { A: '#17305f', B: '#2a78d6', C: '#8fb8ea' };
   const OTHER_COLORS = ['#eda100', '#6f7888', '#b7c0ce', '#a86400'];
   const className = name => name === 'Sin almacén' || !String(name || '').trim() ? 'Sin clase' : String(name).trim();
-  const interactiveNote = '<p class="mr-hint" data-html2canvas-ignore="true">Pase el cursor sobre el gráfico para ver el detalle y use los botones para filtrar. El PDF guarda la vista que quede en pantalla.</p>';
+  const interactiveNote = '<p class="mr-hint" data-html2canvas-ignore="true">Pase el cursor sobre un punto para ver el detalle y use los botones para mostrar u ocultar líneas. El PDF guarda la vista que quede en pantalla.</p>';
 
   function monthlyModel(data) {
     const months = (data.months || []).slice();
@@ -560,31 +558,84 @@
     return { months, last, centers, totals, totalResult, classMix, classes, colorOf };
   }
 
-  // Previous month and this month for every center on one scale; the dots carry the detail on hover.
+  // Line chart drawn only with SVG attributes, never classes: the PDF capture redraws the SVG
+  // on its own and would lose any color or visibility set from the stylesheet.
+  function lineChart({ categories, series, height = 250, width = 1040 }) {
+    const values = series.flatMap(line => line.values).filter(value => value !== null && value !== undefined);
+    if (!values.length) return '<p class="mr-more">Sin cierres para graficar.</p>';
+    const low = Math.max(0, Math.min(90, Math.floor((Math.min(...values) - 2) / 5) * 5));
+    const left = 44, right = 70, top = 16, bottom = 30;
+    const plotW = width - left - right, plotH = height - top - bottom;
+    const x = index => left + (categories.length === 1 ? plotW / 2 : index * plotW / (categories.length - 1));
+    const y = value => top + (100 - value) / (100 - low) * plotH;
+    const font = 'font-family="Inter, Segoe UI, Arial, sans-serif"';
+    const grid = [];
+    for (let value = low; value <= 100; value += 5) {
+      grid.push(`<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" stroke="#e3e8ef" stroke-width="1"/><text x="${left - 8}" y="${y(value) + 4}" text-anchor="end" font-size="11" fill="#55637a" ${font}>${value}%</text>`);
+    }
+    const marks = [[95, 'Mínimo 95%'], [98, 'Cumple 98%']].filter(([value]) => value > low).map(([value, label]) =>
+      `<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" stroke="#8a93a3" stroke-width="1" stroke-dasharray="4 4"/><text x="${width - right + 6}" y="${y(value) + 4}" font-size="10" fill="#55637a" ${font}>${label}</text>`);
+    const labelled = series.filter(line => line.labels);
+    const above = (line, index) => {
+      const shown = labelled.map(other => other.values[index]).filter(value => value !== null && value !== undefined);
+      return line.values[index] >= Math.max(...shown);
+    };
+    // Lines with labels go on top, so the result is never hidden under an indicator with the same value.
+    const lines = [...series.filter(line => !line.labels), ...labelled].map(line => {
+      let path = '', open = false;
+      line.values.forEach((value, index) => {
+        if (value === null || value === undefined) { open = false; return; }
+        path += `${open ? 'L' : 'M'}${x(index).toFixed(1)} ${y(value).toFixed(1)} `;
+        open = true;
+      });
+      const points = line.values.map((value, index) => value === null || value === undefined ? '' :
+        `<circle cx="${x(index).toFixed(1)}" cy="${y(value).toFixed(1)}" r="3.6" fill="${line.color}" stroke="#fff" stroke-width="1.5"><title>${esc(`${line.tips?.[index] || categories[index]} · ${line.label}: ${pct(value)}`)}</title></circle>`
+        + (line.labels ? `<text x="${x(index).toFixed(1)}" y="${(y(value) + (above(line, index) ? -8 : 16)).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${line.text || line.color}" ${font}>${Math.round(value)}%</text>` : '')).join('');
+      return `<g data-series="${esc(line.key)}"${line.hidden ? ' style="display:none"' : ''}><path d="${path.trim()}" fill="none" stroke="${line.color}" stroke-width="${line.width || 2.5}" stroke-linejoin="round" stroke-linecap="round"/>${points}</g>`;
+    }).join('');
+    const axis = categories.map((name, index) => `<text x="${x(index).toFixed(1)}" y="${height - 8}" text-anchor="middle" font-size="11" fill="#172033" ${font}>${esc(name)}</text>`).join('');
+    return `<svg class="mr-lines" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">${grid.join('')}${marks.join('')}${lines}${axis}</svg>`;
+  }
+  const lineLegend = series => `<span class="mr-toggles">${series.map(line => `<button type="button" class="mr-btn mr-key${line.hidden ? '' : ' mr-on'}" data-mr-toggle="${esc(line.key)}"><i class="mr-dot" style="background:${line.color}"></i>${esc(line.label)}</button>`).join('')}</span>`;
+  const indicatorOf = (group, key) => group ? indicators(group)[key] : null;
+
+  // Every center on the horizontal axis: the previous month, this month and, on demand, this month's three indicators.
   function productivityChart(model) {
     const nowKey = model.months[model.last]?.month, beforeKey = model.months[model.last - 1]?.month;
-    const counts = Object.fromEntries(Object.keys(TRENDS).map(key => [key, model.centers.filter(c => c.trend.key === key).length]));
-    const filters = [['all', `Todos (${model.centers.length})`], ...Object.values(TRENDS).filter(t => counts[t.key]).map(t => [t.key, `${t.icon} ${t.label} (${counts[t.key]})`])];
-    const tip = (key, c, value) => `${c.name} · ${monthLabel(key)}: resultado ${pct(value)}`;
-    const rows = model.centers.map(c => {
-      const a = c.previous, b = c.result;
-      const link = a !== null && b !== null ? `<i class="mr-db-link" style="left:${Math.min(scalePos(a), scalePos(b))}%;width:${Math.abs(scalePos(b) - scalePos(a))}%"></i>` : '';
-      const before = a !== null ? `<b class="mr-db-dot prev" data-series="prev" style="left:${scalePos(a)}%" data-tip="${esc(tip(beforeKey, c, a))}"></b>` : '';
-      const now = b !== null ? `<b class="mr-db-dot now t-${c.trend.key}" data-series="now" style="left:${scalePos(b)}%" data-tip="${esc(tip(nowKey, c, b))}${c.now ? ` · ${qty(c.now.skus)} códigos` : ''}"></b>` : '';
-      const label = b === null ? 'Sin cierre' : `${pct(b)}${c.delta !== null ? ` <small>(${points(c.delta)})</small>` : ''}`;
-      return `<div class="mr-db-row" data-trend="${c.trend.key}"><span class="mr-db-name">${esc(c.name)}</span><div class="mr-db-track"><u style="left:75%"></u><u style="left:90%"></u>${link}${before}${now}</div><span class="mr-db-val">${label}</span>${trendChip(c.trend)}</div>`;
-    }).join('');
-    const axis = `<div class="mr-db-row mr-db-axis"><span class="mr-db-name"></span><div class="mr-db-track mr-db-ticks">${[80, 85, 90, 95, 100].map(v => `<span style="left:${scalePos(v)}%">${v}%</span>`).join('')}</div><span class="mr-db-val"></span><span></span></div>`;
-    return `<div class="mr-controls"><span class="mr-toggles">${filters.map(([key, label], index) => `<button type="button" class="mr-btn${index ? '' : ' mr-on'}" data-mr-filter="${key}">${esc(label)}</button>`).join('')}</span>
-      <span class="mr-toggles"><button type="button" class="mr-btn mr-on mr-key" data-mr-toggle="prev"><i class="mr-db-dot prev"></i>${esc(beforeKey ? monthLabel(beforeKey) : 'Mes anterior')}</button><button type="button" class="mr-btn mr-on mr-key" data-mr-toggle="now"><i class="mr-db-dot now t-same"></i>${esc(monthLabel(nowKey))}</button></span></div>
-      <div class="mr-db">${rows || '<p class="mr-more">Sin centros con cierre en estos meses.</p>'}${rows ? axis : ''}</div>${interactiveNote}`;
+    const centers = model.centers.slice().sort((a, b) => String(a.code).localeCompare(String(b.code), 'es', { numeric: true }));
+    const tips = centers.map(c => c.name);
+    const series = [
+      { key: 'prev', label: `Resultado ${beforeKey ? monthLabel(beforeKey) : 'mes anterior'}`, color: '#b7c0ce', text: '#6f7888', labels: true, values: centers.map(c => c.previous), tips },
+      { key: 'now', label: `Resultado ${monthLabel(nowKey)}`, color: '#172033', labels: true, width: 3, values: centers.map(c => c.result), tips },
+      { key: 'units', label: 'Unidades correctas', color: '#2a78d6', hidden: true, width: 2, values: centers.map(c => indicatorOf(c.now, 'units')), tips },
+      { key: 'codes', label: 'Códigos correctos', color: '#c9373f', hidden: true, width: 2, values: centers.map(c => indicatorOf(c.now, 'codes')), tips },
+      { key: 'money', label: 'Valor correcto', color: '#c026d3', hidden: true, width: 2, values: centers.map(c => indicatorOf(c.now, 'money')), tips }
+    ];
+    return `<div class="mr-controls">${lineLegend(series)}</div>${lineChart({ categories: centers.map(c => c.code), series })}${interactiveNote}`;
+  }
+
+  // One line chart per view (consolidated or a center), month by month.
+  function evolutionChart(model) {
+    const views = [{ code: 'ALL', name: 'Consolidado', series: model.totals.map((row, index) => ({ month: row.month, result: model.totalResult(index), center: row.total.skus ? row.total : null })) },
+      ...model.centers.slice().sort((a, b) => String(a.code).localeCompare(String(b.code), 'es', { numeric: true }))];
+    const seriesOf = view => {
+      const tips = view.series.map(point => `${view.name} · ${monthLabel(point.month)}`);
+      return [
+        { key: 'result', label: 'Resultado', color: '#172033', labels: true, width: 3, values: view.series.map(point => point.result), tips },
+        { key: 'units', label: 'Unidades correctas', color: '#2a78d6', width: 2, values: view.series.map(point => indicatorOf(point.center, 'units')), tips },
+        { key: 'codes', label: 'Códigos correctos', color: '#c9373f', width: 2, values: view.series.map(point => indicatorOf(point.center, 'codes')), tips },
+        { key: 'money', label: 'Valor correcto', color: '#c026d3', width: 2, hidden: true, values: view.series.map(point => indicatorOf(point.center, 'money')), tips }
+      ];
+    };
+    return `<div class="mr-controls"><span class="mr-toggles mr-pick-list">${views.map((view, index) => `<button type="button" class="mr-btn${index ? '' : ' mr-on'}" data-mr-pick="${esc(view.code)}">${esc(view.name)}</button>`).join('')}</span>${lineLegend(seriesOf(views[0]))}</div>
+      ${views.map((view, index) => `<div class="${index ? 'mr-hide' : ''}" data-pick="${esc(view.code)}">${lineChart({ categories: view.series.map(point => shortMonth(point.month)), series: seriesOf(view), height: 230 })}</div>`).join('')}${interactiveNote}`;
   }
 
   function productivityTable(model) {
     const nowKey = model.months[model.last]?.month, beforeKey = model.months[model.last - 1]?.month;
     const pair = (before, now, format) => `<td class="num">${before === null || before === undefined ? '—' : format(before)}</td><td class="num mr-strong">${now === null || now === undefined ? '—' : format(now)}</td>`;
     const indicator = (c, key) => pair(c.before ? indicators(c.before)[key] : null, c.now ? indicators(c.now)[key] : null, pct);
-    const rows = model.centers.map(c => `<tr><td class="mr-strong">${esc(c.name)}</td>
+    const rows = model.centers.map(c => `<tr data-trend="${c.trend.key}"><td class="mr-strong">${esc(c.name)}</td>
       ${pair(c.before?.inventories, c.now?.inventories, qty)}
       ${pair(c.before?.skus, c.now?.skus, qty)}<td class="num">${change(num(c.now?.skus), num(c.before?.skus))}</td>
       ${indicator(c, 'units')}${indicator(c, 'codes')}${indicator(c, 'money')}
@@ -594,23 +645,6 @@
     return `<table data-split class="mr-prod"><thead><tr><th rowspan="2">Centro</th>${head('Inventarios cerrados')}<th class="mr-group" colspan="3">Códigos inventariados</th>${head('Unidades correctas')}${head('Códigos correctos')}${head('Valor correcto')}<th class="num" rowspan="2">Resultado<br>(puntos)</th><th rowspan="2">Tendencia</th></tr>
       <tr>${months}${months}<th class="num">Cambio</th>${months}${months}${months}</tr></thead>
       <tbody>${rows || '<tr><td colspan="13">Sin centros con cierre en estos meses.</td></tr>'}</tbody></table>`;
-  }
-
-  // One column per month for the center chosen with the buttons; the consolidated view is shown first.
-  function evolutionChart(model) {
-    const views = [{ code: 'ALL', name: 'Consolidado', series: model.totals.map((row, index) => ({ month: row.month, result: model.totalResult(index), center: row.total })) },
-      ...model.centers.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)))];
-    const columns = view => view.series.map(point => {
-      const value = point.result, lvl = level(value);
-      const detail = point.center ? `${qty(point.center.skus)} códigos · ${qty(point.center.inventories)} inv.` : 'Sin cierre';
-      return `<div class="mr-col" data-tip="${esc(`${view.name} · ${monthLabel(point.month)}: ${value === null ? 'sin cierre' : `resultado ${pct(value)}`} · ${detail}`)}">
-        <span class="mr-col-val">${value === null ? '—' : pct(value)}</span>
-        <div class="mr-col-bar">${value === null ? '' : `<i class="lvl-${lvl.key}" style="height:${Math.max(2, scalePos(value))}%"></i>`}<u style="bottom:75%"></u><u style="bottom:90%"></u></div>
-        <span class="mr-col-month">${esc(shortMonth(point.month))}</span><span class="mr-col-sub">${esc(detail)}</span></div>`;
-    }).join('');
-    return `<div class="mr-controls"><span class="mr-toggles mr-pick-list">${views.map((view, index) => `<button type="button" class="mr-btn${index ? '' : ' mr-on'}" data-mr-pick="${esc(view.code)}">${esc(view.name)}</button>`).join('')}</span></div>
-      ${views.map((view, index) => `<div class="mr-cols${index ? ' mr-hide' : ''}" data-pick="${esc(view.code)}">${columns(view)}</div>`).join('')}
-      <div class="mr-legend"><span>Altura: resultado del mes en escala de 80% a 100%. Líneas en 95% (mínimo) y 98% (cumplimiento).</span></div>${interactiveNote}`;
   }
 
   function evolutionTable(model) {
@@ -688,22 +722,17 @@
     if (!container || container.dataset.mrInteractive) return;
     container.dataset.mrInteractive = 'true';
     container.addEventListener('click', event => {
-      const button = event.target.closest('[data-mr-filter], [data-mr-toggle], [data-mr-pick]');
+      const button = event.target.closest('[data-mr-toggle], [data-mr-pick]');
       const area = button?.closest('.mr-panel');
       if (!area) return;
       if (button.dataset.mrToggle) {
+        // Inline display, because the PDF capture of an SVG ignores the stylesheet.
         const off = button.classList.toggle('mr-on') === false;
-        area.querySelectorAll(`[data-series="${button.dataset.mrToggle}"]`).forEach(node => node.classList.toggle('mr-hide', off));
+        area.querySelectorAll(`[data-series="${button.dataset.mrToggle}"]`).forEach(node => { node.style.display = off ? 'none' : ''; });
         return;
       }
-      const group = button.dataset.mrFilter ? '[data-mr-filter]' : '[data-mr-pick]';
-      area.querySelectorAll(group).forEach(node => node.classList.toggle('mr-on', node === button));
-      if (button.dataset.mrFilter) {
-        const value = button.dataset.mrFilter;
-        area.querySelectorAll('.mr-db-row[data-trend]').forEach(row => row.classList.toggle('mr-hide', value !== 'all' && row.dataset.trend !== value));
-      } else {
-        area.querySelectorAll('[data-pick]').forEach(node => node.classList.toggle('mr-hide', node.dataset.pick !== button.dataset.mrPick));
-      }
+      area.querySelectorAll('[data-mr-pick]').forEach(node => node.classList.toggle('mr-on', node === button));
+      area.querySelectorAll('[data-pick]').forEach(node => node.classList.toggle('mr-hide', node.dataset.pick !== button.dataset.mrPick));
     });
   }
 

@@ -734,11 +734,17 @@ test('the monthly report says which centers improved, worsened or stayed, and th
   const titles = [...html.matchAll(/<header class="mr-band"><b>([^<]*)/g)].map(match => match[1]);
   assert.deepEqual(titles.slice(0, 3), ['Informe mensual · Noviembre 2026', 'Evolución de los últimos 6 meses', 'Clasificación de los códigos inventariados']);
   assert.ok(titles.includes('Consolidado nacional · 3 centros'), 'the month detail follows');
-  const trendOf = name => html.match(new RegExp(`<div class="mr-db-row" data-trend="([a-z]+)"><span class="mr-db-name">[^<]*Centro ${name}<`))?.[1];
+  const trendOf = name => html.match(new RegExp(`<tr data-trend="([a-z]+)"><td class="mr-strong">[^<]*Centro ${name}<`))?.[1];
   assert.equal(trendOf('1160'), 'down');
   assert.equal(trendOf('1120'), 'up');
   assert.equal(trendOf('5100'), 'same');
   assert.match(html, /1 mejoraron · 1 empeoraron · 1 se mantuvieron/);
+  // Lines are drawn with SVG attributes only, so the PDF capture keeps them; extra indicators start hidden.
+  const chart = html.slice(html.indexOf('<svg class="mr-lines"'), html.indexOf('</svg>') + 6);
+  assert.doesNotMatch(chart, /\sclass="(?!mr-lines")/);
+  assert.match(chart, /<g data-series="prev"><path/);
+  assert.match(chart, /<g data-series="units" style="display:none">/);
+  assert.deepEqual([...chart.matchAll(/text-anchor="middle" font-size="11" fill="#172033"[^>]*>(\d{4})</g)].map(m => m[1]), ['1120', '1160', '5100']);
   // October: 10 codes, all class A. November: 4 A, 6 B... plus 1 C out of 10.
   const classRow = month => html.slice(html.indexOf(`<td class="mr-strong">${month}</td>`)).split('</tr>')[0];
   assert.match(classRow('Octubre 2026'), /100,0%/);
