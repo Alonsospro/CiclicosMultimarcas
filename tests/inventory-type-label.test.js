@@ -18,7 +18,7 @@ test('the monthly inventory is shown as Lubricantes while its stored type stays 
   assert.equal(labels.text('MENSUAL-1120-2026-11-16'), 'LUBRICANTES-1120-2026-11-16');
   assert.equal(labels.text('INV-MENSUAL-1120-3'), 'INV-MENSUAL-1120-3', 'IDs keep the stored type');
   const html = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
-  assert.equal((html.match(/<option value="MENSUAL">Lubricantes<\/option>/g) || []).length, 6);
+  assert.equal((html.match(/<option value="MENSUAL">Lubricantes<\/option>/g) || []).length, 7);
   assert.equal(html.includes('>Mensual<'), false);
   assert.ok(html.indexOf('inventoryTypeLabel.js') < html.indexOf('/js/views/'), 'Loaded before the views');
 });

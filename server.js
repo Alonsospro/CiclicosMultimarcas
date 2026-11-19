@@ -36,6 +36,7 @@ app.use('/api/barrido', require('./src/routes/barridoRoutes'));
 app.use('/api/justifications', require('./src/routes/justificationRoutes'));
 app.use('/api/history', require('./src/routes/historyRoutes'));
 app.use('/api/dashboard', require('./src/routes/dashboardRoutes'));
+app.use('/api/reports', require('./src/routes/reportRoutes'));
 app.use('/api/photos', require('./src/routes/photoRoutes'));
 app.use('/api/logos', require('./src/routes/logoRoutes'));
 

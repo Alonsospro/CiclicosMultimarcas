@@ -32,6 +32,11 @@ window.Router = {
       return;
     }
 
+    if (viewName === 'reports' && !window.Auth.hasRole(['ADMIN', 'ENCARGADO'])) {
+      window.Toast.warning('Acceso exclusivo para encargados y administradores');
+      return;
+    }
+
     if (viewName === 'progress' && (!window.Auth || !window.Auth.canViewProgress())) {
       window.Toast.warning('Acceso exclusivo para Alonso y Juan Carlos');
       window.Router.navigate('inventories');
@@ -129,6 +134,9 @@ window.Router = {
         break;
       case 'dashboard':
         window.DashboardView.loadDashboard();
+        break;
+      case 'reports':
+        window.ReportsView.load();
         break;
       case 'progress':
         window.ProgressView.load();

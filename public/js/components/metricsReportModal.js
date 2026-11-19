@@ -107,6 +107,7 @@ window.MetricsReportModal = {
     this.currentInventory = inventoryObj;
     this.currentMetrics = metricsData;
     this.currentMonthly = null;
+    this.resetReportCenter();
 
     // The sheets are measured to paginate, so the modal must be visible first.
     window.ModalHelper?.open('modal-metrics-report');
@@ -221,6 +222,7 @@ window.MetricsReportModal = {
       if (data.current?.metricsComplete === false) {
         window.Toast?.warning('Hay archivos sin validar en el mes. Revise las fuentes antes de usar el informe.');
       }
+      this.resetReportCenter();
       this.currentInventory = { id: `MENSUAL-${month}`, name: `Informe mensual ${month}`, center, type };
       this.currentMetrics = data.current;
       this.currentMonthly = data;
@@ -288,7 +290,7 @@ window.MetricsReportModal = {
     const inv = this.currentInventory || {};
     const safe = value => String(value || '').replace(/[^a-zA-Z0-9_-]/g, '_');
     const dateStr = new Date().toISOString().slice(0, 10);
-    const filename = this.currentMonthly
+    const filename = this.currentFileName ? this.currentFileName : this.currentMonthly
       ? `Informe_Mensual_${safe(this.currentMonthly.month)}_${dateStr}.pdf`
       : consolidated
       ? `Informe_Consolidado_${dateStr}.pdf`
@@ -329,6 +331,13 @@ window.MetricsReportModal = {
       controls.forEach(control => { control.disabled = false; });
       this.isExporting = false;
     }
+  },
+
+  // Reports from the report center add an Excel export and their own file name.
+  resetReportCenter() {
+    this.currentFileName = null;
+    const excel = document.getElementById('btn-report-download-xlsx');
+    if (excel) excel.hidden = true;
   },
 
   showDirectDownloadButton(blobUrl, filename) {

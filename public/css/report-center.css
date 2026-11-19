@@ -1,0 +1,34 @@
+/* Report center window */
+#view-reports .card + .card { margin-top: 1.25rem; }
+.rc-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; }
+.rc-filters { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.rc-filters .form-select { width: auto; min-width: 150px; }
+.rc-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.5rem 0 0.75rem; }
+.rc-tab { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.5rem 0.9rem; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); background: var(--bg-glass); color: var(--text-muted); font: inherit; font-weight: 600; cursor: pointer; }
+.rc-tab:hover { color: var(--text-main); }
+.rc-tab.active { background: var(--primary-glow); border-color: var(--primary); color: var(--text-main); }
+.rc-tab-badge { min-width: 1.3rem; padding: 0.05rem 0.4rem; border-radius: 999px; background: var(--warning); color: var(--text-inverse); font-size: 0.72rem; text-align: center; }
+.rc-summary { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+.rc-status { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.2rem 0.55rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+.rc-status-done { background: rgba(16, 185, 129, 0.15); color: var(--primary); }
+.rc-status-due { background: var(--warning-glow); color: var(--warning); }
+.rc-status-open { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
+.rc-table td small { display: block; color: var(--text-muted); font-size: 0.75rem; }
+.rc-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rc-empty { text-align: center; color: var(--text-muted); padding: 1.5rem !important; }
+#btn-report-download-xlsx[hidden] { display: none !important; }
+
+/* Printable sheets */
+.rc-sheet .rc-block { display: flex; flex-direction: column; gap: 4px; }
+.rc-sheet .rc-block h3 { margin: 0; font-size: 13px; line-height: 1.25; font-weight: 700; color: var(--mr-navy); }
+.rc-sheet .rc-cards .mr-kpi { padding: 7px 11px 8px; gap: 3px; }
+.rc-sheet .rc-cards .mr-kpi strong { font-size: 22px; }
+.rc-sheet .rc-delta { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rc-sheet .rc-delta small { font-weight: 500; color: var(--mr-soft); }
+.rc-sheet .rc-good { color: #12875c; }
+.rc-sheet .rc-bad { color: #c9373f; }
+.rc-sheet .rc-flat { color: var(--mr-soft); }
+.rc-sheet .rc-kpi-cols { align-items: start; }
+.rc-sheet .rc-kpi-table td, .rc-sheet .rc-kpi-table th { padding-top: 1.5px; padding-bottom: 1.5px; font-size: 11px; }
+.rc-sheet .rc-group-row td { padding-top: 5px; color: var(--mr-navy); font-weight: 700; border-bottom: 1.5px solid #aab3c1; }
+.rc-sheet .rc-warn { margin: 0; padding: 6px 10px; background: #fff4e0; color: #8a5200; font-weight: 600; border-left: 4px solid #eda100; }

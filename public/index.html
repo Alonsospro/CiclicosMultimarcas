@@ -34,6 +34,7 @@
   <link rel="stylesheet" href="/css/counterReliability.css?v=1.0">
   <link rel="stylesheet" href="/css/inventory-layout.css?v=2.8">
   <link rel="stylesheet" href="/css/management-report.css?v=monthly-dark-1">
+  <link rel="stylesheet" href="/css/report-center.css?v=1">
   <link rel="stylesheet" href="/css/dashboard-sources.css?v=1.0">
   <link rel="stylesheet" href="/css/weekly-groups.css?v=1.0">
   <link rel="stylesheet" href="/css/deer-loader.css?v=2.0">
@@ -67,6 +68,7 @@
           <li class="role-encargado-admin"><button class="nav-item-btn" data-view="assignments"><i class="fa-solid fa-user-tag"></i> Asignaciones</button></li>
           <li class="role-encargado-admin"><button class="nav-item-btn" data-view="justifications" style="color: #f59e0b;"><i class="fa-solid fa-clipboard-check"></i> Justificaciones</button></li>
           <li class="role-encargado-admin"><button class="nav-item-btn" data-view="dashboard"><i class="fa-solid fa-chart-pie"></i> Métricas & ERU</button></li>
+          <li class="role-encargado-admin"><button class="nav-item-btn" data-view="reports"><i class="fa-solid fa-file-invoice"></i> Informes</button></li>
           <li class="role-progress-only" style="display: none;"><button class="nav-item-btn" data-view="progress"><i class="fa-solid fa-bars-progress"></i> Avance</button></li>
         </ul>
       </nav>
@@ -764,6 +766,65 @@
               <tbody id="tbody-history">
                 <!-- Dynamically rendered -->
               </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW: REPORT CENTER -->
+      <section id="view-reports" class="view-container">
+        <div class="card">
+          <div class="card-header rc-header">
+            <div>
+              <h2 class="card-title"><i class="fa-solid fa-file-invoice" style="color: var(--primary);"></i> Centro de informes</h2>
+              <p class="stat-subtext">Informes individuales, semanales, mensuales y anuales con todas las métricas y la comparación contra el periodo anterior</p>
+            </div>
+            <div class="rc-filters">
+              <select id="rc-filter-type" class="form-select" aria-label="Tipo de inventario">
+                <option value="TODOS">Todos los tipos</option>
+                <option value="CICLICO">Cíclico</option>
+                <option value="BARRIDO">Barrido</option>
+                <option value="SEMANAL">Semanal</option>
+                <option value="MENSUAL">Lubricantes</option>
+              </select>
+              <select id="rc-filter-center" class="form-select role-admin-only" aria-label="Centro">
+                <option value="TODOS">Todos los Centros</option>
+              </select>
+              <button type="button" class="btn btn-secondary btn-sm" id="rc-refresh" title="Volver a leer los inventarios"><i class="fa-solid fa-rotate"></i> Actualizar</button>
+            </div>
+          </div>
+
+          <div class="rc-tabs" role="tablist" aria-label="Tipo de informe">
+            <button type="button" class="rc-tab" role="tab" data-kind="INDIVIDUAL"><i class="fa-solid fa-file-lines"></i> Individual <span class="rc-tab-badge" hidden></span></button>
+            <button type="button" class="rc-tab active" role="tab" data-kind="SEMANAL"><i class="fa-solid fa-calendar-week"></i> Semanal <span class="rc-tab-badge" hidden></span></button>
+            <button type="button" class="rc-tab" role="tab" data-kind="MENSUAL"><i class="fa-solid fa-calendar-days"></i> Mensual <span class="rc-tab-badge" hidden></span></button>
+            <button type="button" class="rc-tab" role="tab" data-kind="ANUAL"><i class="fa-solid fa-calendar"></i> Anual <span class="rc-tab-badge" hidden></span></button>
+          </div>
+          <div class="rc-summary" id="rc-summary"></div>
+
+          <div class="table-responsive">
+            <table class="data-table rc-table">
+              <thead>
+                <tr><th>Periodo</th><th>Detalle</th><th>Estado</th><th>Último informe</th><th class="num">ERI unidades</th><th class="num">Impacto abs.</th><th>Acción</th></tr>
+              </thead>
+              <tbody id="rc-table-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2 class="card-title"><i class="fa-solid fa-clock-rotate-left" style="color: var(--primary);"></i> Informes generados</h2>
+              <p class="stat-subtext">Últimos 30 informes con sus indicadores al momento de generarlos</p>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="data-table rc-table">
+              <thead>
+                <tr><th>Fecha</th><th>Tipo</th><th>Periodo</th><th>Alcance</th><th class="num">ERI unidades</th><th class="num">Impacto abs.</th><th>Generado por</th></tr>
+              </thead>
+              <tbody id="rc-log-body"></tbody>
             </table>
           </div>
         </div>
@@ -2843,6 +2904,9 @@
         </div>
 
         <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-report-download-xlsx" title="Descargar las tablas del informe en Excel" hidden>
+            <i class="fa-solid fa-file-excel"></i> Excel
+          </button>
           <button type="button" class="btn btn-primary btn-sm" id="btn-report-download-pdf" title="Descargar este informe como archivo PDF">
             <i class="fa-solid fa-file-pdf"></i> Descargar PDF
           </button>
@@ -2982,7 +3046,7 @@
   <script src="/js/components/scannerModal.js?v=3.0"></script>
   <script src="/js/components/logoRotator.js?v=2.2"></script>
   <script src="/js/components/deerLoader.js?v=2.0"></script>
-  <script src="/js/api.js?v=monthly-1"></script>
+  <script src="/js/api.js?v=reports-1"></script>
   <script src="/js/components/firestoreUsageIndicator.js?v=1.1"></script>
   <script src="/js/auth.js?v=progress-access-1"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
@@ -2996,12 +3060,14 @@
   <script src="/js/views/historyView.js?v=lubricantes-1"></script>
 
   <script src="/js/components/managementReport.js?v=monthly-dark-1"></script>
-  <script src="/js/components/metricsReportModal.js?v=monthly-month-1"></script>
+  <script src="/js/components/metricsReportModal.js?v=reports-1"></script>
   <script src="/js/components/snapshotManagerModal.js?v=lubricantes-1"></script>
   <script src="/js/components/counterReliabilityPanel.js?v=1.0"></script>
   <script src="/js/views/dashboardView.js?v=monthly-1"></script>
+  <script src="/js/components/reportCenterDocument.js?v=1"></script>
+  <script src="/js/views/reportsView.js?v=1"></script>
   <script src="/js/views/progressView.js?v=lubricantes-1"></script>
   <script src="/js/views/userManagementView.js?v=deer-loader-2"></script>
-  <script src="/js/app.js?v=barrido-almacen-1"></script>
+  <script src="/js/app.js?v=reports-1"></script>
 </body>
 </html>

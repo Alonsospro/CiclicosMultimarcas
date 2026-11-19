@@ -448,6 +448,23 @@ window.API = {
     });
   },
 
+  // Report center
+  getReportCatalog(params = {}) {
+    return this.request(`/reports/catalog${this.buildQueryString(params)}`, { timeoutMs: 90000 });
+  },
+
+  buildReport(params = {}) {
+    return this.request(`/reports/build${this.buildQueryString(params)}`, { timeoutMs: params.kind === 'ANUAL' ? 600000 : 180000 });
+  },
+
+  getReportLog(params = {}) {
+    return this.request(`/reports/log${this.buildQueryString(params)}`);
+  },
+
+  logReport(entry) {
+    return this.request('/reports/log', { method: 'POST', body: JSON.stringify(entry) });
+  },
+
   getAuditLogs(params = {}) {
     return this.request(`/dashboard/audit${this.buildQueryString(params)}`);
   },
