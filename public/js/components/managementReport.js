@@ -532,7 +532,8 @@
     }
     const marks = series.some(line => line.marks) ? [[95, 'Mínimo 95%'], [98, 'Cumple 98%']].filter(([value]) => value > low).map(([value, label]) =>
       `<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" stroke="${CHART.mark}" stroke-width="1" stroke-dasharray="4 4"/><text x="${width - right + 6}" y="${y(value) + 4}" font-size="10" fill="${CHART.text}" ${font}>${label}</text>`) : [];
-    const labelled = series.filter(line => line.labels);
+    // Drawing order: unlabelled lines first, then labelled ones; a higher `z` goes on top.
+    const labelled = series.filter(line => line.labels).sort((a, b) => (a.z || 0) - (b.z || 0));
     const above = (line, index) => {
       const shown = labelled.map(other => other.values[index]).filter(value => value !== null && value !== undefined);
       return line.values[index] >= Math.max(...shown);
@@ -550,11 +551,15 @@
       const base = y(low).toFixed(1);
       const fill = line.area ?? 0.14;
       const area = fill ? drawn.map(segment => `<path d="M${segment[0][0]} ${base} ${segment.map(([px, py]) => `L${px} ${py}`).join(' ')} L${segment[segment.length - 1][0]} ${base} Z" fill="${line.color}" fill-opacity="${fill}" stroke="none"/>`).join('') : '';
-      const showLabel = index => line.labels && (!line.labelAt || line.labelAt(index));
+      // Two labelled lines on the same value, that day or the next to it, show one label: the one drawn on top.
+      const repeated = index => labelled.some(other => labelled.indexOf(other) > labelled.indexOf(line) && [index - 1, index, index + 1].some(near =>
+        other.values[near] !== null && other.values[near] !== undefined && Math.round(other.values[near]) === Math.round(line.values[index])
+        && (!other.labelAt || other.labelAt(near))));
+      const showLabel = index => line.labels && (!line.labelAt || line.labelAt(index)) && !repeated(index);
       const points = line.values.map((value, index) => value === null || value === undefined ? '' :
         `<circle cx="${x(index).toFixed(1)}" cy="${y(value).toFixed(1)}" r="${line.dot || 3.4}" fill="${CHART.bg}" stroke="${line.color}" stroke-width="2"><title>${esc(line.tips?.[index] || `${categories[index]} · ${line.label}: ${pct(value)}`)}</title></circle>`
         + (showLabel(index) ? `<text x="${x(index).toFixed(1)}" y="${(y(value) + (above(line, index) ? -8 : 16)).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${line.text || line.color}" ${font}>${Math.round(value)}%</text>` : '')).join('');
-      return `<g data-series="${esc(line.key)}"${line.hidden ? ' style="display:none"' : ''}>${area}<path d="${path}" fill="none" stroke="${line.color}" stroke-width="${line.width || 2}" stroke-linejoin="round" stroke-linecap="round"/>${points}</g>`;
+      return `<g data-series="${esc(line.key)}"${line.hidden ? ' style="display:none"' : ''}>${area}<path d="${path}" fill="none" stroke="${line.color}" stroke-width="${line.width || 2}"${line.dash ? ` stroke-dasharray="${line.dash}"` : ''} stroke-linejoin="round" stroke-linecap="round"/>${points}</g>`;
     }).join('');
     const axisY = height - bottom + 14;
     const axis = categories.map((name, index) => (slanted ? index % Math.max(1, Math.ceil(every / 2)) : index % every) && index !== categories.length - 1 ? '' : slanted
@@ -618,9 +623,9 @@
     const tip = (values, daily, what, unit) => model.days.map((day, index) => values[index] === null ? '' :
       `${view.name} · ${dayLabel(day)}: ${share(values[index])} ${what} · ${qty(daily[index])} ${unit} ese día`);
     return [
-      { key: 'counted', label: 'Líneas contadas', color: '#5b9bf5', area: 0.22, labels: true, width: 2.5, dot: 2.4, values: counted,
+      { key: 'counted', label: 'Líneas contadas', color: '#5b9bf5', area: 0.22, labels: true, width: 2.5, dot: 2.4, z: 1, values: counted,
         tips: tip(counted, dailyLines, 'de las líneas contadas', 'líneas'), labelAt: index => index === lastOf(counted) || (dailyLines[index] > 0 && index % 5 === 0) },
-      { key: 'closed', label: 'Inventarios cerrados', color: '#4fbf6a', area: 0.22, labels: true, width: 2.5, dot: 2.4, values: closed,
+      { key: 'closed', label: 'Inventarios cerrados', color: '#4fbf6a', area: 0.22, labels: true, width: 2.5, dot: 2.4, dash: '6 4', values: closed,
         tips: tip(closed, dailyClosed, 'de los inventarios cerrados', 'cierres'), labelAt: index => index === lastOf(closed) || dailyClosed[index] > 0 }
     ];
   }

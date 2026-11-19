@@ -758,6 +758,18 @@ test('the monthly charts show the month in general and for each center, without 
   assert.doesNotMatch(html, /[Nn]eto\b|NETO/);
 });
 
+test('lines counted stay visible when they reach the same value as the closures, with one label', async () => {
+  const html = report.renderMonthly(await monthly(monthlyInventories(), '2026-10'));
+  // Center 1160 counted all its lines and closed both inventories: both lines end at 100%.
+  const start = html.indexOf('data-pick="1160"');
+  const chart = html.slice(start, html.indexOf('</svg>', start));
+  assert.ok(chart.indexOf('data-series="closed"') < chart.indexOf('data-series="counted"'), 'lines counted are drawn on top');
+  assert.match(chart, /<g data-series="closed">.*?stroke-dasharray="6 4"/s);
+  const labels = [...chart.matchAll(/<text x="([\d.]+)" y="[\d.]+" text-anchor="middle" font-size="11" font-weight="700"[^>]*>(\d+%)</g)].map(m => m[1]);
+  assert.ok(labels.length > 0);
+  assert.equal(new Set(labels).size, labels.length, 'never two value labels on the same day');
+});
+
 test('the PDF gets fixed charts for every center, since it keeps only what is on screen', async () => {
   const html = report.renderMonthly(await monthly(monthlyInventories(), '2026-10'));
   const titles = [...html.matchAll(/<header class="mr-band"><b>([^<]*)/g)].map(match => match[1]);
