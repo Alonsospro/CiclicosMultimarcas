@@ -173,6 +173,8 @@ const InventoryContract = (() => {
     'Reconteo M/E 2','Diferencia Reconteo 2','Costo Diferencia Reconteo 2'];
   const isWeekly = r => weeklyVersions.includes(r?.Schema_Version);
   const isWeeklyType = type => ['SEMANAL','SEMANALES'].includes(String(type || '').trim().toUpperCase());
+  // Lubricantes (stored as MENSUAL) also use the 44-column sheets; their old closures keep 40 columns.
+  const usesWeeklySchema = type => isWeeklyType(type) || ['MENSUAL','MENSUALES'].includes(String(type || '').trim().toUpperCase());
   const first = (...v) => v.find(has);
   const identity = v => String(v ?? '').trim().toUpperCase();
   function number(v, label, fallback = 0) {
@@ -426,7 +428,7 @@ const InventoryContract = (() => {
     return result;
   }
   function member(r){return JSON.stringify([identity(r.SKU||r.sku),identity(r.Almacen||r.almacen||r.warehouse),identity(r.Ubicacion||r.ubicacion||r.location)]);}
-  return {columns,weeklyColumns,weeklyMasterColumns,weeklyHeaders,weeklyVersion,weeklyVersions,isWeekly,isWeeklyType,stages,has,first,identity,number,quantity,date,
+  return {columns,weeklyColumns,weeklyMasterColumns,weeklyHeaders,weeklyVersion,weeklyVersions,isWeekly,isWeeklyType,usesWeeklySchema,stages,has,first,identity,number,quantity,date,
     normalize,status,update,finalItem,member,latestStage,latestPhysical,adjustment,compensationNeeded,resolveJustification,differenceDetail,restoreCompensation,finalQuantity,isValidLocation,locationScore};
 })();
 

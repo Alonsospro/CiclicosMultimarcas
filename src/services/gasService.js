@@ -357,16 +357,16 @@ class GasService {
   async fetchProductsFromScript(type,center) {
     const result=await gasRequest(this.getUrlForType(type),{action:'getProducts',type,center:config.getCenterCode(center)});
     if(!Array.isArray(result.items))throw new Error('Apps Script no devolvió una lista válida.');
-    const weekly=contract.isWeeklyType(type);
-    if(weekly&&result.schemaVersion!==contract.weeklyVersion)throw new Error('Actualice el Apps Script de semanales a las 44 columnas antes de cargar o contar.');
+    const weekly=contract.usesWeeklySchema(type);
+    if(weekly&&result.schemaVersion!==contract.weeklyVersion)throw new Error('Actualice el Apps Script de este inventario a las 44 columnas antes de cargar o contar.');
     const columns=weekly?contract.weeklyColumns:contract.columns;
     return result.items.map((row,index)=>({...contract.normalize({...(Array.isArray(row)?Object.fromEntries(columns.map((key,i)=>[key,row[i]])):row),
       ...(weekly?{Schema_Version:contract.weeklyVersion}:{})}),id:row.id||('ITEM-SHEET-'+index)}));
   }
 
   mapRawRowsToColumns(rawRows = [], type = '') {
-    if(contract.isWeeklyType(type))return rawRows.map((row,index)=>{
-      if(Array.isArray(row)&&row.length!==contract.weeklyColumns.length)throw new Error('Semanales requiere el formato de '+contract.weeklyColumns.length+' columnas.');
+    if(contract.usesWeeklySchema(type))return rawRows.map((row,index)=>{
+      if(Array.isArray(row)&&row.length!==contract.weeklyColumns.length)throw new Error('Este inventario requiere el formato de '+contract.weeklyColumns.length+' columnas.');
       const item=contract.normalize({...(Array.isArray(row)?Object.fromEntries(contract.weeklyColumns.map((key,i)=>[key,row[i]])):row),Schema_Version:contract.weeklyVersion});
       return {...item,id:item.id||'ITEM-'+index};
     });
@@ -712,7 +712,7 @@ class GasService {
 
   async upsertCountToGAS(type,payload) {
     const postBody={...payload,action:'upsertCount',type:String(type||payload.type||'CICLICO').toUpperCase(),
-      ...(contract.isWeeklyType(type)?{schemaVersion:contract.weeklyVersion}:{}),
+      ...(contract.usesWeeklySchema(type)?{schemaVersion:contract.weeklyVersion}:{}),
       center:config.getCenterCode(payload.center||payload.centro),sku:String(payload.sku||payload.SKU||'').trim(),
       barcode:String(payload.barcode||payload.Codigo_Barras||'').trim(),location:String(payload.location||payload.Ubicacion||'').trim(),
       almacen:String(payload.almacen||payload.warehouse||payload.Almacen||'').trim()};
@@ -725,7 +725,7 @@ class GasService {
 
   async batchUpsertCountsToGAS(type,payload) {
     return gasRequest(this.getUrlForType(type),{...payload,action:'batchUpsertCounts',type,center:config.getCenterCode(payload.center),
-      ...(contract.isWeeklyType(type)?{schemaVersion:contract.weeklyVersion}:{})});
+      ...(contract.usesWeeklySchema(type)?{schemaVersion:contract.weeklyVersion}:{})});
   }
 
   async syncFinalInventoryToGAS(type,payload) {
@@ -733,7 +733,7 @@ class GasService {
     const items=(record.items||payload.items||[]).map(contract.finalItem);
     if(!items.length)throw new Error('No se puede cerrar un inventario vacío.');
     return gasRequest(this.getUrlForType(type),{...payload,action:'createFinalFile',type,
-      ...(contract.isWeeklyType(type)?{schemaVersion:contract.weeklyVersion}:{}),
+      ...(contract.usesWeeklySchema(type)?{schemaVersion:contract.weeklyVersion}:{}),
       center:config.getCenterCode(payload.center||record.center),
       driveRecord:{...record,items,justifications:record.justifications||payload.justifications||[]}}, {file:true});
   }
@@ -755,7 +755,7 @@ class GasService {
 
   async saveJustificationToGAS(type,payload) {
     return gasRequest(this.getUrlForType(type),{...payload,action:'saveJustification',type,center:config.getCenterCode(payload.center),
-      ...(contract.isWeeklyType(type)?{schemaVersion:contract.weeklyVersion}:{})});
+      ...(contract.usesWeeklySchema(type)?{schemaVersion:contract.weeklyVersion}:{})});
   }
 
   async runGasDiagnostics() {
