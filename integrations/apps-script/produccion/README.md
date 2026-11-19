@@ -28,6 +28,8 @@ Ver [docs/semanales-44-columnas.md](../../../docs/semanales-44-columnas.md).
 
 El archivo **MENSUALES NIBOL MULTIMARCAS** usa el mismo `InventoryWebhookSemanales.gs` y las mismas 44 columnas. La appweb envía el esquema de 44 columnas para `MENSUAL` igual que para `SEMANAL` (`usesWeeklySchema` en el contrato). Las reglas propias de semanales, como la confiabilidad de contadores, siguen solo para `SEMANAL`. Un inventario de Lubricantes creado con 40 columnas debe sincronizarse desde Sheets, con la hoja ya en 44 columnas, antes de seguir contando.
 
+Los cierres de Lubricantes se guardan en la carpeta **Finalizados Lubricantes** (`1uGPsBz620T_wYXQB0IFlxFjc93fnVeo7`). En el proyecto de Apps Script de Lubricantes, la propiedad `ROOT_MENSUAL` debe tener ese ID; sin ella el cierre falla con "Falta ROOT_MENSUAL".
+
 ## Barrido (`BarridoWebhook.gs`)
 
 Script de la planilla **BARRIDO NIBOL MULTIMARCAS** (pestañas por centro con las 44 columnas A:AR). Se pega en Extensiones → Apps Script de esa planilla y se publica como aplicación web (su URL `/exec` es `BARRIDO_URL`).
