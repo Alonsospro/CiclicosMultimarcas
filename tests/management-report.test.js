@@ -318,32 +318,30 @@ test('the dashboard and both PDF reports show the same duration', async () => {
 });
 
 const stateRows = html => {
-  const start = html.indexOf('Estado por centro');
+  const start = html.indexOf('<h3>Cada centro</h3>');
   return html.slice(start, html.indexOf('</table>', start)).split('<tbody>')[1].split('<tr>').slice(1);
 };
 
-test('the state of all centers is one table with bars: its three indicators at the close and at their first count', async () => {
+test('the state of all centers is a line chart of its three indicators and one row per center', async () => {
   const differ = (sku, change, extra = {}) => line(sku, { Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change, ...extra });
   const metrics = await load([
     inventory('INV-1160-1', '1160', [line('A'), differ('B', -2, { Reconteo: 10, Stock_Total_Reconteo: 10, Diferencia_Final: 0 })]),
     inventory('INV-1120-1', '1120', [line('C'), differ('D', -5)])
   ]);
   const html = report.render({ name: 'Corte' }, metrics);
-  assert.equal(html.includes('mr-vcol'), false, 'The columns are gone');
+  const state = html.slice(html.indexOf('Estado por centro'), html.indexOf('</table>', html.indexOf('Estado por centro')));
+  assert.doesNotMatch(state, /Indicadores|Cant\.|>Línea</, 'no breakdown of the three indicators per row');
+  // One line per indicator, the centers on the horizontal axis.
+  assert.deepEqual([...state.matchAll(/<g data-series="(\w+)"/g)].map(m => m[1]).sort(), ['codes', 'money', 'units']);
+  assert.deepEqual([...state.matchAll(/text-anchor="middle" font-size="11" fill="#a7adb9"[^>]*>(\d{4})</g)].map(m => m[1]), ['1120', '1160']);
   const rows = stateRows(html);
   assert.equal(rows.length, 3, 'Two centers with a close and one without');
   const [worst, best, pending] = rows;
-  assert.match(html, /<th>Indicadores<\/th>/);
-  assert.deepEqual(cellsOf(worst).slice(1), ['Cant.', 'Línea', 'Valor', '15 de 20', '1 de 2', 'Bs 1.500,00 de 2.000,00', '75,00%', '50,00%', '75,00%',
-    '✕ 75,00%', '✕ 50,00%', '✕ 75,00%', 'Sin anterior', 'Sin anterior', 'Sin anterior']);
-  assert.match(worst, /1120/);
-  assert.match(worst, /width:120px;background:#c9373f/);
-  assert.deepEqual(cellsOf(best).slice(1), ['Cant.', 'Línea', 'Valor', '20 de 20', '2 de 2', 'Bs 2.000,00 de 2.000,00', '90,00%', '50,00%', '90,00%',
-    '★ 100,00%', '★ 100,00%', '★ 100,00%', 'Sin anterior', 'Sin anterior', 'Sin anterior']);
-  assert.match(best, /width:240px;background:#0a5c40/);
+  assert.deepEqual(cellsOf(worst), ['1120 - Centro 1120', '✕ NO CUMPLE', '50,00%', '75,00%', '50,00%', '75,00%', 'Sin anterior']);
+  assert.match(worst, /mr-cell lvl-no">50,00%/);
+  assert.deepEqual(cellsOf(best), ['1160 - Centro 1160', '★ PERFECTO CUMPLIMIENTO', '100,00%', '100,00%', '100,00%', '100,00%', 'Sin anterior']);
   assert.match(pending, /5100/);
   assert.match(pending, /Sin cierre en este corte/);
-  assert.equal(pending.includes('mr-ibar'), false);
   assert.match(html, /Menos de 95%: no cumple/);
 });
 
@@ -376,9 +374,9 @@ test('the chart compares each center with its earlier inventories of the same ty
   const html = report.render({ name: 'Corte' }, metrics);
   const rows = stateRows(html);
   const center1160 = rows.find(row => row.includes('Centro 1160'));
-  assert.deepEqual(cellsOf(center1160).slice(13, 16), ['75,00% → 95,00%', '50,00% → 75,00%', '75,00% → 95,00%'], 'Each indicator of the earlier cyclic closures, oldest first and without the weekly one');
-  assert.equal(cellsOf(center1160)[10], '★ 100,00%');
-  assert.equal(cellsOf(rows.find(row => row.includes('Centro 1120')))[13], 'Sin anterior');
+  assert.equal(cellsOf(center1160)[6], '50,00% → 75,00%', 'The result of each earlier cyclic closure, oldest first and without the weekly one');
+  assert.equal(cellsOf(center1160)[2], '100,00%');
+  assert.equal(cellsOf(rows.find(row => row.includes('Centro 1120')))[6], 'Sin anterior');
 });
 
 test('a closure read before the three indicators existed still shows its units', () => {
@@ -388,11 +386,13 @@ test('a closure read before the three indicators existed still shows its units',
     byWarehouse: [], byClass: [], crossWarehouse: [], crossClass: [], flow: { firstDifferences: 0, resolved: 0, stillShort: 0, stillSurplus: 0, appeared: 0 }, inventories: ['NEW'], issues: [],
     history: [{ id: 'OLD', type: 'CICLICO', date: '2026-09-01', eri: 92, totalUnits: 100, exactUnits: 92 }, { id: 'NEW', type: 'CICLICO', date: '2026-10-01', eri: 100, totalUnits: 10, exactUnits: 10 }] };
   const html = report.render({ name: 'Corte' }, { reportData: { centers: [center, { ...center, center: '2', name: 'D', inventories: ['OTHER'], history: [] }], pendingCenters: [] }, discrepanciesList: [], summary: {}, filters: {} });
-  assert.deepEqual(cellsOf(stateRows(html).find(row => row.includes('>C<'))).slice(13, 16), ['92,00%', 'No disponible', 'No disponible']);
+  assert.equal(cellsOf(stateRows(html).find(row => row.includes('>C<')))[6], '92,00%', 'its units are its result');
 
   const forced = { ...center, unitsExact: 9, durations: [{ forcedLines: 1 }] };
   const forcedHtml = report.render({ name: 'Corte' }, { reportData: { centers: [forced, { ...center, center: '2', name: 'D', inventories: ['OTHER'], history: [] }], pendingCenters: [] }, discrepanciesList: [], summary: {}, filters: {} });
-  assert.deepEqual(cellsOf(stateRows(forcedHtml).find(row => row.includes('>C<'))).slice(10, 13), ['⚑ 90,00%', '★ 100,00%', '★ 100,00%'], 'A forced close flags the low indicator and is not judged as failing');
+  const forcedState = stateRows(forcedHtml).find(row => row.includes('>C<'));
+  assert.match(forcedState, /mr-cell lvl-forced">90,00%/, 'A forced close flags the low indicator and is not judged as failing');
+  assert.match(forcedState, /mr-cell lvl-perfect">100,00%/);
 });
 
 test('a surplus larger than its own line takes no value from the lines that matched', async () => {
@@ -420,9 +420,9 @@ test('a forced close shows its real percentages, says so and is not judged as fa
   const rows = stateRows(html);
   const forcedRow = rows.find(row => row.includes('Centro 1120')), plainRow = rows.find(row => row.includes('Centro 1160'));
   assert.match(forcedRow, /Cierre forzado: 2 ítems sin justificar/);
-  assert.match(forcedRow, /background:#55637a/);
-  assert.match(forcedRow, /⚑ 50,00%/, 'Lowest indicator as it was closed');
-  assert.match(plainRow, /✕ 50,00%/);
+  assert.match(forcedRow, /mr-chip lvl-forced/);
+  assert.match(forcedRow, /mr-cell lvl-forced">50,00%/, 'Lowest indicator as it was closed');
+  assert.match(plainRow, /mr-cell lvl-no">50,00%/);
   assert.equal(plainRow.includes('Cierre forzado'), false);
   assert.match(html, /1 no cumple · 1 cierre forzado/);
   assert.match(html, /Cierre forzado: porcentajes reales/);
@@ -435,7 +435,7 @@ test('a forced close shows its real percentages, says so and is not judged as fa
   assert.equal(single.includes('mr-chip lvl-no">✕ NO CUMPLE</span></span>'), false);
 
   const good = await load([inventory('INV-1160-1', '1160', [...Array.from({ length: 99 }, (_, n) => line('S' + n)), differ('C', 0, forced)]), inventory('INV-1120-1', '1120', [line('A')])]);
-  assert.match(stateRows(report.render({ name: 'Corte' }, good)).find(row => row.includes('Centro 1160')), /★ 100,00%/, 'A compliant center keeps its level');
+  assert.match(stateRows(report.render({ name: 'Corte' }, good)).find(row => row.includes('Centro 1160')), /★ PERFECTO CUMPLIMIENTO/, 'A compliant center keeps its level');
 });
 
 test('a partly justified shortage closes with the units explained and only the remainder as shortage', async () => {
