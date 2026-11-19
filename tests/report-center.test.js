@@ -84,7 +84,7 @@ test('the catalog lists every report period with its generation status', async (
   assert.equal((await reports.catalog({ center: '1120' })).SEMANAL.find(item => item.ref === '42').status, 'PENDIENTE', 'the log is kept per center');
 });
 
-test('the weekly report measures the week and compares it with the previous one', async () => {
+test('the weekly report measures only the week, without comparing it with another one', async () => {
   const { reports } = service();
   const report = await reports.build({ kind: 'SEMANAL', ref: '42', user: { displayName: 'Alonso' } });
   assert.equal(report.label, 'Semana 42');
@@ -93,10 +93,7 @@ test('the weekly report measures the week and compares it with the previous one'
   assert.equal(report.kpis.discrepancies, 2);
   assert.equal(report.kpis.shortageCost, 100);
   assert.equal(report.kpis.surplusCost, 100);
-  assert.equal(report.kpis.netImpact, 0);
-  assert.equal(report.kpis.absImpact, 200);
-  assert.equal(report.previous.label, 'Semana 41');
-  assert.equal(report.previous.kpis.shortageCost, 200);
+  assert.equal(report.previous, undefined, 'no other week is read');
   assert.deepEqual(report.centers.map(center => center.center).sort(), ['1120', '1160']);
   assert.deepEqual(report.causes.byType.map(row => row.type).sort(), ['FALTANTE', 'SOBRANTE']);
   assert.equal(report.causes.justifiedShare, 50);
@@ -106,45 +103,59 @@ test('the weekly report measures the week and compares it with the previous one'
   assert.ok(report.metrics.reportData, 'carries the metrics for the center detail sheets');
 });
 
-test('monthly and annual reports add their trend and find recurring differences', async () => {
+test('monthly and annual reports cover their own period and find recurring differences', async () => {
   const { reports } = service();
   const month = await reports.build({ kind: 'MENSUAL', ref: '2026-10' });
   assert.equal(month.label, 'Octubre 2026');
-  assert.deepEqual(month.series.map(row => row.label), ['Semana 41', 'Semana 42']);
-  assert.equal(month.previous, null, 'September has no inventories');
+  assert.equal(month.series, undefined);
+  assert.ok(month.metrics.monthTimeline, 'the month carries the data of the Métricas monthly report');
   assert.deepEqual(month.recurrent.map(row => [row.sku, row.times]), [['B1', 2]]);
 
   const year = await reports.build({ kind: 'ANUAL', ref: '2026' });
-  assert.deepEqual(year.series.map(row => row.month), ['2026-10', '2026-11']);
-  assert.equal(year.series[0].inventories, 4);
+  assert.equal(year.series, undefined);
   assert.equal(year.kpis.inventories, 5, 'the open inventory stays out of the consolidated year');
 });
 
-test('the individual report compares with the previous inventory of the same center', async () => {
+test('the individual report covers one inventory', async () => {
   const { reports } = service();
   const report = await reports.build({ kind: 'INDIVIDUAL', ref: 'INV-1160-42' });
-  assert.equal(report.previous.ref, 'INV-1160-41');
+  assert.equal(report.selectedInventory.id, 'INV-1160-42');
   assert.equal(report.kpis.inventories, 1);
   await assert.rejects(reports.build({ kind: 'MENSUAL', ref: '2026-13x' }), /Mes inválido/);
   await assert.rejects(reports.build({ kind: 'MENSUAL', ref: '2025-01' }), /No hay inventarios/);
 });
 
-test('the printable document has the four summary sheets before the center detail and an Excel twin', async () => {
-  const { reports } = service();
-  const report = JSON.parse(JSON.stringify(await reports.build({ kind: 'SEMANAL', ref: '42' })));
+const documents = () => {
   const context = vm.createContext({ window: {} });
   vm.runInContext(fs.readFileSync(path.join(root, 'public/js/components/managementReport.js'), 'utf8'), context);
   vm.runInContext(fs.readFileSync(path.join(root, 'public/js/components/reportCenterDocument.js'), 'utf8'), context);
-  const doc = context.window.ReportCenterDocument;
-  const html = doc.render(report);
-  assert.equal((html.match(/class="mr-report"/g) || []).length, 1);
-  assert.equal((html.match(/class="mr-sheet rc-sheet"/g) || []).length, 4);
-  assert.ok((html.match(/class="mr-sheet/g) || []).length > 4, 'the center detail sheets follow');
-  assert.ok(html.indexOf('Informe semanal consolidado · Semana 42') < html.indexOf('Centros y evolución'));
-  assert.ok(html.includes('Comparado con Semana 41'));
-  assert.deepEqual({ ...doc.delta(95, 90, 'pct', 'up') }, { text: '▲ +5,0 pp', cls: 'rc-good' });
-  assert.equal(doc.delta(300, 200, 'bs', 'down').cls, 'rc-bad');
-  const book = doc.workbook(report);
-  assert.deepEqual([...Object.keys(book)], ['Resumen', 'Centros', 'Evolucion', 'ABC', 'Tipos_diferencia', 'Motivos', 'Top_diferencias', 'Recurrentes', 'Auxiliares', 'Duraciones']);
-  assert.equal(book.Resumen.find(row => row.Indicador === 'Faltante valorizado').Actual, 100);
+  return { doc: context.window.ReportCenterDocument, metrics: context.window.ManagementReport };
+};
+
+test('each report uses the Métricas model: the dashboard report, or the monthly report for a month', async () => {
+  const { reports } = service();
+  const { doc, metrics } = documents();
+  const week = JSON.parse(JSON.stringify(await reports.build({ kind: 'SEMANAL', ref: '42' })));
+  assert.equal(doc.render(week), metrics.render(week.selectedInventory || { id: 'SEMANAL-42', name: week.label, center: 'TODOS', type: 'TODOS' }, week.metrics));
+  const one = JSON.parse(JSON.stringify(await reports.build({ kind: 'INDIVIDUAL', ref: 'INV-1160-42' })));
+  assert.equal(doc.render(one), metrics.render(one.selectedInventory, one.metrics));
+  const month = JSON.parse(JSON.stringify(await reports.build({ kind: 'MENSUAL', ref: '2026-10' })));
+  const html = doc.render(month);
+  assert.equal(html, metrics.renderMonthly({ month: '2026-10', type: 'TODOS', center: 'TODOS', current: month.metrics }));
+  assert.match(html, /Informe mensual · Octubre 2026/);
+  for (const page of [doc.render(week), html]) {
+    assert.doesNotMatch(page, /rc-sheet|Comparado con|Variación/, 'no own comparison sheets');
+    assert.doesNotMatch(page, /[Nn]eto|NETO|Impacto absoluto/);
+  }
+});
+
+test('the Excel twin has the period figures, with shortages and surpluses apart', async () => {
+  const { reports } = service();
+  const { doc } = documents();
+  const book = doc.workbook(JSON.parse(JSON.stringify(await reports.build({ kind: 'SEMANAL', ref: '42' }))));
+  assert.deepEqual([...Object.keys(book)], ['Resumen', 'Centros', 'ABC', 'Tipos_diferencia', 'Motivos', 'Top_diferencias', 'Recurrentes', 'Auxiliares', 'Duraciones']);
+  assert.equal(book.Resumen.find(row => row.Indicador === 'Faltante valorizado').Valor, 100);
+  assert.equal(book.Resumen.find(row => row.Indicador === 'Sobrante valorizado').Valor, 100);
+  const labels = JSON.stringify(book);
+  assert.doesNotMatch(labels, /[Nn]eto|Impacto abs|Anterior|Variación/);
 });

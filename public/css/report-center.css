@@ -13,22 +13,8 @@
 .rc-status-done { background: rgba(16, 185, 129, 0.15); color: var(--primary); }
 .rc-status-due { background: var(--warning-glow); color: var(--warning); }
 .rc-status-open { background: rgba(148, 163, 184, 0.15); color: var(--text-muted); }
-.rc-table td small { display: block; color: var(--text-muted); font-size: 0.75rem; }
+.rc-table td small, .rc-table th small { display: block; color: var(--text-muted); font-size: 0.75rem; }
 .rc-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rc-empty { text-align: center; color: var(--text-muted); padding: 1.5rem !important; }
 #btn-report-download-xlsx[hidden] { display: none !important; }
 
-/* Printable sheets */
-.rc-sheet .rc-block { display: flex; flex-direction: column; gap: 4px; }
-.rc-sheet .rc-block h3 { margin: 0; font-size: 13px; line-height: 1.25; font-weight: 700; color: var(--mr-navy); }
-.rc-sheet .rc-cards .mr-kpi { padding: 7px 11px 8px; gap: 3px; }
-.rc-sheet .rc-cards .mr-kpi strong { font-size: 22px; }
-.rc-sheet .rc-delta { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.rc-sheet .rc-delta small { font-weight: 500; color: var(--mr-soft); }
-.rc-sheet .rc-good { color: #12875c; }
-.rc-sheet .rc-bad { color: #c9373f; }
-.rc-sheet .rc-flat { color: var(--mr-soft); }
-.rc-sheet .rc-kpi-cols { align-items: start; }
-.rc-sheet .rc-kpi-table td, .rc-sheet .rc-kpi-table th { padding-top: 1.5px; padding-bottom: 1.5px; font-size: 11px; }
-.rc-sheet .rc-group-row td { padding-top: 5px; color: var(--mr-navy); font-weight: 700; border-bottom: 1.5px solid #aab3c1; }
-.rc-sheet .rc-warn { margin: 0; padding: 6px 10px; background: #fff4e0; color: #8a5200; font-weight: 600; border-left: 4px solid #eda100; }

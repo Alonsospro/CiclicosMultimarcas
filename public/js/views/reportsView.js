@@ -106,7 +106,7 @@ window.ReportsView = {
         <td><span class="rc-status ${s.cls}"><i class="fa-solid ${s.icon}"></i> ${s.label}</span></td>
         <td class="rc-last">${last}</td>
         <td class="num">${item.last ? fmt(item.last.kpis?.eriUnits, 'pct') : '—'}</td>
-        <td class="num">${item.last ? fmt(item.last.kpis?.absImpact, 'bs') : '—'}</td>
+        <td class="num">${item.last ? `${fmt(item.last.kpis?.shortageCost, 'bs')}<small>${fmt(item.last.kpis?.surplusCost, 'bs')}</small>` : '—'}</td>
         <td><button type="button" class="btn ${item.status === 'GENERADO' ? 'btn-secondary' : 'btn-primary'} btn-sm" data-generate="${this.esc(item.ref)}"><i class="fa-solid fa-file-pdf"></i> ${action}</button></td>
       </tr>`;
     }).join('');
@@ -122,7 +122,7 @@ window.ReportsView = {
       body.innerHTML = (log || []).slice(0, 30).map(entry => `<tr>
         <td>${this.date(entry.generatedAt)}</td><td>${kinds[entry.kind] || entry.kind}</td><td>${this.esc(entry.label)}</td>
         <td>${this.esc(entry.center === 'TODOS' ? 'Todos' : entry.center)} · ${this.esc(window.ReportCenterDocument.TYPE_LABELS[entry.type] || entry.type)}</td>
-        <td class="num">${fmt(entry.kpis?.eriUnits, 'pct')}</td><td class="num">${fmt(entry.kpis?.absImpact, 'bs')}</td><td>${this.esc(entry.generatedBy)}</td>
+        <td class="num">${fmt(entry.kpis?.eriUnits, 'pct')}</td><td class="num">${fmt(entry.kpis?.shortageCost, 'bs')}<small>${fmt(entry.kpis?.surplusCost, 'bs')}</small></td><td>${this.esc(entry.generatedBy)}</td>
       </tr>`).join('') || '<tr><td colspan="7" class="rc-empty">Todavía no se generó ningún informe.</td></tr>';
     } catch (err) {
       body.innerHTML = `<tr><td colspan="7" class="rc-empty">${this.esc(err.message || 'No se pudo leer el historial.')}</td></tr>`;
@@ -164,7 +164,7 @@ window.ReportsView = {
     const title = document.getElementById('report-modal-title');
     const subtitle = document.getElementById('report-modal-subtitle');
     if (title) title.textContent = `${window.ReportCenterDocument.KIND_LABELS[report.kind]} · ${report.label}`;
-    if (subtitle) subtitle.textContent = report.previous ? `Comparado con ${report.previous.label}` : 'Sin periodo anterior para comparar';
+    if (subtitle) subtitle.textContent = `${report.centerName} · ${window.ReportCenterDocument.TYPE_LABELS[report.type] || report.type}`;
     const container = document.getElementById('report-printable-area');
     if (!container) return;
     container.innerHTML = window.ReportCenterDocument.render(report);
