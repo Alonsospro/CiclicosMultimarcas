@@ -20,7 +20,7 @@ const getInventoryIdentifier = value => {
     ? value
     : (value?.id || value?.inventoryId || value?.fileName || value?.name || '');
   const clean = String(str).replace(/\.json$/i, '').replace(/_FINAL_.*$/i, '').trim();
-  const match = clean.match(/-(\d+)$/);
+  const match = clean.match(/-(\d+(?:\.\d+)?)$/);
   if (match) return match[1];
   const parts = clean.split('-');
   if (parts.length > 1) {

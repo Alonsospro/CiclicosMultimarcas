@@ -2,6 +2,7 @@ const contract = require('./inventoryContract');
 const workflow = require('./inventoryWorkflow');
 const counterReliability = require('./counterReliability');
 const {createHash,randomUUID}=require('crypto');
+const {normalizeTermination}=require('./inventoryTermination');
 const fs = require('fs');
 const path = require('path');
 const config = require('../config');
@@ -124,9 +125,10 @@ class InventoryService {
       const id = path.basename(file, '.json');
       if (!id.startsWith(prefix)) continue;
       const suffix = id.slice(prefix.length);
-      if (/^\d+$/.test(suffix)) maxSequence = Math.max(maxSequence, Number(suffix));
+      // A decimal ending (4.5) counts too, so the next automatic one is 5.
+      if (/^\d+(?:\.\d+)?$/.test(suffix)) maxSequence = Math.max(maxSequence, Number(suffix));
     }
-    return `${prefix}${maxSequence + 1}`;
+    return `${prefix}${Math.floor(maxSequence) + 1}`;
   }
 
   async getInventories(user, filterCenter = null, filterType = null) {
@@ -541,8 +543,7 @@ class InventoryService {
     if(!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)||!Number.isFinite(Date.parse(targetDate+'T12:00:00Z'))||new Date(targetDate+'T12:00:00Z').toISOString().slice(0,10)!==targetDate)throw new Error('Fecha inválida');
     if(centers!==null && (!Array.isArray(centers)||!centers.length))throw new Error('Seleccione al menos un centro');
     // An ending chosen for every center, so centers counted in different weeks still share it.
-    const chosen=sequence===null||sequence===undefined||String(sequence).trim()===''?null:Number(sequence);
-    if(chosen!==null&&(!Number.isSafeInteger(chosen)||chosen<1||chosen>9999))throw new Error('La terminación debe ser un número entero de 1 a 9999.');
+    const chosen=normalizeTermination(sequence);
     const requested=centers===null?config.centersList.map(c=>c.code):centers;
     const codes=[...new Set(requested.map(center=>{
       const found=config.findCenter(center);
@@ -2686,7 +2687,7 @@ class InventoryService {
   }
 
   getPhysicalReviewInventory(inventoryId, user) {
-    if (!/^[a-zA-Z0-9_-]+$/.test(String(inventoryId))) throw new Error('Identificador de inventario inválido');
+    if (!/^[a-zA-Z0-9_-]+(?:\.\d+)?$/.test(String(inventoryId))) throw new Error('Identificador de inventario inválido');
     if (!user || (!user.isSuperadmin && !['ADMIN', 'ENCARGADO'].includes(user.role)))
       throw new Error('Solo un encargado o administrador puede verificar conteos.');
     const inv = this.getInventoryRaw(inventoryId);

@@ -1836,8 +1836,8 @@
 
           <div class="form-group" style="margin-bottom: 1rem;">
             <label for="bulk-inv-sequence" class="form-label" style="font-weight: 600;">Terminación del inventario (opcional)</label>
-            <input type="number" id="bulk-inv-sequence" class="form-control" min="1" max="9999" step="1" inputmode="numeric" placeholder="Automática: el siguiente número de cada centro" />
-            <p style="margin: 0.3rem 0 0; font-size: 0.76rem; color: var(--text-dim);">Con un número, todos los centros marcados terminan igual (por ejemplo 3 crea INV-CICLICO-1120-3). Si un centro ya tiene esa terminación, ese centro no se crea y se avisa.</p>
+            <input type="number" id="bulk-inv-sequence" class="form-control" min="1" max="9999" step="any" inputmode="decimal" placeholder="Automática: el siguiente número de cada centro" />
+            <p style="margin: 0.3rem 0 0; font-size: 0.76rem; color: var(--text-dim);">Con un número, todos los centros marcados terminan igual (por ejemplo 3 crea INV-CICLICO-1120-3). Admite decimales para varios inventarios en la semana: 4.5 queda entre 4 y 5. Si un centro ya tiene esa terminación, ese centro no se crea y se avisa.</p>
           </div>
 
           <div class="form-group" style="margin-bottom: 1rem;">
@@ -3050,8 +3050,8 @@
   <script src="/js/components/firestoreUsageIndicator.js?v=1.1"></script>
   <script src="/js/auth.js?v=progress-access-1"></script>
   <script src="/js/views/loginView.js?v=2.2"></script>
-  <script src="/js/inventoryGrouping.js?v=1.0"></script>
-  <script src="/js/views/inventoryView.js?v=barrido-equipo-1"></script>
+  <script src="/js/inventoryGrouping.js?v=decimal-1"></script>
+  <script src="/js/views/inventoryView.js?v=decimal-1"></script>
   <script src="/js/views/barridoView.js?v=barrido-prefijos-1"></script>
   <script src="/js/views/assignmentsView.js?v=deer-loader-2"></script>
   <script src="/js/inventoryContract.js?v=partial-justification-1"></script>
@@ -3063,7 +3063,7 @@
   <script src="/js/components/metricsReportModal.js?v=reports-1"></script>
   <script src="/js/components/snapshotManagerModal.js?v=lubricantes-1"></script>
   <script src="/js/components/counterReliabilityPanel.js?v=1.0"></script>
-  <script src="/js/views/dashboardView.js?v=monthly-1"></script>
+  <script src="/js/views/dashboardView.js?v=decimal-1"></script>
   <script src="/js/components/reportCenterDocument.js?v=metrics-model-1"></script>
   <script src="/js/views/reportsView.js?v=metrics-model-1"></script>
   <script src="/js/views/progressView.js?v=lubricantes-1"></script>

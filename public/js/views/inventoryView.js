@@ -110,9 +110,10 @@ window.InventoryView = {
       const checkedBoxes = container ? Array.from(container.querySelectorAll('input[type="checkbox"]:checked')) : [];
       const selectedCenters = checkedBoxes.map(cb => cb.value);
       const sequenceText = String(sequenceInput?.value || '').trim();
-      const sequence = sequenceText === '' ? null : Number(sequenceText);
-      if (sequence !== null && (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > 9999)) {
-        window.Toast.warning('La terminación debe ser un número entero de 1 a 9999, o dejarse vacía.');
+      // Decimals let several inventories share a week: 4, 4.5, 4.7. The server keeps one form per number.
+      const sequence = sequenceText === '' ? null : sequenceText.replace(',', '.');
+      if (sequence !== null && (!/^\d{1,4}(?:\.\d{1,2})?$/.test(sequence) || Number(sequence) < 1 || Number(sequence) > 9999)) {
+        window.Toast.warning('La terminación debe ser un número de 1 a 9999 con hasta 2 decimales (por ejemplo 4.5), o dejarse vacía.');
         return;
       }
 

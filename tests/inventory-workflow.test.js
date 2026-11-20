@@ -55,7 +55,7 @@ function fixture({countSheetSync='inmediato'}={}) {
     }
   };
   const mocks = {
-    './counterReliability':require('../src/services/counterReliability'),
+    './counterReliability':require('../src/services/counterReliability'),'./inventoryTermination':require('../src/services/inventoryTermination'),
     './inventoryContract':contract,'./inventoryWorkflow':workflow,'../config':{countSheetSync,isSameCenter:(a,b)=>a===b},
     './storagePath':store,'./auditService':new Proxy({}, {get:()=>()=>{}}),
     './gasService':gas,'./metricsService':{},'./snapshotService':{},'../../public/js/justificationPhotoRule':require('../public/js/justificationPhotoRule'),

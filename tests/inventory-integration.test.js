@@ -43,7 +43,7 @@ test('final records retain all forty columns including both rounds',()=>{
 function inventoryService(gas,allowed=true){
   const records=new Map();
   const service=isolated('src/services/inventoryService.js',{
-    './counterReliability':require('../src/services/counterReliability'),
+    './counterReliability':require('../src/services/counterReliability'),'./inventoryTermination':require('../src/services/inventoryTermination'),
     './inventoryWorkflow':require('../src/services/inventoryWorkflow'),
     './inventoryContract':contract,'../config':{countSheetSync:'inmediato',centersList:[{code:'1120'},{code:'1160'}],findCenter:v=>['1120','1160'].includes(v)?{code:v}:null,getCenterCode:v=>v,isSameCenter:(a,b)=>a===b},
     './storagePath':{getInventoriesDirectory:()=>'/fake',getJustificationsDirectory:()=>'/fake-just',listFiles:()=>[...records.keys()].map(id=>id+'.json'),readJson:p=>records.get(path.basename(p,'.json'))},
@@ -83,8 +83,25 @@ test('bulk creation can use the same chosen ending in every center and never reu
   assert.equal(records.size,2);
   const automatic=await service.bulkCreateInventories({type:'SEMANAL',date:'2026-11-30',centers:['1120'],user});
   assert.equal(automatic.results[0].inventory.id,'INV-SEMANAL-1120-8','Without an ending, the next free number');
-  for(const sequence of [0,-1,'1.5','abc',10000])
+  for(const sequence of [0,-1,'1.555','4.5.1','1e3','abc',10000])
     await assert.rejects(service.bulkCreateInventories({type:'SEMANAL',date:'2026-12-07',centers:['1120'],sequence,user}),/terminación/);
+});
+test('bulk creation accepts decimal endings so a week can hold several inventories',async()=>{
+  const {service,records}=inventoryService({fetchProductsFromScript:async()=>[base]});
+  await service.bulkCreateInventories({type:'CICLICO',date:'2026-11-16',centers:['1120'],sequence:4,user});
+  const half=await service.bulkCreateInventories({type:'CICLICO',date:'2026-11-17',centers:['1120','1160'],sequence:'4.5',user});
+  assert.deepEqual(JSON.parse(JSON.stringify(half.results.map(r=>r.inventory.id))),['INV-CICLICO-1120-4.5','INV-CICLICO-1160-4.5']);
+  const comma=await service.bulkCreateInventories({type:'CICLICO',date:'2026-11-18',centers:['1120'],sequence:'4,7',user});
+  assert.equal(comma.results[0].inventory.id,'INV-CICLICO-1120-4.7','A comma is read as the decimal point');
+  // 4.50 and 4.0 are the same numbers as endings already taken.
+  for(const [sequence,taken] of [['4.50','INV-CICLICO-1120-4.5;'],[4.5,'INV-CICLICO-1120-4.5;'],['4.0','INV-CICLICO-1120-4;']]){
+    const again=await service.bulkCreateInventories({type:'CICLICO',date:'2026-11-19',centers:['1120'],sequence,user});
+    assert.equal(again.results[0].status,'failed');
+    assert.ok(again.results[0].error.includes('Ya existe un inventario '+taken),again.results[0].error);
+  }
+  assert.equal(records.size,4);
+  const automatic=await service.bulkCreateInventories({type:'CICLICO',date:'2026-11-23',centers:['1120'],user});
+  assert.equal(automatic.results[0].inventory.id,'INV-CICLICO-1120-5','After 4.7 the next automatic ending is 5');
 });
 test('bulk rejects invalid inputs and does not create empty inventories',async()=>{
   const {service,records}=inventoryService({fetchProductsFromScript:async()=>[]});

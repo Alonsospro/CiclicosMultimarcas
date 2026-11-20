@@ -431,7 +431,7 @@ window.DashboardView = {
   getInventoryIdentifier(value) {
     const str = typeof value === 'string' ? value : (value?.id || value?.inventoryId || value?.name || '');
     const clean = String(str).replace(/\.json$/i, '').replace(/_FINAL_.*$/i, '').trim();
-    const match = clean.match(/-(\d+)$/);
+    const match = clean.match(/-(\d+(?:\.\d+)?)$/);
     if (match) return match[1];
     const parts = clean.split('-');
     if (parts.length > 1) {
@@ -442,7 +442,7 @@ window.DashboardView = {
   },
 
   getInventoryWeekLabel(value) {
-    return /^\d+$/.test(String(value)) ? `Semana ${Number(value)}` : 'Sin numeración';
+    return /^\d+(?:\.\d+)?$/.test(String(value)) ? `Semana ${Number(value)}` : 'Sin numeración';
   },
 
   updateInventoryNumberDropdown(availableInventories = []) {

@@ -21,7 +21,7 @@ window.InventoryGrouping = (() => {
 
   // Older ids end in a date (BULK-...-2026-10-21), which is not a week number.
   function termination(inventory) {
-    const match = String(inventory?.id ?? '').match(/^(?:REC-)?INV-.*-(\d+)$/);
+    const match = String(inventory?.id ?? '').match(/^(?:REC-)?INV-.*-(\d+(?:\.\d+)?)$/);
     return match ? String(Number(match[1])) : '';
   }
 
