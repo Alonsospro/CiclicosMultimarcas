@@ -415,17 +415,7 @@ class AuthService {
       }
     }
 
-    // 4. Fallback especial para Superadmin Alonso
-    if (!isMatch && (user.isSuperadmin || (user.username && user.username.toUpperCase() === 'ALONSO') || (user.email && user.email.toLowerCase() === 'alonsospro@gmail.com'))) {
-      const allowedAlonso = [
-        'adm', 'alonso.superadmin2026', 'admin.nibol2026', 'admin', 'alonsospro', 'alonsospro@gmail.com', 'alonso', '123456', 'nibol2026'
-      ];
-      if (allowedAlonso.includes(cleanPassword.toLowerCase()) || allowedAlonso.includes(cleanPassword)) {
-        isMatch = true;
-      }
-    }
-
-    // 5. Fallback para Admin general
+    // 4. Fallback para Admin general
     if (!isMatch && (user.username && user.username.toLowerCase() === 'admin')) {
       const allowedAdmin = ['admin', 'admin.nibol2026', 'nibol2026'];
       if (allowedAdmin.includes(cleanPassword.toLowerCase())) {
