@@ -185,10 +185,12 @@
     const lowestOf = values => values.some(value => value === null || value === undefined) ? null : Math.min(...values);
     const byCode = rows.slice().sort((a, b) => String(a.code).localeCompare(String(b.code), 'es', { numeric: true }));
     const valueOf = (row, key) => row.lines.find(item => item.key === key)?.value ?? null;
-    const series = [['units', 'Unidades correctas', '#5b9bf5'], ['codes', 'Códigos correctos', '#e5534b'], ['money', 'Valor correcto', '#e9b949']]
-      .map(([key, label, color], index) => ({ key, label, color, labels: true, marks: index === 0, z: 2 - index, width: 2.5, values: byCode.map(row => valueOf(row, key)),
-        tips: byCode.map(row => { const item = row.lines.find(line => line.key === key); return `${row.name} · ${label.toLowerCase()}: ${pct(item?.value ?? null)} (${item?.amount || ''})`; }) }));
-    const chart = rows.length ? `<div class="mr-controls">${lineLegend(series)}</div>${lineChart({ categories: byCode.map(row => row.code), series, height: 215 })}` : '';
+    // Only the final result of each center: the lowest of its three indicators, without the breakdown.
+    const resultOf = row => lowestOf(['units', 'codes', 'money'].map(key => valueOf(row, key)));
+    const results = byCode.map(resultOf);
+    const series = [{ key: 'result', label: 'Resultado', color: '#a78bfa', labels: true, marks: true, width: 2.5, values: results,
+      tips: byCode.map((row, index) => `${row.name} · resultado: ${pct(results[index])}`) }];
+    const chart = rows.length ? lineChart({ categories: byCode.map(row => row.code), series, height: 215 }) : '';
     const earlier = row => row.earlier.length
       // A closure read before codes and value were kept still has its units.
       ? row.earlier.map(closure => { const known = [closure.units, closure.codes, closure.money].filter(value => value !== null && value !== undefined); return known.length ? Math.min(...known) : null; })
@@ -196,7 +198,7 @@
       : 'Sin anterior';
     const cell = (row, key) => { const value = valueOf(row, key); return `<td class="mr-cell lvl-${lineLevel(row, value).key}">${pct(value)}</td>`; };
     const line = row => {
-      const result = lowestOf(['units', 'codes', 'money'].map(key => valueOf(row, key)));
+      const result = resultOf(row);
       return `<tr><td class="mr-strong">${esc(row.name)}${row.forcedLabel ? `<br><small>${esc(row.forcedLabel)}</small>` : ''}</td><td>${chip(row.lvl)}</td><td class="num mr-strong">${pct(result)}</td>${cell(row, 'units')}${cell(row, 'codes')}${cell(row, 'money')}<td>${esc(earlier(row))}</td></tr>`;
     };
     const missing = c => `<tr><td class="mr-strong">${esc(c.code)} - ${esc(c.name)}</td><td colspan="6">Sin cierre en este corte</td></tr>`;

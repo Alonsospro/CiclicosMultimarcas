@@ -322,7 +322,7 @@ const stateRows = html => {
   return html.slice(start, html.indexOf('</table>', start)).split('<tbody>')[1].split('<tr>').slice(1);
 };
 
-test('the state of all centers is a line chart of its three indicators and one row per center', async () => {
+test('the state of all centers is a line chart of its final result and one row per center', async () => {
   const differ = (sku, change, extra = {}) => line(sku, { Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change, ...extra });
   const metrics = await load([
     inventory('INV-1160-1', '1160', [line('A'), differ('B', -2, { Reconteo: 10, Stock_Total_Reconteo: 10, Diferencia_Final: 0 })]),
@@ -331,8 +331,9 @@ test('the state of all centers is a line chart of its three indicators and one r
   const html = report.render({ name: 'Corte' }, metrics);
   const state = html.slice(html.indexOf('Estado por centro'), html.indexOf('</table>', html.indexOf('Estado por centro')));
   assert.doesNotMatch(state, /Indicadores|Cant\.|>Línea</, 'no breakdown of the three indicators per row');
-  // One line per indicator, the centers on the horizontal axis.
-  assert.deepEqual([...state.matchAll(/<g data-series="(\w+)"/g)].map(m => m[1]).sort(), ['codes', 'money', 'units']);
+  // Only the final result, the centers on the horizontal axis.
+  assert.deepEqual([...state.matchAll(/<g data-series="(\w+)"/g)].map(m => m[1]), ['result']);
+  assert.doesNotMatch(state.slice(0, state.indexOf('<table')), /Unidades correctas|Códigos correctos|Valor correcto/);
   assert.deepEqual([...state.matchAll(/text-anchor="middle" font-size="11" fill="#a7adb9"[^>]*>(\d{4})</g)].map(m => m[1]), ['1120', '1160']);
   const rows = stateRows(html);
   assert.equal(rows.length, 3, 'Two centers with a close and one without');
