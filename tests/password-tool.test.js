@@ -4,9 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.join(__dirname, '..');
 // Line endings vary with the checkout (CRLF on Windows), so they are compared normalized.
-const read = file => fs.readFileSync(file, 'utf8').replace(/
-/g, '
-');
+const read = file => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 
 test('the password generator page is built from its template with the server bcryptjs', () => {
   const template = read(path.join(root, 'tools/generador-contrasenas.template.html'));
