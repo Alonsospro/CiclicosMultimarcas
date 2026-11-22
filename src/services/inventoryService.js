@@ -2834,6 +2834,26 @@ class InventoryService {
     return { success: true, message: `Inventario ${inv ? inv.name : cleanId} eliminado exitosamente` };
   }
 
+  // Several inventories at once, only for the user Alonso. Each one goes through deleteInventory
+  // (trash backup, history and audit). IDs must match exactly: no partial matches, no ALL.
+  deleteInventories({ inventoryIds, user, deleteKey, reason }) {
+    const {isExactAlonso}=require('../middlewares/authMiddleware');
+    if (!isExactAlonso(user)) throw new Error('La eliminación múltiple es exclusiva del usuario Alonso.');
+    const targetKey = String(config.adminDeleteKey || 'ADM26').trim().toUpperCase();
+    if (String(deleteKey || '').trim().toUpperCase() !== targetKey) throw new Error('Clave de confirmación incorrecta (Clave requerida: ADM26)');
+    if (!Array.isArray(inventoryIds) || !inventoryIds.length || inventoryIds.length > 200) throw new Error('Seleccione entre 1 y 200 inventarios.');
+    const ids = [...new Set(inventoryIds.map(id => String(id || '').trim()))];
+    if (ids.some(id => !id || ['ALL', 'ALL_PURGE'].includes(id.toUpperCase()))) throw new Error('Identificador de inventario inválido.');
+    const deleted = [], failed = [];
+    for (const id of ids) {
+      if (!this.getInventoryRaw(id)) { failed.push({ id, error: 'Inventario no encontrado' }); continue; }
+      try { this.deleteInventory({ inventoryId: id, user, deleteKey, reason }); deleted.push(id); }
+      catch (err) { failed.push({ id, error: err.message }); }
+    }
+    return { success: failed.length === 0, deleted, failed,
+      message: `${deleted.length} inventario(s) eliminado(s)${failed.length ? `; ${failed.length} no se pudieron eliminar` : ''}` };
+  }
+
   restoreInventoryFromTrash(inventoryId, user) {
     const cleanId = String(inventoryId).trim();
     const trashFile = path.join(storagePath.getTrashDirectory(), `${cleanId}.json`);

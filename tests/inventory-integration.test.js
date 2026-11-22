@@ -48,7 +48,7 @@ function inventoryService(gas,allowed=true){
     './inventoryContract':contract,'../config':{countSheetSync:'inmediato',centersList:[{code:'1120'},{code:'1160'}],findCenter:v=>['1120','1160'].includes(v)?{code:v}:null,getCenterCode:v=>v,isSameCenter:(a,b)=>a===b},
     './storagePath':{getInventoriesDirectory:()=>'/fake',getJustificationsDirectory:()=>'/fake-just',listFiles:()=>[...records.keys()].map(id=>id+'.json'),readJson:p=>records.get(path.basename(p,'.json'))},
     './auditService':{logAction(){},logCount(){}},'./driveService':{getPhotoAsDataUri:()=>''},'./gasService':gas,'./metricsService':{},'./snapshotService':{isSnapshotDeleted:()=>false},'../../public/js/justificationPhotoRule':require('../public/js/justificationPhotoRule'),
-    '../middlewares/authMiddleware':{isBulkInventoryCreator:()=>allowed},
+    '../middlewares/authMiddleware':{isBulkInventoryCreator:()=>allowed,isExactAlonso:u=>String(u?.username||'').trim().toLowerCase()==='alonso'},
     './authService':{getUsersList:()=>people}
   });
   service.getInventoryRaw=id=>records.get(id);
@@ -59,6 +59,23 @@ const people=[{username:'Erick',displayName:'Erick Morales',role:'AUXILIAR',cent
   {username:'Javier',displayName:'Javier Eduardo López',role:'ENCARGADO',center:'1120'},{username:'Otro',displayName:'De otro centro',role:'AUXILIAR',center:'1160'},
   {username:'Visor',displayName:'Solo lectura',role:'CONSULTA',center:'1120'}];
 const user={username:'test'};
+test('only Alonso deletes several inventories, with the key and exact IDs',()=>{
+  const {service,records}=inventoryService({});
+  for(const id of ['INV-SEMANAL-1120-1','INV-SEMANAL-1120-2','INV-SEMANAL-1120-20'])records.set(id,{id,center:'1120'});
+  const deleted=[];
+  service.deleteInventory=({inventoryId})=>{if(inventoryId==='INV-SEMANAL-1120-2')throw new Error('falla');deleted.push(inventoryId);records.delete(inventoryId);};
+  const alonso={username:'Alonso',role:'ADMIN'};
+  assert.throws(()=>service.deleteInventories({inventoryIds:['INV-SEMANAL-1120-1'],user:{username:'jcarlos',role:'ADMIN',isSuperadmin:true},deleteKey:'ADM26'}),/exclusiva del usuario Alonso/);
+  assert.throws(()=>service.deleteInventories({inventoryIds:['INV-SEMANAL-1120-1'],user:alonso,deleteKey:'ADM'}),/Clave/);
+  assert.throws(()=>service.deleteInventories({inventoryIds:['ALL'],user:alonso,deleteKey:'ADM26'}),/inválido/);
+  assert.throws(()=>service.deleteInventories({inventoryIds:[],user:alonso,deleteKey:'adm26'}),/entre 1 y 200/);
+  assert.equal(deleted.length,0,'Nothing is deleted when the request is refused');
+  const result=service.deleteInventories({inventoryIds:['INV-SEMANAL-1120-1','INV-SEMANAL-1120-1','INV-SEMANAL-1120-2','INV-SEMANAL-1120'],user:alonso,deleteKey:'adm26'});
+  assert.deepEqual([...result.deleted],['INV-SEMANAL-1120-1']);
+  assert.deepEqual([...result.failed.map(f=>f.id)],['INV-SEMANAL-1120-2','INV-SEMANAL-1120']);
+  assert.equal(result.success,false);
+  assert.ok(records.has('INV-SEMANAL-1120-20'),'A partial ID never deletes another inventory');
+});
 test('bulk loads each center, clears inherited counts and reports failed centers',async()=>{
   const calls=[];
   const {service,records}=inventoryService({fetchProductsFromScript:async(type,center)=>{

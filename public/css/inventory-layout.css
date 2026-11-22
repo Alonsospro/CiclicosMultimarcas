@@ -92,6 +92,18 @@
 #inventory-groups .inventories-table th:nth-child(6) { width: 16%; }
 #inventory-groups .inventories-table th:nth-child(7) { width: 18%; }
 
+/* Alonso's multiple selection adds a first column; the others shift one place. */
+#inventory-groups .inventories-table.has-bulk-select th:nth-child(1) { width: 4%; }
+#inventory-groups .inventories-table.has-bulk-select th:nth-child(2) { width: 14%; }
+#inventory-groups .inventories-table.has-bulk-select th:nth-child(3) { width: 18%; }
+#inventory-groups .inventories-table.has-bulk-select th:nth-child(4) { width: 10%; }
+#inventory-groups .inventories-table.has-bulk-select th:nth-child(5) { width: 7%; }
+#inventory-groups .inventories-table.has-bulk-select th:nth-child(6) { width: 14%; }
+#inventory-groups .inventories-table.has-bulk-select th:nth-child(7) { width: 15%; }
+#inventory-groups .inventories-table.has-bulk-select th:nth-child(8) { width: 18%; }
+#inventory-groups .inventories-table .inventory-select { text-align: center; }
+#inventory-groups .inventories-table .inventory-select input { width: 1.1rem; height: 1.1rem; cursor: pointer; }
+
 #inventory-groups .inventories-table th,
 #inventory-groups .inventories-table td {
   padding: 0.85rem 0.65rem;

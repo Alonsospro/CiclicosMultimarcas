@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const inventoryService = require('../services/inventoryService');
 const gasService = require('../services/gasService');
-const { authenticate, requireRole, requireInventoryCreator, requireBulkInventoryCreator } = require('../middlewares/authMiddleware');
+const { authenticate, requireRole, requireInventoryCreator, requireBulkInventoryCreator, requireExactAlonso } = require('../middlewares/authMiddleware');
 const { restrictCenter } = require('../middlewares/centerMiddleware');
 
 // Do not reveal earlier signed quantities to an auxiliary doing a blind recount.
@@ -345,6 +345,16 @@ router.delete('/all', authenticate, requireRole(['ADMIN']), async (req, res) => 
   try {
     const result = await inventoryService.purgeAllData(req.user);
     res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// POST /api/inventories/bulk-delete (Delete several inventories with the confirmation key - only Alonso)
+router.post('/bulk-delete', authenticate, requireExactAlonso, (req, res) => {
+  try {
+    const { inventoryIds, deleteKey, reason } = req.body;
+    res.json(inventoryService.deleteInventories({ inventoryIds, user: req.user, deleteKey, reason }));
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }

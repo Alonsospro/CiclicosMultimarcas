@@ -825,6 +825,8 @@ window.InventoryView = {
     if (!host) return;
 
     host.innerHTML = `<div class="inventory-groups-message" style="text-align:center; padding: 2rem;">Cargando inventarios...</div>`;
+    this.bulkSelection = new Set();
+    this.updateBulkDeleteButton();
 
     try {
       const res = await window.API.getInventories({ type, center });
@@ -893,6 +895,8 @@ window.InventoryView = {
         FIRMADO: 'Firmado'
       };
 
+      // Multiple selection to delete is shown only to the user Alonso; the server applies the same rule.
+      const bulk = !!window.Auth.isExactAlonso?.();
       const renderRow = inv => {
         const stageCompleted = ['EN_RECONTEO', 'RECONTEO_COMPLETADO', 'PENDIENTE_JUSTIFICACION', 'REVISADO', 'CERRADO', 'FINALIZADO', 'FIRMADO'].includes(String(inv.status || '').toUpperCase());
         const displayedCountedItems = stageCompleted ? inv.totalItems : inv.countedItems;
@@ -906,6 +910,7 @@ window.InventoryView = {
 
         return `
           <tr data-inv-id="${inv.id}" data-inv-counted="${displayedCountedItems}" data-inv-items="${inv.totalItems}" data-inv-status="${inv.status || ''}" data-inv-type="${inv.type || ''}" data-inv-center="${inv.center || ''}">
+            ${bulk ? `<td class="inventory-select" data-label="Seleccionar"><input type="checkbox" class="inv-bulk-check" value="${inv.id}" aria-label="Seleccionar ${inv.id}" onchange="window.InventoryView.toggleBulkSelection(this)"></td>` : ''}
             <td class="inventory-code" data-label="ID / Código"><strong>${inv.id}</strong></td>
             <td class="inventory-name" data-label="Nombre del inventario"><strong>${inv.name}</strong></td>
             <td class="role-encargado-admin col-inv-type" data-label="Tipo"><span class="badge badge-neutral">${window.InventoryTypeLabel?.label(inv.type) ?? inv.type}</span></td>
@@ -955,9 +960,10 @@ window.InventoryView = {
         </button>`;
       const table = section => `
         <div class="table-responsive inventory-list-container">
-          <table class="data-table inventories-table">
+          <table class="data-table inventories-table${bulk ? ' has-bulk-select' : ''}">
             <thead>
               <tr>
+                ${bulk ? '<th class="inventory-select"><input type="checkbox" aria-label="Seleccionar todos los visibles de esta tabla" onchange="window.InventoryView.toggleBulkSelectAll(this)"></th>' : ''}
                 <th>ID / Código</th>
                 <th>Nombre del Inventario</th>
                 <th class="role-encargado-admin col-inv-type">Tipo</th>
@@ -1831,6 +1837,8 @@ window.InventoryView = {
       row.style.display = visible ? '' : 'none';
       if (visible) visibleCount++;
     });
+    // A row hidden by the search or status filter never stays selected for deletion.
+    this.pruneBulkSelection();
 
     // Pending work opens by itself, a search opens every match, an auxiliary with few inventories
     // sees them directly, and a card opened or closed by hand stays that way.
@@ -2679,6 +2687,111 @@ window.InventoryView = {
         }
       };
     }
+  },
+
+  toggleBulkSelection(checkbox) {
+    this.bulkSelection ||= new Set();
+    if (checkbox.checked) this.bulkSelection.add(checkbox.value);
+    else this.bulkSelection.delete(checkbox.value);
+    this.updateBulkDeleteButton();
+  },
+
+  toggleBulkSelectAll(checkbox) {
+    checkbox.closest('table')?.querySelectorAll('tbody tr[data-inv-id]').forEach(row => {
+      const box = row.querySelector('.inv-bulk-check');
+      if (!box || row.style.display === 'none') return;
+      box.checked = checkbox.checked;
+      this.toggleBulkSelection(box);
+    });
+  },
+
+  pruneBulkSelection() {
+    if (!this.bulkSelection?.size) return;
+    document.querySelectorAll('#inventory-groups tr[data-inv-id]').forEach(row => {
+      const box = row.querySelector('.inv-bulk-check');
+      if (box && row.style.display === 'none' && box.checked) { box.checked = false; this.bulkSelection.delete(box.value); }
+    });
+    this.updateBulkDeleteButton();
+  },
+
+  updateBulkDeleteButton() {
+    const button = document.getElementById('btn-bulk-delete-invs');
+    if (!button) return;
+    const count = this.bulkSelection?.size || 0;
+    button.style.display = window.Auth?.isExactAlonso?.() && count > 0 ? '' : 'none';
+    const label = document.getElementById('bulk-delete-count');
+    if (label) label.textContent = String(count);
+  },
+
+  promptBulkDelete() {
+    const ids = [...(this.bulkSelection || [])];
+    if (!ids.length || !window.Auth.isExactAlonso?.()) return;
+    const rows = ids.map(id => document.querySelector(`#inventory-groups tr[data-inv-id="${CSS.escape(id)}"]`));
+    const counted = rows.reduce((sum, row) => sum + (Number(row?.getAttribute('data-inv-counted')) || 0), 0);
+    const escape = value => String(value).replace(/[&<>"']/g, ch => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch]));
+    document.getElementById('delete-modal-inv-id').value = '';
+    document.getElementById('delete-modal-key').value = '';
+    document.getElementById('delete-modal-reason').value = '';
+    const warningDiv = document.getElementById('delete-modal-warning');
+    if (warningDiv) {
+      warningDiv.style.display = 'block';
+      warningDiv.innerHTML = `
+        <div style="background: rgba(239, 68, 68, 0.15); border: 1.5px solid #ef4444; border-radius: 8px; padding: 0.85rem 1rem; color: #fca5a5; font-size: 0.88rem; line-height: 1.4;">
+          <div style="font-weight: 800; color: #ef4444; margin-bottom: 0.35rem;">
+            <i class="fa-solid fa-triangle-exclamation"></i> Se eliminarán ${ids.length} inventario(s)${counted ? ` con ${counted} ítems contados en total` : ''}
+          </div>
+          <div style="max-height: 9rem; overflow-y: auto; font-family: monospace; font-size: 0.8rem; margin-bottom: 0.35rem;">${ids.map(escape).join('<br>')}</div>
+          Cada uno se archiva en la papelera de seguridad antes de eliminarse.
+        </div>`;
+    }
+    window.ModalHelper.open('modal-delete-confirm');
+    const form = document.getElementById('form-delete-confirm');
+    if (!form) return;
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const deleteKey = document.getElementById('delete-modal-key')?.value?.trim();
+      if (!deleteKey) {
+        window.Toast.error('Debe ingresar la clave de confirmación (ADM26) para eliminar los inventarios');
+        return;
+      }
+      const reason = document.getElementById('delete-modal-reason')?.value?.trim() || 'Eliminación múltiple por el usuario';
+      const submitBtn = form.querySelector('button[type="submit"]');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Eliminando...';
+      }
+      try {
+        const res = await window.API.bulkDeleteInventories(ids, { deleteKey, reason });
+        const deleted = res.deleted || [];
+        if (res.failed?.length) {
+          window.Toast.warning(res.message);
+          alert('No se pudieron eliminar:\n\n' + res.failed.map(f => `${f.id}: ${f.error}`).join('\n'));
+        } else {
+          window.Toast.success(res.message || 'Inventarios eliminados');
+        }
+        try {
+          const cacheKey = 'nibol_cached_inventories';
+          const cachedList = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+          if (Array.isArray(cachedList)) localStorage.setItem(cacheKey, JSON.stringify(cachedList.filter(item => item && !deleted.includes(item.id))));
+          deleted.forEach(id => localStorage.removeItem(`nibol_inv_detail_${id}`));
+        } catch (_) {}
+        window.ModalHelper.close('modal-delete-confirm');
+        if (this.currentInventory && deleted.includes(this.currentInventory.id)) {
+          this.currentInventory = null;
+          window.Router.navigate('inventories');
+        } else {
+          await this.loadInventories();
+        }
+      } catch (err) {
+        // Nothing was deleted (wrong key or no permission): the modal stays open to correct it.
+        window.Toast.error(err.message);
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = '<i class="fa-solid fa-trash"></i> Eliminar Definitivamente';
+        }
+      }
+    };
   },
 
   async promptPurgeAll() {

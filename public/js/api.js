@@ -247,6 +247,13 @@ window.API = {
     });
   },
 
+  bulkDeleteInventories(inventoryIds, payload = {}) {
+    return this.request('/inventories/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, inventoryIds })
+    });
+  },
+
   getTrashInventories() {
     return this.request('/inventories/trash');
   },
