@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Generador de Contraseñas</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #111827; --muted: #4b5563; --line: #d1d5db;
+    --accent: #047857; --accent-text: #ffffff; --ok: #047857; --bad: #b91c1c; --code: #f3f4f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f172a; --card: #1e293b; --text: #f1f5f9; --muted: #94a3b8; --line: #334155;
+      --accent: #10b981; --accent-text: #052e16; --ok: #34d399; --bad: #f87171; --code: #0b1222;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.1rem; margin: 0 0 12px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+  label { display: block; font-weight: 600; margin: 10px 0 4px; }
+  .row { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+  .row > input, .row > output { flex: 1 1 260px; min-width: 0; }
+  input[type="text"], input[type="password"], textarea, output {
+    width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--code); color: var(--text); font: 14px/1.4 ui-monospace, Consolas, monospace;
+  }
+  output { display: block; min-height: 40px; overflow-wrap: anywhere; }
+  button {
+    padding: 9px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card);
+    color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button:disabled { opacity: .6; cursor: progress; }
+  .options { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; color: var(--muted); }
+  .options label { display: inline; font-weight: 500; margin: 0; }
+  .note { color: var(--muted); font-size: .9rem; margin: 8px 0 0; }
+  .status { font-weight: 700; margin-top: 10px; min-height: 1.5em; }
+  .status.ok { color: var(--ok); } .status.bad { color: var(--bad); }
+  ol { padding-left: 20px; margin: 0; } li { margin-bottom: 6px; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Generador de Contraseñas</h1>
+  <p class="lead">Crea contraseñas seguras y su versión cifrada con bcrypt para NIBOL Inventarios. Todo se calcula en este navegador: nada se envía a internet.</p>
+
+  <section aria-labelledby="gen-title">
+    <h2 id="gen-title">1. Contraseña</h2>
+    <div class="options">
+      <span><label for="length">Largo</label> <input id="length" type="number" min="12" max="64" value="16" style="width:5rem"></span>
+      <span><input id="symbols" type="checkbox" checked> <label for="symbols">Incluir símbolos</label></span>
+    </div>
+    <label for="password">Contraseña (generada o escrita por usted)</label>
+    <div class="row">
+      <input id="password" type="text" autocomplete="off" spellcheck="false">
+      <button id="btn-generate" class="primary" type="button">Generar</button>
+      <button id="btn-copy-password" type="button">Copiar</button>
+    </div>
+    <p class="note">Sin letras que se confunden (0/O, 1/l/I). Siempre incluye mayúscula, minúscula y número.</p>
+  </section>
+
+  <section aria-labelledby="hash-title">
+    <h2 id="hash-title">2. Versión cifrada (bcrypt)</h2>
+    <div class="options">
+      <span><label for="cost">Costo</label> <select id="cost"><option>10</option><option>11</option><option selected>12</option></select></span>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="btn-hash" class="primary" type="button">Cifrar</button>
+      <button id="btn-copy-hash" type="button">Copiar cifrado</button>
+    </div>
+    <label for="hash">Cifrado</label>
+    <output id="hash" aria-live="polite"></output>
+    <p class="note">Cada vez que cifra, el resultado cambia (lleva sal aleatoria); todos son válidos para la misma contraseña.</p>
+  </section>
+
+  <section aria-labelledby="check-title">
+    <h2 id="check-title">3. Verificar</h2>
+    <label for="check-password">Contraseña</label>
+    <input id="check-password" type="password" autocomplete="off">
+    <label for="check-hash">Cifrado</label>
+    <input id="check-hash" type="text" autocomplete="off" spellcheck="false" placeholder="$2a$12$...">
+    <div class="row" style="margin-top:10px"><button id="btn-check" type="button">Comprobar</button></div>
+    <div id="check-status" class="status" role="status"></div>
+  </section>
+
+  <section aria-labelledby="use-title">
+    <h2 id="use-title">Cómo aplicarla</h2>
+    <ol>
+      <li>Genere y copie la contraseña; guárdela en un gestor de contraseñas o entréguela a la persona.</li>
+      <li>Copie el cifrado y péguelo en el campo <code>passwordHash</code> del usuario.</li>
+      <li>No escriba la contraseña en el campo <code>clave</code>: esa es el código del usuario.</li>
+      <li>Mientras el inicio de sesión siga aceptando la clave o el nombre de usuario como contraseña, el cifrado no impide esas entradas.</li>
+    </ol>
+  </section>
+</main>
+<script>
+/*BCRYPTJS*/
+</script>
+<script>
+(() => {
+  const bcrypt = window.dcodeIO.bcrypt;
+  const $ = id => document.getElementById(id);
+  const LOWER = 'abcdefghijkmnopqrstuvwxyz', UPPER = 'ABCDEFGHJKLMNPQRSTUVWXYZ', DIGITS = '23456789', SYMBOLS = '!#$%&*+-=?@_';
+
+  // Uniform index in [0, n) from the browser's secure generator, without modulo bias.
+  function randomIndex(n) {
+    const limit = Math.floor(0x100000000 / n) * n, buf = new Uint32Array(1);
+    do { crypto.getRandomValues(buf); } while (buf[0] >= limit);
+    return buf[0] % n;
+  }
+  function generate(length, withSymbols) {
+    const sets = [LOWER, UPPER, DIGITS].concat(withSymbols ? [SYMBOLS] : []);
+    const all = sets.join('');
+    const chars = sets.map(set => set[randomIndex(set.length)]);
+    while (chars.length < length) chars.push(all[randomIndex(all.length)]);
+    for (let i = chars.length - 1; i > 0; i--) { const j = randomIndex(i + 1); [chars[i], chars[j]] = [chars[j], chars[i]]; }
+    return chars.join('');
+  }
+  async function copy(text, button) {
+    if (!text) return;
+    try { await navigator.clipboard.writeText(text); } catch (_) { return; }
+    const label = button.textContent; button.textContent = 'Copiado'; setTimeout(() => { button.textContent = label; }, 1200);
+  }
+
+  $('btn-generate').addEventListener('click', () => {
+    const length = Math.min(64, Math.max(12, Number($('length').value) || 16));
+    $('length').value = length;
+    $('password').value = generate(length, $('symbols').checked);
+    $('hash').textContent = '';
+  });
+  $('password').addEventListener('input', () => { $('hash').textContent = ''; });
+  $('btn-copy-password').addEventListener('click', e => copy($('password').value, e.currentTarget));
+  $('btn-copy-hash').addEventListener('click', e => copy($('hash').textContent, e.currentTarget));
+
+  $('btn-hash').addEventListener('click', () => {
+    // The appweb trims the password before comparing it, so a hash of surrounding spaces would never match.
+    const password = $('password').value.trim();
+    if (password.length < 8) { $('hash').textContent = 'Use al menos 8 caracteres.'; return; }
+    const button = $('btn-hash'); button.disabled = true; $('hash').textContent = 'Cifrando...';
+    bcrypt.genSalt(Number($('cost').value), (err, salt) => {
+      if (err) { button.disabled = false; $('hash').textContent = 'Error: ' + err.message; return; }
+      bcrypt.hash(password, salt, (err2, hash) => {
+        button.disabled = false;
+        $('hash').textContent = err2 ? 'Error: ' + err2.message : hash;
+        if (!err2) { $('check-password').value = password; $('check-hash').value = hash; $('check-status').textContent = ''; }
+      });
+    });
+  });
+
+  $('btn-check').addEventListener('click', () => {
+    const status = $('check-status'), hash = $('check-hash').value.trim();
+    if (!/^\$2[aby]\$\d{2}\$.{53}$/.test(hash)) { status.className = 'status bad'; status.textContent = 'El cifrado no tiene formato bcrypt.'; return; }
+    status.className = 'status'; status.textContent = 'Comprobando...';
+    bcrypt.compare($('check-password').value.trim(), hash, (err, ok) => {
+      status.className = 'status ' + (ok && !err ? 'ok' : 'bad');
+      status.textContent = err ? 'Error: ' + err.message : ok ? 'Coincide.' : 'No coincide.';
+    });
+  });
+})();
+</script>
+</body>
+</html>
