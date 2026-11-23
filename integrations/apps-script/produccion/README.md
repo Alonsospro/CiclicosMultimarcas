@@ -30,6 +30,10 @@ El archivo **MENSUALES NIBOL MULTIMARCAS** usa el mismo `InventoryWebhookSemanal
 
 Los cierres de Lubricantes se guardan en la carpeta **Finalizados Lubricantes** (`1uGPsBz620T_wYXQB0IFlxFjc93fnVeo7`). En el proyecto de Apps Script de Lubricantes, la propiedad `ROOT_MENSUAL` debe tener ese ID; sin ella el cierre falla con "Falta ROOT_MENSUAL".
 
+## Cíclicos en 44 columnas
+
+Desde el 2026-11-23 la planilla de **Cíclicos** también tiene las 44 columnas A:AR y corre `InventoryWebhookSemanales.gs`. La appweb envía el esquema de 44 columnas para `CICLICO` (`usesWeeklySchema`), igual que para `MENSUAL`; las reglas propias de semanales siguen solo para `SEMANAL`. `InventoryWebhook.gs` (40 columnas) queda como referencia del despliegue anterior. Un inventario cíclico abierto antes del cambio tiene ítems de 40 columnas: hay que pulsar **Sincronizar** en ese inventario (envía primero los conteos pendientes y luego trae las filas de 44 columnas) antes de seguir contando, justificando o cerrar. Los cierres ya hechos con 40 columnas se siguen leyendo por su manifiesto.
+
 ## Barrido (`BarridoWebhook.gs`)
 
 Script de la planilla **BARRIDO NIBOL MULTIMARCAS** (pestañas por centro con las 44 columnas A:AR). Se pega en Extensiones → Apps Script de esa planilla y se publica como aplicación web (su URL `/exec` es `BARRIDO_URL`).

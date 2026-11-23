@@ -233,7 +233,7 @@ test('count update waits for Sheets and sends only the requested second recount'
   const {service,records}=inventoryService({upsertCountToGAS:async(type,p)=>{
     payload=p;return {success:true,item:contract.update(base,p)};
   }});
-  const inv={id:'INV',type:'CICLICO',center:'1120',status:'EN_PROGRESO',phase:'RECONTEO_2',items:[{...base,id:'I'}]};
+  const inv={id:'INV',type:'GENERAL',center:'1120',status:'EN_PROGRESO',phase:'RECONTEO_2',items:[{...base,id:'I'}]};
   records.set('INV',inv);
   const result=await service.updateCount({inventoryId:'INV',itemId:'I',stockFisico:11,malEstado:2,user:{role:'ADMIN',username:'test'}});
   assert.equal(payload.isReconteo2,true);assert.equal(payload.reconteo,undefined);
@@ -242,7 +242,7 @@ test('count update waits for Sheets and sends only the requested second recount'
 });
 test('a failed count never saves a parent recount',async()=>{
   const {service,records}=inventoryService({upsertCountToGAS:async()=>{throw new Error('Sheets down');}});
-  records.set('REC-I',{id:'REC-I',type:'CICLICO',center:'1120',status:'EN_PROGRESO',phase:'RECONTEO',parentInventoryId:'P',items:[{...base,id:'I'}]});
+  records.set('REC-I',{id:'REC-I',type:'GENERAL',center:'1120',status:'EN_PROGRESO',phase:'RECONTEO',parentInventoryId:'P',items:[{...base,id:'I'}]});
   records.set('P',{id:'P',items:[{...base,id:'I'}]});
   const original=service.getInventoryRaw;
   service.getInventoryRaw=id=>JSON.parse(JSON.stringify(original(id)));

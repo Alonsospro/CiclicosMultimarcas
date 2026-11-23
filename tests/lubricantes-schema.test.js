@@ -19,11 +19,12 @@ function gasService(reply = () => ({success:true})) {
 const weeklyRow = contract.weeklyColumns.map(key => ({SKU:'JD_TY26812', Descripcion:'ACEITE GL5', Ubicacion:'LUBRICANTE',
   Almacen:'CD01', Costo_Unitario:228.28, Stock_Sistema:219})[key] ?? '');
 
-test('Lubricantes (MENSUAL) uses the 44-column schema like Semanales; cyclic stays on 40', () => {
+test('Lubricantes (MENSUAL) and Cíclicos use the 44-column schema like Semanales; Barrido stays apart', () => {
   assert.equal(contract.usesWeeklySchema('MENSUAL'), true);
   assert.equal(contract.usesWeeklySchema('mensuales'), true);
   assert.equal(contract.usesWeeklySchema('SEMANAL'), true);
-  assert.equal(contract.usesWeeklySchema('CICLICO'), false);
+  assert.equal(contract.usesWeeklySchema('CICLICO'), true);
+  assert.equal(contract.isWeeklyType('CICLICO'), false, 'Weekly-only rules stay for Semanales');
   assert.equal(contract.usesWeeklySchema('BARRIDO'), false);
   assert.equal(contract.isWeeklyType('MENSUAL'), false, 'Weekly-only rules stay for Semanales');
 });
@@ -41,11 +42,12 @@ test('Lubricantes refuses an Apps Script that still answers with 40 columns', as
   await assert.rejects(gas.fetchProductsFromScript('MENSUAL', '1120'), /44 columnas/);
 });
 
-test('Lubricantes writes declare the 44-column schema; cyclic writes do not', async () => {
+test('Lubricantes and Cíclicos writes declare the 44-column schema; Barrido does not', async () => {
   const {gas, requests} = gasService();
   await gas.upsertCountToGAS('MENSUAL', {center:'1120', sku:'JD_TY26812', almacen:'CD01', location:'LUBRICANTE'});
   await gas.batchUpsertCountsToGAS('MENSUAL', {center:'1120', updates:[]});
   await gas.saveJustificationToGAS('MENSUAL', {center:'1120', sku:'JD_TY26812'});
-  await gas.upsertCountToGAS('CICLICO', {center:'1120', sku:'X'});
-  assert.deepEqual(requests.map(r => r.schemaVersion), [contract.weeklyVersion, contract.weeklyVersion, contract.weeklyVersion, undefined]);
+  await gas.batchUpsertCountsToGAS('CICLICO', {center:'1120', updates:[]});
+  await gas.upsertCountToGAS('BARRIDO', {center:'1120', sku:'X'});
+  assert.deepEqual(requests.map(r => r.schemaVersion), [contract.weeklyVersion, contract.weeklyVersion, contract.weeklyVersion, contract.weeklyVersion, undefined]);
 });

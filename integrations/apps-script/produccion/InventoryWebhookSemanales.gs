@@ -132,8 +132,8 @@ const InventoryContract = (() => {
     'Reconteo M/E 2','Diferencia Reconteo 2','Costo Diferencia Reconteo 2'];
   const isWeekly = r => weeklyVersions.includes(r?.Schema_Version);
   const isWeeklyType = type => ['SEMANAL','SEMANALES'].includes(String(type || '').trim().toUpperCase());
-  // Lubricantes (stored as MENSUAL) also use the 44-column sheets; their old closures keep 40 columns.
-  const usesWeeklySchema = type => isWeeklyType(type) || ['MENSUAL','MENSUALES'].includes(String(type || '').trim().toUpperCase());
+  // Lubricantes (stored as MENSUAL) and Cíclicos also use the 44-column sheets; their old closures keep 40 columns.
+  const usesWeeklySchema = type => isWeeklyType(type) || ['MENSUAL','MENSUALES','CICLICO','CICLICOS'].includes(String(type || '').trim().toUpperCase());
   const first = (...v) => v.find(has);
   const identity = v => String(v ?? '').trim().toUpperCase();
   function number(v, label, fallback = 0) {

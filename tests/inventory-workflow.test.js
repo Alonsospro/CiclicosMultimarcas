@@ -9,6 +9,8 @@ const reliability = require('../src/services/counterReliability');
 const root = path.join(__dirname, '..');
 const user = {role:'ADMIN', username:'reviewer', displayName:'Reviewer'};
 const old = '2020-01-01T00:00:00.000Z';
+// Cíclicos now use the 44-column sheets. These fixtures keep testing the 40-column rules, which old closures still follow.
+const LEGACY_40 = 'GENERAL';
 const counted = (sku = 'A', warehouse = 'R001') => contract.normalize({id:sku+warehouse, SKU:sku, Almacen:warehouse,
   Ubicacion:'LOC', Stock_Sistema:10, Costo_Unitario:5, Stock_Buen_Estado:8, Mal_estado:0, Fecha_Ultimo_Conteo:old});
 
@@ -190,7 +192,7 @@ for (const quantity of [9,10,11]) {
 }
 
 for (const [label,schema] of [['cyclic',{}],['weekly',{Schema_Version:contract.weeklyVersion}]]) {
-  const type=label==='weekly'?'SEMANALES':'CICLICO';
+  const type=label==='weekly'?'SEMANALES':LEGACY_40;
   const start=async({service,put},id)=>{
     const item={...counted(),...schema};
     put({id,type,center:'1120',name:id,status:'EN_PROGRESO',items:[item]});
@@ -296,7 +298,7 @@ test('recount selects exactly NO CUADRA members with complete first explanations
 for (const [finalDecision,quantity] of [['CUADRA',10],['NO CUADRA',10],['NO CUADRA',9]]) {
   test(`full cycle retains recount ${quantity} and requires its explanation before closing ${finalDecision}`,async()=>{
     const {service,put,save,closures}=fixture(),a=counted('A'),b=counted('B');
-    put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
+    put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
     service.submitInventoryForReview({inventoryId:'INV',user});
     await save('INV',a,'CUADRA'); await save('INV',b,'NO CUADRA');
     const rec=service.enableRecount({inventoryId:'INV',user}).recountInventory;
@@ -401,7 +403,7 @@ function browser() {
 
 test('justifications list the newest inventory first and the oldest last',()=>{
   const {service,put}=fixture();
-  const inventory=(id,createdAt)=>({id,type:'CICLICO',name:id,status:'PENDIENTE_JUSTIFICACION',center:'1120',createdAt,items:[counted(id)]});
+  const inventory=(id,createdAt)=>({id,type:LEGACY_40,name:id,status:'PENDIENTE_JUSTIFICACION',center:'1120',createdAt,items:[counted(id)]});
   put(inventory('MIDDLE','2026-10-15T10:00:00.000Z'));
   put(inventory('NO-DATE',undefined));
   put(inventory('NEWEST','2026-11-02T10:00:00.000Z'));
@@ -416,7 +418,7 @@ test('justifications list the newest inventory first and the oldest last',()=>{
 test('the server refuses a reason that needs a photo until it comes with one',async()=>{
   const {service,put}=fixture();
   const item={...counted('A'),Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null};
-  put({id:'REVIEW',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
+  put({id:'REVIEW',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
   await service.updateCount({inventoryId:'REVIEW',itemId:item.id,stockFisico:7,malEstado:0,user:countUser});
   service.submitInventoryForReview({inventoryId:'REVIEW',user});
   const review={inventoryId:'REVIEW',sku:item.SKU,itemId:item.id,almacen:item.Almacen,location:item.Ubicacion,round:1,
@@ -493,7 +495,7 @@ test('a recount copied from the whole inventory only requires recounts for items
 
 async function throughFirstRecountReview(context, secondDecisions) {
   const {service,put,save}=context,items=Object.keys(secondDecisions).map(sku=>counted(sku));
-  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items});
   service.submitInventoryForReview({inventoryId:'INV',user});
   for(const item of items)await save('INV',item,'NO CUADRA');
   const rec=service.enableRecount({inventoryId:'INV',user}).recountInventory;
@@ -596,7 +598,7 @@ test('reopening the second recount keeps the reviews of items outside its list',
 test('second recount works on the primary record when no recount list exists',async()=>{
   const context=fixture(),{service,put,save}=context,item={...counted(),Reconteo:9,Malestado_Reconteo:0,Stock_Total_Reconteo:9,Fecha_Reconteo:old,
     Estado:'NO CUADRA',Comentario_Justificacion:'Revisar',Fecha_Primera_Justificacion:old};
-  put({id:'INV',type:'CICLICO',name:'Example',status:'RECONTEO_COMPLETADO',center:'1120',hasRecount:true,
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'RECONTEO_COMPLETADO',center:'1120',hasRecount:true,
     recountItemKeys:[contract.member(item)],items:[item]});
   await save('INV',item,'NO CUADRA',2);
   const enabled=service.enableSecondRecount({inventoryId:'INV',user});
@@ -633,7 +635,7 @@ test('weekly second recount compensates against its own physical count',async()=
 
 test('forced close records missing justifications in the final file and keeps the differences',async()=>{
   const {service,put,save,closures,sheets,batches}=fixture(),a=counted('A'),b=counted('B'),c=counted('C');
-  put({id:'INV',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[a,b,c]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[a,b,c]});
   await save('INV',a,'CUADRA',1,'Justificación real.');
   assert.equal(service.getPendingJustifications(user)[0].canClose,false);
   assert.equal(service.getPendingJustifications(user)[0].canForceClose,true);
@@ -660,7 +662,7 @@ test('forced close records missing justifications in the final file and keeps th
 
 test('forced close after a recount writes the second review and keeps a replaced explanation as history',async()=>{
   const context=fixture(),{service,put,save,closures,sheets}=context,a=counted('A');
-  put({id:'INV',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[a]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[a]});
   await save('INV',a,'NO CUADRA',1,'Primera explicación.');
   const rec=service.enableRecount({inventoryId:'INV',user}).recountInventory;
   await service.updateCount({inventoryId:rec.id,itemId:rec.items[0].id,stockFisico:9,malEstado:0,user});
@@ -685,13 +687,13 @@ test('forced close after a recount writes the second review and keeps a replaced
 
 test('forced close is refused while a count or recount is unsigned, and the route is exclusive',async()=>{
   const {service,put,save,closures}=fixture(),a=counted('A');
-  put({id:'OPEN',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a]});
+  put({id:'OPEN',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[a]});
   await assert.rejects(service.forceCloseInventory({inventoryId:'OPEN',user}),/solo omite justificaciones/);
-  put({id:'BLANK',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',
+  put({id:'BLANK',type:LEGACY_40,name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',
     items:[{...counted('D'),Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null}]});
   await assert.rejects(service.forceCloseInventory({inventoryId:'BLANK',user}),/solo omite justificaciones/);
   const b=counted('B');
-  put({id:'REC',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[b]});
+  put({id:'REC',type:LEGACY_40,name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[b]});
   await save('REC',b,'NO CUADRA');
   service.enableRecount({inventoryId:'REC',user});
   await assert.rejects(service.forceCloseInventory({inventoryId:'REC',user}),/solo omite justificaciones/);
@@ -723,7 +725,7 @@ test('only the exact Alonso username passes the forced close guard',()=>{
 
 test('forced close writes the main sheet only after the final file exists',async()=>{
   const {service,put,sheets,batches,failures}=fixture(),a=counted('A');
-  put({id:'INV',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[a]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items:[a]});
   failures.drive=true;
   await assert.rejects(service.forceCloseInventory({inventoryId:'INV',user}),/Drive no disponible/);
   assert.equal(batches.length,0);assert.equal(sheets.get(contract.member(a)).Razon,undefined);
@@ -732,7 +734,7 @@ test('forced close writes the main sheet only after the final file exists',async
 test('forced close stays closed and reports what the main sheet did not take',async()=>{
   for(const [failure,expected] of [['B','B'],['network','A,B,C']]){
     const {service,put,sheets,failures}=fixture(),items=['A','B','C'].map(sku=>counted(sku));
-    put({id:'INV',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items});
+    put({id:'INV',type:LEGACY_40,name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items});
     failures.batch=failure;
     const result=await service.forceCloseInventory({inventoryId:'INV',user});
     assert.equal(result.masterFailed.map(entry=>entry.sku).join(),expected);
@@ -744,7 +746,7 @@ test('forced close stays closed and reports what the main sheet did not take',as
 
 test('forced close sends the main sheet in batches below the Apps Script limit',async()=>{
   const {service,put,batches}=fixture(),items=Array.from({length:120},(_,index)=>counted(`S${index}`));
-  put({id:'INV',type:'CICLICO',name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'PENDIENTE_JUSTIFICACION',center:'1120',items});
   const result=await service.forceCloseInventory({inventoryId:'INV',user});
   assert.equal(batches.map(batch=>batch.updates.length).join(),'50,50,20');
   assert.equal(result.masterFailed.length,0);
@@ -767,7 +769,7 @@ const sent=(context,id)=>context.service.getInventoryRaw(id).sheetPending;
 
 test('a batched count is confirmed without waiting for Sheets and only its latest value is sent',async()=>{
   const context=fixture({countSheetSync:'lotes'}),{service,put,sheets,gasCalls,batches}=context,item=counted();
-  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[{...item,Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null}]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[{...item,Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null}]});
   const first=await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:7,malEstado:0,user:countUser});
   assert.equal(first.sheetPending,true);assert.equal(first.item.Stock_Total,7);assert.equal(first.item.Diferencia,-3);
   assert.equal(gasCalls.length,0);assert.equal(batches.length,0);assert.equal(sheets.get(contract.member(item)).Stock_Total,null);
@@ -790,7 +792,7 @@ for (const weekly of [false,true]) {
       const context=fixture({countSheetSync:mode}),{service,put,save,sheets}=context;
       const blank=sku=>({...counted(sku),Estado:'',Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null,...(weekly?{Schema_Version:contract.weeklyVersion}:{})});
       const items=[blank('A'),blank('B')];
-      put({id:'INV',type:weekly?'SEMANAL':'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items});
+      put({id:'INV',type:weekly?'SEMANAL':LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items});
       const submit=async id=>{await service.assertSheetCountsSent(id);service.submitInventoryForReview({inventoryId:id,user});};
       await service.updateCount({inventoryId:'INV',itemId:items[0].id,stockFisico:8,malEstado:1,user:countUser});
       await service.updateCount({inventoryId:'INV',itemId:items[1].id,stockFisico:10,malEstado:0,user:countUser});
@@ -818,7 +820,7 @@ for (const weekly of [false,true]) {
 
 test('a count arriving while its batch travels stays pending, and saves are not blocked meanwhile',async()=>{
   const context=fixture({countSheetSync:'lotes'}),{service,put,batches,sheets}=context,item=counted();
-  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
   await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:5,malEstado:0,user:countUser});
   let release;
   const gate=new Promise(resolve=>{release=resolve;});
@@ -838,7 +840,7 @@ test('a count arriving while its batch travels stays pending, and saves are not 
 
 test('counts keep working with Google down, and signing waits until it received them',async()=>{
   const context=fixture({countSheetSync:'lotes'}),{service,put,failures,sheets}=context,item=counted();
-  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
   failures.batch='network';
   await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:5,malEstado:0,user:countUser});
   const down=await service.drainSheetCounts({inventoryId:'INV',user:countUser});
@@ -855,7 +857,7 @@ test('counts keep working with Google down, and signing waits until it received 
 
 test('only the code Google rejects stays pending',async()=>{
   const context=fixture({countSheetSync:'lotes'}),{service,put,failures}=context,[a,b]=[counted('A'),counted('B')];
-  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
   for(const item of [a,b])await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:5,malEstado:0,user:countUser});
   failures.batch='B';
   const result=await service.drainSheetCounts({inventoryId:'INV',user:countUser});
@@ -866,7 +868,7 @@ test('only the code Google rejects stays pending',async()=>{
 
 test('counts with photos, sweeps and an immediate setting still wait for Google',async()=>{
   const photo=fixture({countSheetSync:'lotes'}),item=counted();
-  photo.put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
+  photo.put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
   await photo.service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:5,malEstado:0,user:countUser});
   photo.failures.photo='data:image/png;base64,AA';
   const withPhoto=await photo.service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:4,malEstado:1,photoUrl:'/foto.jpg',user:countUser});
@@ -881,7 +883,7 @@ test('counts with photos, sweeps and an immediate setting still wait for Google'
 test('a justification sends pending counts first, because the script reads that row',async()=>{
   const context=fixture({countSheetSync:'lotes'}),{service,put,save,sheets}=context;
   const item={...counted(),Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null};
-  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[item]});
   await service.updateCount({inventoryId:'INV',itemId:item.id,stockFisico:7,malEstado:0,user:countUser});
   service.submitInventoryForReview({inventoryId:'INV',user});
   await save('INV',item,'NO CUADRA');
@@ -934,7 +936,7 @@ test('the add-location window saves an overstock location, alone or with an addi
 
 test('overstock is refused on cyclic items, and a script without the change is reported',async()=>{
   const cyclic=fixture(),item=counted();
-  cyclic.put({id:'CYC',type:'CICLICO',center:'1120',name:'Ciclico',status:'EN_PROGRESO',items:[item]});
+  cyclic.put({id:'CYC',type:LEGACY_40,center:'1120',name:'Ciclico',status:'EN_PROGRESO',items:[item]});
   await assert.rejects(cyclic.service.updateCount({inventoryId:'CYC',itemId:item.id,isNewLocation:true,sobrestock:'9Z99999Z99',user}),/solo existe en inventarios semanales/);
   const old=fixture(),weekly={...counted(),Schema_Version:contract.weeklyVersion};
   old.put({id:'OLD',type:'SEMANAL',center:'1120',name:'Semanal',status:'EN_PROGRESO',items:[weekly]});
@@ -1068,14 +1070,14 @@ test('operations that continue after sending pending counts do not bring them ba
   const context=fixture({countSheetSync:'lotes'}),{service,put,batches}=context;
   const blank=(sku)=>({...counted(sku),Stock_Fisico:null,Stock_Buen_Estado:null,Stock_Total:null});
   const reviewed=blank('A');
-  put({id:'REVIEW',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[reviewed]});
+  put({id:'REVIEW',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[reviewed]});
   await service.updateCount({inventoryId:'REVIEW',itemId:reviewed.id,stockFisico:7,malEstado:0,user:countUser});
   service.submitInventoryForReview({inventoryId:'REVIEW',user});
   await context.save('REVIEW',reviewed,'CUADRA');
   assert.equal(sent(context,'REVIEW'),undefined,'after a justification');
 
   const closed=blank('B');
-  put({id:'CLOSE',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[closed]});
+  put({id:'CLOSE',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[closed]});
   await service.updateCount({inventoryId:'CLOSE',itemId:closed.id,stockFisico:10,malEstado:0,user:countUser});
   service.submitInventoryForReview({inventoryId:'CLOSE',user});
   await service.finishReviewAndClose({inventoryId:'CLOSE',user});
@@ -1083,7 +1085,7 @@ test('operations that continue after sending pending counts do not bring them ba
   assert.equal(service.getInventoryRaw('CLOSE').status,'REVISADO');
 
   const reopened=blank('C');
-  put({id:'REOPEN',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[reopened]});
+  put({id:'REOPEN',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[reopened]});
   await service.updateCount({inventoryId:'REOPEN',itemId:reopened.id,stockFisico:10,malEstado:0,user:countUser});
   await service.reopenInventory({inventoryId:'REOPEN',user,targetPhase:'1ER_CONTEO'});
   assert.equal(sent(context,'REOPEN'),undefined,'after a reopening');
@@ -1092,7 +1094,7 @@ test('operations that continue after sending pending counts do not bring them ba
 
 test('reopening justification for chosen codes asks only for those and keeps the others as they closed',async()=>{
   const {service,put,save,closures}=fixture(),a=counted('A'),b=counted('B');
-  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
   service.submitInventoryForReview({inventoryId:'INV',user});
   await save('INV',a,'CUADRA',1,'Guía de remisión de A.'); await save('INV',b,'CUADRA',1,'Guía de remisión de B.');
   await service.finishReviewAndClose({inventoryId:'INV',user});
@@ -1121,7 +1123,7 @@ test('reopening justification for chosen codes asks only for those and keeps the
 
 test('reopening justification without a list of codes keeps every review and lets any code be reviewed again',async()=>{
   const {service,put,save}=fixture(),a=counted('A'),b=counted('B');
-  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
   service.submitInventoryForReview({inventoryId:'INV',user});
   await save('INV',a,'CUADRA'); await save('INV',b,'CUADRA');
   await service.finishReviewAndClose({inventoryId:'INV',user});
@@ -1136,7 +1138,7 @@ test('reopening justification without a list of codes keeps every review and let
 
 test('a reopened inventory with a recount asks again for nothing: matched codes stay in the first round, recounted ones in the second',async()=>{
   const {service,put,save}=fixture(),a=counted('A'),b=counted('B');
-  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
   service.submitInventoryForReview({inventoryId:'INV',user});
   await save('INV',a,'CUADRA'); await save('INV',b,'NO CUADRA');
   const rec=service.enableRecount({inventoryId:'INV',user}).recountInventory;
@@ -1162,7 +1164,7 @@ test('a reopened inventory with a recount asks again for nothing: matched codes 
 
 test('the first justification can close with NO CUADRA items, keeping their difference for administration',async()=>{
   const {service,put,save,closures}=fixture(),a=counted('A'),b=counted('B');
-  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b]});
   service.submitInventoryForReview({inventoryId:'INV',user});
   await save('INV',a,'CUADRA',1,'Guía de remisión.');
   let task=service.getPendingJustifications(user)[0];
@@ -1180,7 +1182,7 @@ test('the first justification can close with NO CUADRA items, keeping their diff
 
 test('an unused reopening can be undone: the inventory closes again with its date, final file and justifications',async()=>{
   const {service,put,save}=fixture(),a=counted('A'),b=counted('B');
-  put({id:'INV',type:'CICLICO',name:'CICLICO-1820-2026-10-21',status:'EN_PROGRESO',center:'1820',items:[a,b]});
+  put({id:'INV',type:LEGACY_40,name:'CICLICO-1820-2026-10-21',status:'EN_PROGRESO',center:'1820',items:[a,b]});
   service.submitInventoryForReview({inventoryId:'INV',user});
   await save('INV',a,'CUADRA',1,'Guía A.'); await save('INV',b,'NO CUADRA',1,'Con administración.');
   await service.finishReviewAndClose({inventoryId:'INV',user});
@@ -1203,7 +1205,7 @@ test('an unused reopening can be undone: the inventory closes again with its dat
 
 test('a reopening already used is not undone, so nothing recorded after it is lost',async()=>{
   const {service,put,save}=fixture(),a=counted('A');
-  put({id:'INV',type:'CICLICO',name:'Example',status:'EN_PROGRESO',center:'1820',items:[a]});
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1820',items:[a]});
   service.submitInventoryForReview({inventoryId:'INV',user});
   await save('INV',a,'CUADRA',1,'Guía A.');
   await service.finishReviewAndClose({inventoryId:'INV',user});
