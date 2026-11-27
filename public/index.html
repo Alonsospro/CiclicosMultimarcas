@@ -1319,13 +1319,17 @@
               <div class="card-header" style="flex-wrap: wrap; gap: 0.75rem;">
                 <div>
                   <h3 class="card-title" style="display: flex; align-items: center; gap: 0.5rem;">
-                    <i class="fa-solid fa-chart-line" style="color: #10b981;"></i> Tendencia Histórica del ERI de Cantidad de Ítems • Últimos 5 Inventarios Cerrados
+                    <i class="fa-solid fa-chart-line" style="color: #10b981;"></i> <span id="text-eri-trend-title">Tendencia Histórica del ERI de Cantidad de Ítems • Últimos 5 Inventarios Cerrados</span>
                   </h3>
-                  <p class="stat-subtext" style="margin-top: 0.2rem;">
+                  <p class="stat-subtext" id="text-eri-trend-subtitle" style="margin-top: 0.2rem;">
                     Evolución de la exactitud en existencias físicas a lo largo de los últimos 5 inventarios cerrados y seguimiento frente a la escala corporativa NIBOL.
                   </p>
                 </div>
                 <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+                  <div role="group" aria-label="Modo del gráfico de tendencia" style="display: inline-flex; gap: 0.3rem;">
+                    <button type="button" class="btn btn-sm btn-primary" id="btn-trend-mode-history" aria-pressed="true"><i class="fa-solid fa-clock-rotate-left"></i> Por inventarios</button>
+                    <button type="button" class="btn btn-sm btn-secondary" id="btn-trend-mode-centers" aria-pressed="false" disabled><i class="fa-solid fa-building"></i> Consolidado por centro</button>
+                  </div>
                   <span class="badge" id="badge-eri-trend-status" style="font-weight: 700; padding: 0.35rem 0.65rem; font-size: 0.78rem; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">
                     <i class="fa-solid fa-arrow-trend-up"></i> Calculando tendencia...
                   </span>
@@ -1343,7 +1347,7 @@
                 <canvas id="chart-eri-historical-trend"></canvas>
               </div>
               <div class="card-footer" id="footer-eri-historical-trend" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.65rem 1rem; background: rgba(0, 0, 0, 0.15); border-top: 1px solid var(--border-glass); font-size: 0.8rem; color: var(--text-muted);">
-                <span><i class="fa-solid fa-circle-info" style="color: #38bdf8;"></i> Gráfico de líneas que visualiza la mejora o retroceso en la exactitud física respecto a ciclos anteriores.</span>
+                <span><i class="fa-solid fa-circle-info" style="color: #38bdf8;"></i> <span id="text-eri-trend-note">Gráfico de líneas que visualiza la mejora o retroceso en la exactitud física respecto a ciclos anteriores.</span></span>
                 <span id="text-eri-trend-summary" style="font-weight: 600; color: var(--text-main);">-</span>
               </div>
             </div>
@@ -3063,11 +3067,11 @@
   <script src="/js/views/justificationsView.js?v=lubricantes-1"></script>
   <script src="/js/views/historyView.js?v=lubricantes-1"></script>
 
-  <script src="/js/components/managementReport.js?v=state-lines-1"></script>
+  <script src="/js/components/managementReport.js?v=center-trend-1"></script>
   <script src="/js/components/metricsReportModal.js?v=reports-1"></script>
   <script src="/js/components/snapshotManagerModal.js?v=lubricantes-1"></script>
   <script src="/js/components/counterReliabilityPanel.js?v=1.0"></script>
-  <script src="/js/views/dashboardView.js?v=decimal-1"></script>
+  <script src="/js/views/dashboardView.js?v=center-trend-1"></script>
   <script src="/js/components/reportCenterDocument.js?v=metrics-model-1"></script>
   <script src="/js/views/reportsView.js?v=metrics-model-1"></script>
   <script src="/js/views/progressView.js?v=lubricantes-1"></script>

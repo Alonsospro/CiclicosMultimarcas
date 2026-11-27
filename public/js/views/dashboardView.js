@@ -155,6 +155,9 @@ window.DashboardView = {
       this.exportDiscrepanciesCSV();
     });
 
+    document.getElementById('btn-trend-mode-history')?.addEventListener('click', () => this.setTrendMode('history'));
+    document.getElementById('btn-trend-mode-centers')?.addEventListener('click', () => this.setTrendMode('centers'));
+
     // Overview Consolidado XLSX Export
     document.getElementById('btn-export-overview-xlsx')?.addEventListener('click', () => {
       this.exportOverviewXLSX();
@@ -1241,33 +1244,174 @@ window.DashboardView = {
       });
     }
 
-    // 5. Line Chart: Tendencia Histórica del ERI de Cantidad de Ítems (Últimos 5 Inventarios Cerrados)
+    // 5. Line Chart: tendencia por inventarios cerrados o consolidado por centro
+    this.renderEriTrend(data);
+  },
+
+  // Escala de cumplimiento NIBOL Multimarcas.
+  evaluateCorporateTier(val) {
+    const num = Number(val);
+    if (num >= 100) {
+      return { tier: 'PERFECTO', label: 'Perfecto cumplimiento (100%)', icon: '★', color: '#06b6d4', text: 'Perfecto cumplimiento (100%)', badgeBg: 'rgba(6, 182, 212, 0.2)', badgeColor: '#22d3ee', badgeBorder: 'rgba(6, 182, 212, 0.4)' };
+    }
+    if (num >= 98) {
+      return { tier: 'CUMPLIMIENTO', label: 'Cumplimiento (≥98%)', icon: '✓', color: '#10b981', text: 'Cumplimiento (≥98%)', badgeBg: 'rgba(16, 185, 129, 0.2)', badgeColor: '#10b981', badgeBorder: 'rgba(16, 185, 129, 0.4)' };
+    }
+    if (num >= 95) {
+      return { tier: 'MINIMO', label: 'Mínimo de cumplimiento (95% a <98%)', icon: '▲', color: '#f59e0b', text: 'Mínimo de cumplimiento (95% a <98%)', badgeBg: 'rgba(245, 158, 11, 0.2)', badgeColor: '#fbbf24', badgeBorder: 'rgba(245, 158, 11, 0.4)' };
+    }
+    return { tier: 'NO_CUMPLE', label: 'No cumple (<95%)', icon: '✖', color: '#ef4444', text: 'No cumple (<95%)', badgeBg: 'rgba(239, 68, 68, 0.2)', badgeColor: '#f87171', badgeBorder: 'rgba(239, 68, 68, 0.4)' };
+  },
+
+  // The consolidated mode needs more than one center. It opens by itself then, until the user picks the other one.
+  getTrendMode(data) {
+    const available = (data?.reportData?.centers || []).length > 1 && typeof window.ManagementReport?.centerResults === 'function';
+    return { available, mode: available && this.trendMode !== 'history' ? 'centers' : 'history' };
+  },
+
+  // Redraws from the data already on screen: switching modes never asks the server again.
+  setTrendMode(mode) {
+    this.trendMode = mode;
+    if (this.currentData && window.Chart) this.renderEriTrend(this.currentData);
+  },
+
+  renderTrendHeader({ available, mode }) {
+    const centers = mode === 'centers';
+    const setText = (id, text) => { const element = document.getElementById(id); if (element) element.textContent = text; };
+    setText('text-eri-trend-title', centers ? 'Consolidado de Cumplimiento por Centro' : 'Tendencia Histórica del ERI de Cantidad de Ítems • Últimos 5 Inventarios Cerrados');
+    setText('text-eri-trend-subtitle', centers
+      ? 'Resultado final de cada centro con los inventarios del filtro actual: el menor entre unidades, códigos y valor, frente a la escala corporativa NIBOL.'
+      : 'Evolución de la exactitud en existencias físicas a lo largo de los últimos 5 inventarios cerrados y seguimiento frente a la escala corporativa NIBOL.');
+    setText('text-eri-trend-note', centers
+      ? 'Mismo resultado por centro que el informe consolidado.'
+      : 'Gráfico de líneas que visualiza la mejora o retroceso en la exactitud física respecto a ciclos anteriores.');
+    for (const [id, key] of [['btn-trend-mode-history', 'history'], ['btn-trend-mode-centers', 'centers']]) {
+      const button = document.getElementById(id);
+      if (!button) continue;
+      button.className = `btn btn-sm ${mode === key ? 'btn-primary' : 'btn-secondary'}`;
+      button.setAttribute('aria-pressed', String(mode === key));
+      if (key === 'centers') {
+        button.disabled = !available;
+        button.title = available ? 'Resultado de cumplimiento de todos los centros' : 'Disponible cuando el filtro incluye más de un centro';
+      }
+    }
+  },
+
+  renderCentersTrend(canvas, data) {
+    const rows = window.ManagementReport.centerResults(data.reportData);
+    const pending = (data.reportData.pendingCenters || []).length;
+    // A forced close or a center without data is not colored as a level it was not judged on.
+    const colors = rows.map(row => row.level.key === 'forced' || row.value === null ? '#94a3b8' : this.evaluateCorporateTier(row.value).color);
+    // Truncated so a result below a threshold never prints as if it had reached it.
+    const format = (value, decimals) => value === null ? 'No disponible' : `${(Math.floor(value * 10 ** decimals) / 10 ** decimals).toFixed(decimals)}%`;
+    const values = rows.map(row => row.value);
+    const known = values.filter(value => value !== null);
+    const low = known.length ? Math.min(...known) : 90;
+
+    const valueLabels = {
+      id: 'centerResultLabels',
+      afterDatasetsDraw(chart) {
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.font = '700 11px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        chart.getDatasetMeta(0).data.forEach((point, index) => {
+          if (values[index] === null) return;
+          const label = format(values[index], values[index] >= 100 ? 0 : 1);
+          // Outlined so a label stays readable on top of the reference lines.
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = 'rgba(15, 23, 42, 0.9)';
+          ctx.strokeText(label, point.x, point.y - 12);
+          ctx.fillStyle = colors[index];
+          ctx.fillText(label, point.x, point.y - 12);
+        });
+        ctx.restore();
+      }
+    };
+    const reference = (label, value, color) => ({ label, data: rows.map(() => value), borderColor: color, borderWidth: 2, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 0, fill: false, tension: 0 });
+    const font = { size: 11, family: 'Inter', weight: '600' };
+
+    this.chartEriTrend = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: rows.map(row => row.code),
+        datasets: [
+          { label: 'Resultado por centro (%)', data: values, borderColor: '#a78bfa', backgroundColor: 'rgba(167, 139, 250, 0.14)', fill: true, tension: 0, borderWidth: 3,
+            pointBackgroundColor: colors, pointBorderColor: '#ffffff', pointBorderWidth: 2, pointRadius: 6, pointHoverRadius: 9,
+            pointHoverBackgroundColor: colors, pointHoverBorderColor: '#ffffff' },
+          reference('Cumplimiento (98%)', 98, '#10b981'),
+          reference('Mínimo de cumplimiento (95%)', 95, '#3b82f6')
+        ]
+      },
+      plugins: [valueLabels],
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        layout: { padding: { right: 18 } },
+        scales: {
+          y: {
+            min: Math.max(0, Math.min(90, Math.floor((low - 3) / 5) * 5)),
+            max: 102,
+            grid: { color: 'rgba(255, 255, 255, 0.06)' },
+            ticks: { color: '#94a3b8', font: { size: 11, family: 'Inter' }, callback: v => v > 100 ? '' : `${v}%` }
+          },
+          x: {
+            offset: true,
+            grid: { color: 'rgba(255, 255, 255, 0.03)' },
+            ticks: { color: '#cbd5e1', autoSkip: false, font }
+          }
+        },
+        plugins: {
+          legend: { position: 'top', labels: { color: '#cbd5e1', font, usePointStyle: true, pointStyle: 'circle', padding: 12, boxWidth: 8 } },
+          tooltip: {
+            backgroundColor: 'rgba(15, 23, 42, 0.95)', titleColor: '#f8fafc', bodyColor: '#e2e8f0', borderColor: 'rgba(255, 255, 255, 0.1)', borderWidth: 1, padding: 10, boxPadding: 4,
+            filter: item => item.datasetIndex === 0,
+            callbacks: {
+              title: items => items.length ? rows[items[0].dataIndex].name : '',
+              label: item => {
+                const row = rows[item.dataIndex];
+                return [` Resultado: ${format(row.value, 2)}`, ` Dictamen Corporativo: ${row.level.icon} ${row.level.label}`, ...(row.forcedLabel ? [` ${row.forcedLabel}`] : [])];
+              }
+            }
+          }
+        }
+      }
+    });
+
+    const count = key => rows.filter(row => row.level.key === key).length;
+    const met = count('perfect') + count('ok') + count('min');
+    const summary = [`${count('perfect')} perfecto`, `${count('ok')} cumplimiento`, `${count('min')} mínimo`, `${count('no')} no cumple`,
+      count('forced') ? `${count('forced')} cierre forzado` : '', count('nil') ? `${count('nil')} sin datos` : '', pending ? `${pending} sin cierre` : ''].filter(Boolean).join(' · ');
+    const badge = document.getElementById('badge-eri-trend-status');
+    if (badge) {
+      const tone = this.evaluateCorporateTier(count('no') ? 0 : met < rows.length || count('min') ? 95 : 98);
+      badge.style.background = tone.badgeBg;
+      badge.style.color = tone.badgeColor;
+      badge.style.borderColor = tone.badgeBorder;
+      badge.innerHTML = `<i class="fa-solid fa-building"></i> ${met} de ${rows.length + pending} centros alcanzan al menos el mínimo`;
+    }
+    const text = document.getElementById('text-eri-trend-summary');
+    if (text) text.textContent = `Estado por centro: ${summary}.`;
+  },
+
+  renderEriTrend(data) {
     const canvasTrend = document.getElementById('chart-eri-historical-trend');
     if (canvasTrend) {
       if (this.chartEriTrend) this.chartEriTrend.destroy();
       const existing = Chart.getChart(canvasTrend);
       if (existing) existing.destroy();
 
+      const trendMode = this.getTrendMode(data);
+      this.renderTrendHeader(trendMode);
+      if (trendMode.mode === 'centers') return this.renderCentersTrend(canvasTrend, data);
+
+      const evaluateCorporateTier = value => this.evaluateCorporateTier(value);
       const trend = data.historicalEriTrend || {};
       const labels = Array.isArray(trend.labels) ? trend.labels : [];
       const values = Array.isArray(trend.data)
         ? trend.data.map(Number).filter(Number.isFinite)
         : [];
-
-      // Escala de cumplimiento NIBOL Multimarcas.
-      const evaluateCorporateTier = (val) => {
-        const num = Number(val);
-        if (num >= 100) {
-          return { tier: 'PERFECTO', label: 'Perfecto cumplimiento (100%)', icon: '★', color: '#06b6d4', text: 'Perfecto cumplimiento (100%)', badgeBg: 'rgba(6, 182, 212, 0.2)', badgeColor: '#22d3ee', badgeBorder: 'rgba(6, 182, 212, 0.4)' };
-        }
-        if (num >= 98) {
-          return { tier: 'CUMPLIMIENTO', label: 'Cumplimiento (≥98%)', icon: '✓', color: '#10b981', text: 'Cumplimiento (≥98%)', badgeBg: 'rgba(16, 185, 129, 0.2)', badgeColor: '#10b981', badgeBorder: 'rgba(16, 185, 129, 0.4)' };
-        }
-        if (num >= 95) {
-          return { tier: 'MINIMO', label: 'Mínimo de cumplimiento (95% a <98%)', icon: '▲', color: '#f59e0b', text: 'Mínimo de cumplimiento (95% a <98%)', badgeBg: 'rgba(245, 158, 11, 0.2)', badgeColor: '#fbbf24', badgeBorder: 'rgba(245, 158, 11, 0.4)' };
-        }
-        return { tier: 'NO_CUMPLE', label: 'No cumple (<95%)', icon: '✖', color: '#ef4444', text: 'No cumple (<95%)', badgeBg: 'rgba(239, 68, 68, 0.2)', badgeColor: '#f87171', badgeBorder: 'rgba(239, 68, 68, 0.4)' };
-      };
 
       const pointColors = values.map(v => evaluateCorporateTier(v).color);
       const finiteOrNull = value => value === null || value === undefined || !Number.isFinite(Number(value))

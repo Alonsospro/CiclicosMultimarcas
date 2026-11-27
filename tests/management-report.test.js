@@ -788,3 +788,54 @@ test('a month without selected inventories says so', async () => {
   assert.match(empty, /No hay inventarios cerrados creados en Octubre 2026/);
   assert.match(empty, /Sin inventarios seleccionados en el mes/);
 });
+
+// The trend card of the dashboard, with just enough of the page and of Chart.js to see what it draws.
+function trendCard() {
+  const charts = [], elements = new Map();
+  const element = () => ({ style: {}, setAttribute(name, value) { this[name] = value; }, getContext: () => ({ createLinearGradient: () => ({ addColorStop() {} }) }) });
+  for (const id of ['chart-eri-historical-trend', 'badge-eri-trend-status', 'text-eri-trend-summary', 'text-eri-trend-title', 'btn-trend-mode-history', 'btn-trend-mode-centers']) elements.set(id, element());
+  class Chart { constructor(_ctx, config) { charts.push(config); } destroy() {} static getChart() { return null; } }
+  const page = vm.createContext({ console, Chart, window: { Chart }, document: { getElementById: id => elements.get(id) || null } });
+  for (const file of ['components/managementReport.js', 'views/dashboardView.js']) {
+    vm.runInContext(fs.readFileSync(path.join(root, 'public/js', file), 'utf8'), page);
+  }
+  return { view: page.window.DashboardView, charts, at: id => elements.get(id) };
+}
+
+test('the dashboard trend has a consolidated mode with the final result of every center', async () => {
+  const differ = (sku, change) => line(sku, { Stock_Fisico: 10 + change, Stock_Total: 10 + change, Diferencia: change });
+  const metrics = await load([
+    inventory('INV-1160-1', '1160', [line('A'), line('B')]),
+    inventory('INV-1120-1', '1120', [line('C'), differ('D', -5)])
+  ]);
+  const card = trendCard();
+  card.view.currentData = metrics;
+  card.view.renderEriTrend(metrics);
+
+  const chart = card.charts.at(-1);
+  assert.deepEqual(Array.from(chart.data.labels), ['1120', '1160'], 'Opens by itself with more than one center, ordered by code');
+  assert.deepEqual(Array.from(chart.data.datasets[0].data), [50, 100], 'Lowest of units, codes and value, as in the report');
+  assert.deepEqual(Array.from(chart.data.datasets[0].pointBackgroundColor), ['#ef4444', '#06b6d4']);
+  assert.deepEqual(Array.from(chart.data.datasets.slice(1), set => set.data[0]), [98, 95]);
+  assert.equal(card.at('text-eri-trend-title').textContent, 'Consolidado de Cumplimiento por Centro');
+  assert.match(card.at('badge-eri-trend-status').innerHTML, /1 de 3 centros alcanzan al menos el mínimo/);
+  assert.equal(card.at('text-eri-trend-summary').textContent, 'Estado por centro: 1 perfecto · 0 cumplimiento · 0 mínimo · 1 no cumple · 1 sin cierre.');
+  assert.equal(card.at('btn-trend-mode-centers')['aria-pressed'], 'true');
+
+  card.view.setTrendMode('history');
+  assert.equal(card.charts.at(-1).data.datasets[0].label, 'ERI Cantidad de Ítems (%)');
+  assert.match(card.at('text-eri-trend-title').textContent, /Tendencia Histórica/);
+  card.view.renderEriTrend(metrics);
+  assert.equal(card.charts.at(-1).data.datasets[0].label, 'ERI Cantidad de Ítems (%)', 'A refresh keeps the chosen mode');
+  card.view.setTrendMode('centers');
+  assert.deepEqual(Array.from(card.charts.at(-1).data.labels), ['1120', '1160']);
+});
+
+test('with one center the trend stays by inventory and the consolidated mode is off', async () => {
+  const metrics = await load([inventory('INV-1160-1', '1160', [line('A')])]);
+  const card = trendCard();
+  card.view.trendMode = 'centers';
+  card.view.renderEriTrend(metrics);
+  assert.equal(card.charts.at(-1).data.datasets[0].label, 'ERI Cantidad de Ítems (%)');
+  assert.equal(card.at('btn-trend-mode-centers').disabled, true);
+});

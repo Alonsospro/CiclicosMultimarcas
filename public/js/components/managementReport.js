@@ -831,6 +831,13 @@
     level,
     worst,
     indicators,
+    // The final result of each center in the current cut, by code. The dashboard draws the same figures as the report.
+    centerResults(data) {
+      return (data?.centers || []).map(c => ({
+        code: c.center, name: c.name || c.center, value: lowestOf(indicators(c)), level: result(c),
+        forcedLabel: (c.durations || []).map(row => row.forcedLabel).filter(Boolean).join(' · ')
+      })).sort(byCode);
+    },
     bindInteractions,
     renderMonthly(data) {
       const pageRule = '<style>@media print { @page { size: A4 landscape; margin: 0; } }</style>';
