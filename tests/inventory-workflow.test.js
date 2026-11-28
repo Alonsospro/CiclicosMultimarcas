@@ -7,7 +7,13 @@ const contract = require('../src/services/inventoryContract');
 const workflow = require('../src/services/inventoryWorkflow');
 const reliability = require('../src/services/counterReliability');
 const root = path.join(__dirname, '..');
-const user = {role:'ADMIN', username:'reviewer', displayName:'Reviewer'};
+// Every clock read is at least 1 ms after the previous one, as real steps are. Without it a fast machine can
+// save a justification and the recount after it in the same millisecond, and the tie keeps the older review.
+const RealDate = Date;
+let lastTick = 0;
+const tick = () => (lastTick = Math.max(RealDate.now(), lastTick + 1));
+globalThis.Date = class StepClock extends RealDate { constructor(...args) { args.length ? super(...args) : super(tick()); } static now() { return tick(); } };
+const user ={role:'ADMIN', username:'reviewer', displayName:'Reviewer'};
 const old = '2020-01-01T00:00:00.000Z';
 // Cíclicos now use the 44-column sheets. These fixtures keep testing the 40-column rules, which old closures still follow.
 const LEGACY_40 = 'GENERAL';
