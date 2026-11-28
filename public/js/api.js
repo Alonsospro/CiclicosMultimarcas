@@ -387,6 +387,13 @@ window.API = {
     });
   },
 
+  enableDirectRecount(inventoryId) {
+    return this.request(`/justifications/${inventoryId}/enable-direct-recount`, {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+  },
+
   enableSecondRecount(inventoryId) {
     return this.request(`/justifications/${inventoryId}/enable-recount-2`, {
       method: 'POST',

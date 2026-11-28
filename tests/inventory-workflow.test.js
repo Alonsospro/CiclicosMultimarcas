@@ -1216,3 +1216,43 @@ test('a reopening already used is not undone, so nothing recorded after it is lo
   assert.throws(()=>service.restoreLastClosure({inventoryId:'INV',user}),/después de la reapertura \(A\)/);
   assert.equal(service.getInventoryRaw('INV').status,'EN_PROGRESO');
 });
+
+test('direct recount sends unjustified differences to recount right after the first count',async()=>{
+  const {service,put,save,closures,sheets}=fixture(),a=counted('A'),b=counted('B'),c=counted('C');
+  put({id:'INV',type:LEGACY_40,name:'Example',status:'EN_PROGRESO',center:'1120',items:[a,b,c]});
+  service.submitInventoryForReview({inventoryId:'INV',user});
+  let task=service.getPendingJustifications(user)[0];
+  assert.equal(task.canEnableDirectRecount,true);assert.equal(task.canEnableRecount,false);
+  await save('INV',b,'CUADRA');
+  await assert.rejects(service.enableDirectRecount({inventoryId:'INV',user:{...user,role:'AUXILIAR'}}),/Administrador o Encargado/);
+  const result=await service.enableDirectRecount({inventoryId:'INV',user});
+  assert.deepEqual(result.recountInventory.items.map(item=>item.SKU).sort(),['A','C']);
+  const first=sheets.get(contract.member(a));
+  assert.equal(first.Estado,'NO CUADRA');assert.match(first.Comentario_Justificacion,/reconteo directo/);
+  assert.equal(sheets.get(contract.member(b)).Estado,'CUADRA');
+  task=service.getPendingJustifications(user)[0];
+  assert.equal(task.status,'EN_RECONTEO');assert.equal(task.canEnableDirectRecount,false);
+  await assert.rejects(service.enableDirectRecount({inventoryId:'INV',user}),/reconteo directo requiere/);
+  const rec=result.recountInventory;
+  for(const item of rec.items)await service.updateCount({inventoryId:rec.id,itemId:item.id,stockFisico:item.SKU==='A'?10:8,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:rec.id,user});
+  await save('INV',a,'CUADRA',2,'El reconteo confirmó la cantidad del sistema.');
+  await save('INV',c,'NO CUADRA',2,'El reconteo confirmó el faltante.');
+  task=service.getPendingJustifications(user)[0];
+  assert.equal(task.canClose,true);
+  await service.finishReviewAndClose({inventoryId:'INV',user});
+  assert.equal(closures.length,1);
+  assert.equal(closures[0].inventory.items.find(item=>item.SKU==='A').Estado_Justificacion_2,'CUADRA');
+});
+
+test('weekly direct recount keeps the first review NO CUADRA without justified units',async()=>{
+  const {service,put,sheets}=fixture(),item={...counted(),Schema_Version:contract.weeklyVersion};
+  put({id:'WEEK',type:'SEMANAL',center:'1120',name:'Semanal',status:'EN_PROGRESO',items:[item]});
+  await service.updateCount({inventoryId:'WEEK',itemId:item.id,stockFisico:8,malEstado:0,user});
+  service.submitInventoryForReview({inventoryId:'WEEK',user});
+  const result=await service.enableDirectRecount({inventoryId:'WEEK',user});
+  assert.equal(result.itemsCount,1);
+  const row=sheets.get(contract.member(item));
+  assert.equal(row.Estado,'NO CUADRA');assert.ok(!Number(row.Cantidad_Justificada_1));
+  assert.equal(service.getInventoryRaw('WEEK').status,'EN_RECONTEO');
+});

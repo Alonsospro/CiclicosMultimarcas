@@ -15,6 +15,8 @@ const snapshotService = require('./snapshotService');
 const {needsPhoto} = require('../../public/js/justificationPhotoRule');
 
 const FORCED_MASTER_BATCH = 50;
+// First review recorded for the items sent to recount before being justified.
+const DIRECT_RECOUNT_NOTE = 'Enviado a reconteo directo desde el primer conteo para confirmar la cantidad antes de justificar.';
 const SHEET_BATCH = 50;
 
 function mergeRecountIntoParent(parentItem, recountItem) {
@@ -1561,7 +1563,7 @@ class InventoryService {
       user:p.user.username,reviewerName:reviewer,center:inv.center,diffQty:item.Diferencia,diffCost:item.Costo_Diferencia});
     const updatedPlan=this.getReviewPlan(inv);
     return {...record,item,sheetWarning,reviewItem:updatedPlan.items.find(it=>contract.member(it)===contract.member(item)),
-      reviewState:{canClose:updatedPlan.canClose,canEnableRecount:updatedPlan.canEnableRecount,canEnableRecount2:updatedPlan.canEnableRecount2}};
+      reviewState:{canClose:updatedPlan.canClose,canEnableRecount:updatedPlan.canEnableRecount,canEnableDirectRecount:updatedPlan.canEnableDirectRecount,canEnableRecount2:updatedPlan.canEnableRecount2}};
   }
 
   async corroborateItem(p) {
@@ -1692,6 +1694,28 @@ class InventoryService {
       recountInventory,
       itemsCount: recountItems.length
     };
+  }
+
+  // Recount straight after the first count to confirm the quantities before justifying them. Sheets only
+  // accepts a second justification over a first NO CUADRA, so each pending first review is recorded as
+  // NO CUADRA "sent to recount"; items already justified keep their review. Then the normal recount runs.
+  async enableDirectRecount({ inventoryId, user }) {
+    if (user.role !== 'ADMIN' && user.role !== 'ENCARGADO' && !user.isSuperadmin) {
+      throw new Error('Solo un Administrador o Encargado puede habilitar el reconteo');
+    }
+    const inv = this.getInventoryRaw(inventoryId);
+    if (!inv) throw new Error('Inventario no encontrado');
+    if (!this.canModifyInventory(inv, user)) throw new Error('Inventario fuera de su centro');
+    const reviewPlan = this.getReviewPlan(inv);
+    if (!reviewPlan.canEnableDirectRecount) {
+      throw new Error('El reconteo directo requiere el primer conteo firmado y al menos una primera justificación pendiente.');
+    }
+    for (const entry of reviewPlan.initialPending) {
+      await this.saveJustification({ inventoryId, user, itemId: entry.id, sku: entry.SKU, almacen: entry.Almacen,
+        location: entry.Ubicacion, round: 1, corroboracion: 'NO CUADRA', reasonType: 'Sin Justificación',
+        justification: DIRECT_RECOUNT_NOTE });
+    }
+    return this.enableRecount({ inventoryId, user });
   }
 
   // Sheets has one set of columns per review: keep in the app what a new review will replace.
@@ -1855,7 +1879,7 @@ class InventoryService {
         reopenedPhase: inv.reopenedPhase || null, reopenItemKeys: inv.reopenItemKeys || null, assignedTo: inv.assignedTo || [], totalItems: inv.items.length,
         totalDiscrepancies: plan.items.length, pendingJustificationsCount: plan.pending.length,
         justifiedItemsCount: plan.items.length - plan.pending.length,
-        canClose: plan.canClose, canEnableRecount: plan.canEnableRecount, canEnableRecount2: plan.canEnableRecount2, canForceClose: plan.canForceClose, closeBlockers: plan.closeBlockers,
+        canClose: plan.canClose, canEnableRecount: plan.canEnableRecount, canEnableDirectRecount: plan.canEnableDirectRecount, canEnableRecount2: plan.canEnableRecount2, canForceClose: plan.canForceClose, closeBlockers: plan.closeBlockers,
         items: plan.items
       });
     }

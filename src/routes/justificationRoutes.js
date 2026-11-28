@@ -97,6 +97,15 @@ router.post('/:id/enable-recount', authenticate, requireRole(['ADMIN', 'ENCARGAD
   }
 });
 
+// POST /api/justifications/:id/enable-direct-recount (Recount right after the first count, before justifying)
+router.post('/:id/enable-direct-recount', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
+  try {
+    res.json(await inventoryService.enableDirectRecount({ inventoryId: req.params.id, user: req.user }));
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
 // POST /api/justifications/:id/enable-recount-2 (Optional second recount of the items still NO CUADRA)
 router.post('/:id/enable-recount-2', authenticate, requireRole(['ADMIN', 'ENCARGADO']), async (req, res) => {
   try {

@@ -179,6 +179,9 @@ function plan(inv, child, records = []) {
   return {items: rows, keys, initialPending, noCuadra, secondNoCuadra, pending, finalized, canClose, closeBlockers,
     canEnableRecount: !finalized && inv.status === 'PENDIENTE_JUSTIFICACION' && !keys.size
       && countComplete && !initialPending.length && noCuadra.length > 0,
+    // Recount straight after the first count, before the first justifications are done.
+    canEnableDirectRecount: !finalized && inv.status === 'PENDIENTE_JUSTIFICACION' && !keys.size
+      && inv.reopenedPhase !== 'JUSTIFICACION' && countComplete && initialPending.length > 0,
     // Forcing only skips justifications: every signed quantity must already exist.
     canForceClose: !finalized && ['PENDIENTE_JUSTIFICACION', 'RECONTEO_COMPLETADO'].includes(inv.status) && countComplete && childFinished,
     canEnableRecount2: !finalized && isReconteoStage && !inv.hasRecount2 && countStage(inv) !== 2

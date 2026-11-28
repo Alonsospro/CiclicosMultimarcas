@@ -377,7 +377,9 @@ window.JustificationsView = {
     if (task.canClose) return `${secondRecount}<button type="button" id="btn-finish-just-${task.inventoryId}" class="btn btn-success" onclick="window.JustificationsView.finishReview('${task.inventoryId}')">Finalizar Inventario y Crear Copia en Drive</button>${forceClose}`;
     const escape = value => String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
     const blockers = Array.isArray(task.closeBlockers) && task.closeBlockers.length ? task.closeBlockers : ['Complete las justificaciones pendientes para continuar'];
-    return `<div class="badge badge-warning" style="display:block; white-space:normal; text-align:left; line-height:1.4;"><strong>No se puede finalizar todavía:</strong>${blockers.map(b => `<br>• ${escape(b)}`).join('')}</div>${forceClose}`;
+    // Kept as a small text link: the review section already has many buttons.
+    const directRecount = task.canEnableDirectRecount ? `<button type="button" id="btn-direct-recount-${task.inventoryId}" onclick="window.JustificationsView.enableDirectRecount('${task.inventoryId}')" title="Enviar los ítems con diferencia a reconteo antes de justificarlos, para confirmar si es un error de conteo" style="display:block; margin-top:4px; background:none; border:none; padding:0; color:var(--text-dim); font-size:0.72rem; text-decoration:underline dotted; cursor:pointer;"><i class="fa-solid fa-rotate-right"></i> Reconteo directo sin justificar</button>` : '';
+    return `<div class="badge badge-warning" style="display:block; white-space:normal; text-align:left; line-height:1.4;"><strong>No se puede finalizar todavía:</strong>${blockers.map(b => `<br>• ${escape(b)}`).join('')}</div>${directRecount}${forceClose}`;
   },
 
   // Counted difference, justified units and what remains; null when the row cannot be read yet.
@@ -2160,6 +2162,29 @@ window.JustificationsView = {
       await this.loadJustifications();
     } catch (err) {
       window.Toast.danger(err.message || 'Error al habilitar reconteo');
+    }
+  },
+
+  async enableDirectRecount(inventoryId) {
+    const task = this.tasks.find(t => t.inventoryId === inventoryId);
+    if (!task) return;
+    const pending = (task.items || []).filter(it => it.justificationRound === 1 && !it.reviewComplete).length;
+    if (!confirm(`¿Enviar a reconteo directo sin justificar?\n\n${pending} ítem(s) con diferencia aún sin justificar quedarán como NO CUADRA "Enviado a reconteo directo" y pasarán al contador asignado. Los ítems ya justificados conservan su justificación (los NO CUADRA también se recuentan).\n\nDespués del reconteo se justifica con las cantidades confirmadas.`)) {
+      return;
+    }
+    const button = document.getElementById(`btn-direct-recount-${inventoryId}`);
+    if (button) button.disabled = true;
+    try {
+      window.Toast.info('Registrando el envío a reconteo...');
+      const res = await window.API.enableDirectRecount(inventoryId);
+      window.Toast.success(res.message || 'Reconteo habilitado exitosamente');
+      alert(`✅ Reconteo Habilitado\n\n${res.message}\nID de Reconteo: ${res.recountInventoryId}\n\nEl contador asignado ya puede ver esta lista en su ventana de inventarios.`);
+      if (this.expandedTaskIds) this.expandedTaskIds.add(inventoryId);
+      await this.loadJustifications();
+    } catch (err) {
+      if (button) button.disabled = false;
+      window.Toast.danger(err.message || 'Error al habilitar el reconteo directo');
+      await this.loadJustifications();
     }
   },
 
