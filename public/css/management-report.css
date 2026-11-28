@@ -22,9 +22,9 @@
 .mr-c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .mr-c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .mr-c13 { grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); }
-.mr-panel { background: var(--mr-panel); padding: 9px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.mr-panel.mr-plain { background: none; padding: 0; }
-.mr-panel h3 { margin: 0; font-size: 13px; line-height: 1.25; font-weight: 700; color: var(--mr-navy); }
+.mr-panel { background: #fff; border: 1px solid #d6d6d6; padding: 9px 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mr-panel.mr-plain { background: none; border: 0; padding: 0; }
+.mr-panel h3 { margin: 0; font-size: 13px; line-height: 1.25; font-weight: 700; color: #1a1a1a; }
 .mr-sheet table { width: 100%; border-collapse: collapse; font-size: 11.5px; color: var(--mr-ink); background: transparent; }
 .mr-sheet th { text-align: left; color: var(--mr-soft); font-size: 11px; font-weight: 600; line-height: 1.2; padding: 3px 7px 3px 0; border-bottom: 1.5px solid var(--mr-ink); vertical-align: bottom; background: transparent; }
 .mr-sheet td { padding: 3px 7px 3px 0; border-bottom: 1px solid var(--mr-rule); vertical-align: middle; background: transparent; color: inherit; }
@@ -43,18 +43,20 @@
 .mr-empty { margin: 40px 0; text-align: center; font-size: 16px; color: var(--mr-soft); }
 .mr-legend { display: flex; flex-wrap: wrap; gap: 3px 14px; color: var(--mr-soft); font-size: 11px; }
 .mr-legend i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; border-radius: 2px; }
-.mr-kpi { background: var(--mr-panel); padding: 9px 12px 10px; display: flex; flex-direction: column; gap: 4px; border-top: 4px solid var(--mr-navy2); min-width: 0; }
-.mr-kpi.top-no, .mr-kpi.top-short { border-top-color: #c9373f; }
-.mr-kpi.top-min { border-top-color: #a86400; }
-.mr-kpi.top-ok { border-top-color: #12875c; }
-.mr-kpi.top-perfect { border-top-color: #0a5c40; }
-.mr-kpi.top-surplus { border-top-color: #2a78d6; }
-.mr-kpi.top-damage { border-top-color: #eda100; }
-.mr-kpi.top-info, .mr-kpi.top-nil { border-top-color: #8a93a3; }
-.mr-kpi-top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 3px 8px; color: var(--mr-soft); font-size: 12px; font-weight: 600; line-height: 1.25; }
-.mr-kpi strong { font-size: 28px; line-height: 1.05; font-weight: 700; }
+/* Indicators: a gauge of the NIBOL scale, or a plain figure on the beige strip, as in the model. */
+.mr-kpi { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.mr-kpi-label { color: var(--mr-soft); font-size: 11px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; line-height: 1.25; }
+.mr-kpi-label i { display: inline-block; width: 9px; height: 9px; margin-right: 5px; border-radius: 2px; vertical-align: 0; }
+.mr-kpi strong { font-size: 26px; line-height: 1.05; font-weight: 700; color: #1a1a1a; }
 .mr-qty { font-weight: 600; font-size: 12px; }
 .mr-kpi small { color: var(--mr-soft); font-size: 11px; }
+.mr-gauge { align-items: center; text-align: center; padding: 4px 6px 2px; }
+.mr-gauge-svg { display: block; margin: 0 auto -2px; }
+.mr-gauge .mr-qty { font-weight: 400; font-size: 11px; color: var(--mr-soft); }
+.mr-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: #1a1a1a; }
+.mr-status i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.mr-stat { background: #f3eee4; padding: 10px 14px; justify-content: center; }
+.mr-stat strong { font-size: 22px; }
 .mr-chip { display: inline-block; padding: 3px 7px; color: #fff; font-size: 10.5px; font-weight: 700; line-height: 1; white-space: nowrap; border-radius: 2px; }
 .lvl-perfect { background: #0a5c40 !important; color: #fff !important; }
 .lvl-ok { background: #12875c !important; color: #fff !important; }
@@ -62,25 +64,23 @@
 .lvl-no { background: #c9373f !important; color: #fff !important; }
 .lvl-nil { background: #6f7888 !important; color: #fff !important; }
 .lvl-forced { background: #55637a !important; color: #fff !important; }
-.mr-bullet { position: relative; height: 13px; background: var(--mr-track); border-radius: 3px; }
-.mr-bullet i { position: absolute; left: 0; display: block; }
-.mr-bullet .first { top: 0; bottom: 0; background: #aebbd0; border-radius: 3px; }
-.mr-bullet .last { top: 3px; bottom: 3px; background: var(--mr-navy); border-radius: 0 3px 3px 0; }
-.mr-bullet u { position: absolute; top: -3px; bottom: -3px; border-left: 2px solid var(--mr-ink); }
 .mr-ibar { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.mr-ibar > i { display: block; height: 11px; border-radius: 0 3px 3px 0; flex: none; }
+.mr-ibar > i { display: block; height: 11px; flex: none; }
 /* The three indicators of a center, line up across its columns. */
 .mr-state-lines > div { height: 17px; line-height: 17px; white-space: nowrap; }
-.mr-track { position: relative; display: block; flex: none; width: 105px; height: 11px; background: var(--mr-track); border-radius: 2px; }
-.mr-track i { display: block; height: 100%; }
-.mr-track u { position: absolute; left: 75%; top: -3px; bottom: -3px; border-left: 2px solid var(--mr-ink); }
 .mr-figure { display: flex; flex-direction: column; gap: 1px; }
 .mr-figure b { font-size: 17px; line-height: 1.15; font-weight: 700; }
 .mr-figure span { color: var(--mr-soft); font-size: 11px; }
-.mr-tree { position: relative; }
-.mr-tree > div { position: absolute; color: #fff; padding: 4px 5px; overflow: hidden; font-size: 10.5px; line-height: 1.15; white-space: nowrap; }
+/* A bar split in parts and one row per part, as in "Dónde se fue el tiempo". */
+.mr-share { display: flex; flex-direction: column; gap: 6px; }
+.mr-share-bar { display: flex; gap: 2px; height: 22px; }
+.mr-share-bar i { display: block; height: 100%; min-width: 3px; }
+.mr-share-list > div { display: grid; grid-template-columns: minmax(0, 1fr) auto 42px; align-items: baseline; gap: 10px; padding: 2px 0; }
+.mr-share-list span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mr-share-list i { display: inline-block; width: 11px; height: 11px; margin-right: 7px; vertical-align: -1px; }
+.mr-share-list small { color: var(--mr-soft); font-size: 10.5px; }
 .mr-stack { display: flex; gap: 2px; height: 13px; }
-.mr-stack i { display: block; height: 100%; border-radius: 2px; }
+.mr-stack i { display: block; height: 100%; }
 .mr-swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; }
 .mr-sheet table.mr-heat th, .mr-sheet table.mr-heat td { border: 2px solid var(--mr-panel); padding: 6px 4px; text-align: center; font-variant-numeric: tabular-nums; }
 .mr-sheet table.mr-heat tbody th, .mr-sheet table.mr-heat tfoot th { text-align: left; color: var(--mr-ink); font-weight: 600; }
@@ -111,7 +111,6 @@
 /* A long inventory name wraps instead of pushing the bars over the next panel. */
 .mr-sheet table.mr-history td { white-space: nowrap; }
 .mr-sheet table.mr-history td:first-child { white-space: normal; overflow-wrap: anywhere; }
-.mr-sheet table.mr-history .mr-track { width: 80px; }
 
 /* Monthly report: trend chips, interactive charts and their controls. */
 .mr-hide { display: none !important; }
@@ -133,7 +132,7 @@
 .mr-cls { display: flex; flex-direction: column; gap: 5px; }
 .mr-cls-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) 92px; align-items: center; gap: 8px; }
 .mr-cls-month { font-weight: 700; color: var(--mr-navy); }
-.mr-cls-bar { display: flex; height: 20px; background: var(--mr-track); border-radius: 2px; }
+.mr-cls-bar { display: flex; gap: 2px; height: 20px; background: var(--mr-track); }
 .mr-cls-bar i { display: block; height: 100%; color: #fff; font-size: 10px; font-weight: 700; font-style: normal; line-height: 20px; text-align: center; white-space: nowrap; overflow: visible; }
 .mr-cls-bar em { color: var(--mr-soft); font-size: 10.5px; line-height: 20px; padding-left: 6px; }
 .mr-cls-total { text-align: right; color: var(--mr-soft); font-size: 10.5px; font-variant-numeric: tabular-nums; }

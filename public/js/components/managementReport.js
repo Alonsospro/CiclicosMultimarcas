@@ -10,10 +10,10 @@
   };
   const NO_DATA = { key: 'nil', icon: '–', label: 'Sin datos', rank: -1 };
   const CAUSES = {
-    multiple: { label: 'En varias ubicaciones', rule: 'Dentro de un mismo almacén, el código aparece en más de una ubicación.', color: '#203f83' },
-    format: { label: 'Ubicación con formato no válido', rule: 'La ubicación no tiene los 10 caracteres de letras y números.', color: '#2a78d6' },
-    none: { label: 'Sin ubicación principal', rule: 'El código no tiene ninguna ubicación registrada.', color: '#eda100' },
-    additional: { label: 'Solo en ubicación adicional', rule: 'Tiene una sola ubicación, pero no es la principal.', color: '#8a93a3' }
+    multiple: { label: 'En varias ubicaciones', rule: 'Dentro de un mismo almacén, el código aparece en más de una ubicación.', color: '#2a7de1' },
+    format: { label: 'Ubicación con formato no válido', rule: 'La ubicación no tiene los 10 caracteres de letras y números.', color: '#f07030' },
+    none: { label: 'Sin ubicación principal', rule: 'El código no tiene ninguna ubicación registrada.', color: '#d89c00' },
+    additional: { label: 'Solo en ubicación adicional', rule: 'Tiene una sola ubicación, pero no es la principal.', color: '#e0559a' }
   };
   const CAUSE_KEYS = Object.keys(CAUSES);
 
@@ -32,7 +32,12 @@
   const chip = lvl => `<span class="mr-chip lvl-${lvl.key}">${lvl.icon} ${esc(lvl.label.toUpperCase())}</span>`;
   const width = (value, max, size) => max > 0 ? Math.max(value > 0 ? 2 : 0, value / max * size) : 0;
   const hbar = (value, max, size, color, label) => `<div class="mr-ibar"><i style="width:${width(value, max, size)}px;background:${color}"></i>${label}</div>`;
-  const RED = '#c9373f', BLUE = '#2a78d6', AMBER = '#eda100', GRAY = '#b7c0ce', NAVY = '#17305f';
+  // Chart palette of the NIBOL model: white cards, flat colors, red/amber/green for the compliance scale.
+  const RED = '#e04040', BLUE = '#2a7de1', AMBER = '#d89c00', GRAY = '#b9c0c9';
+  const PALETTE = ['#2a7de1', '#f07030', '#0aa889', '#d89c00', '#e0559a', '#7b5cd6'];
+  const REST = '#9aa3ae', INK = '#1a1a1a';
+  const SCALE = { red: '#e04040', amber: '#f5b400', green: '#18a53a' };
+  const LEVEL_COLORS = { perfect: SCALE.green, ok: SCALE.green, min: SCALE.amber, no: SCALE.red, forced: '#8a93a3', nil: '#8a93a3' };
   const sum = (list, getter) => list.reduce((total, item) => total + num(getter(item)), 0);
 
   // A center's numbers, always derived from its quantities.
@@ -58,39 +63,33 @@
     return lvl.key === 'no' && forcedLines(group) ? FORCED : lvl;
   };
 
-  const bullet = (first, last) => {
-    const pos = value => Math.max(0, Math.min(100, (value - 80) * 5));
-    return `<div class="mr-bullet"><i class="first" style="width:${pos(first)}%"></i><i class="last" style="width:${pos(last)}%"></i><u style="left:75%"></u><u style="left:90%"></u></div>`;
-  };
-  const kpi = ({ label, value, status, pair, line, sub, cls }) => `<div class="mr-kpi ${cls || `top-${status?.key || 'nil'}`}"><div class="mr-kpi-top"><span>${esc(label)}</span>${status ? chip(status) : ''}</div><strong>${value}</strong><span class="mr-qty">${line}</span>${pair && pair[1] !== null ? bullet(pair[0] ?? pair[1], pair[1]) : ''}${sub ? `<small>${sub}</small>` : ''}</div>`;
+  // Half-circle gauge of the NIBOL scale, from 80% to 100%: red below 95, amber to 98, green from 98.
+  // The needle is the close; the short outer mark, the first count. Drawn with SVG attributes only.
+  function gauge(value, first = null) {
+    const min = 80, max = 100, cx = 85, cy = 76, r = 58, band = 16;
+    const angle = v => Math.PI * (1 - (Math.min(max, Math.max(min, v)) - min) / (max - min));
+    const at = (a, radius) => [(cx + radius * Math.cos(a)).toFixed(1), (cy - radius * Math.sin(a)).toFixed(1)];
+    const arc = (from, to, color) => { const [x1, y1] = at(angle(from), r), [x2, y2] = at(angle(to), r); return `<path d="M${x1} ${y1} A${r} ${r} 0 0 1 ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="${band}"/>`; };
+    const cut = v => { const [x1, y1] = at(angle(v), r - band / 2 - 1), [x2, y2] = at(angle(v), r + band / 2 + 1); return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#ffffff" stroke-width="2.5"/>`; };
+    const font = 'font-family="Inter, Segoe UI, Arial, sans-serif"';
+    const tick = first === null || first === undefined ? '' : (() => { const [x1, y1] = at(angle(first), r + band / 2 + 1), [x2, y2] = at(angle(first), r + band / 2 + 8); return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#6b6b6b" stroke-width="2.5"/>`; })();
+    const needle = value === null || value === undefined ? '' : (() => { const [x, y] = at(angle(value), r - 12); return `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="${INK}" stroke-width="3.5" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="6" fill="#ffffff" stroke="${INK}" stroke-width="3"/>`; })();
+    return `<svg class="mr-gauge-svg" width="170" height="96" viewBox="0 0 170 96" xmlns="http://www.w3.org/2000/svg">${arc(80, 95, SCALE.red)}${arc(95, 98, SCALE.amber)}${arc(98, 100, SCALE.green)}${cut(95)}${cut(98)}${tick}${needle}<text x="${cx - r}" y="${cy + 18}" text-anchor="middle" font-size="10" fill="#6b6b6b" ${font}>80</text><text x="${cx + r}" y="${cy + 18}" text-anchor="middle" font-size="10" fill="#6b6b6b" ${font}>100</text></svg>`;
+  }
+  const statusLine = lvl => `<span class="mr-status"><i style="background:${LEVEL_COLORS[lvl.key] || REST}"></i>${esc(lvl.label)}</span>`;
+  const SWATCH = { 'top-short': RED, 'top-surplus': BLUE, 'top-damage': AMBER };
+  // An indicator with a level is a gauge; any other figure is a plain number on the beige strip.
+  const kpi = ({ label, value, status, pair, line, sub, cls }) => status
+    ? `<div class="mr-kpi mr-gauge"><span class="mr-kpi-label">${esc(label)}</span>${gauge(pair ? pair[1] : null, pair ? pair[0] : null)}<strong>${value}</strong>${statusLine(status)}<span class="mr-qty">${line}</span>${sub ? `<small>${sub}</small>` : ''}</div>`
+    : `<div class="mr-kpi mr-stat ${cls || ''}"><span class="mr-kpi-label">${SWATCH[cls] ? `<i style="background:${SWATCH[cls]}"></i>` : ''}${esc(label)}</span><strong>${value}</strong><span class="mr-qty">${line}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
 
-  // Squarified treemap: each block's area is its share of the amount.
-  function treemap(items, W, H) {
-    const positive = items.filter(item => item.value > 0).sort((a, b) => b.value - a.value);
-    if (!positive.length) return '<p class="mr-more">Sin montos en este inventario.</p>';
-    const out = [];
-    let x = 0, y = 0, w = W, h = H, rest = positive, left = sum(positive, item => item.value);
-    const worstAspect = (row, side, area) => {
-      const s = sum(row, item => item.value) * area;
-      return Math.max(...row.map(item => Math.max((side * side * item.value * area) / (s * s), (s * s) / (side * side * item.value * area))));
-    };
-    while (rest.length) {
-      const area = (w * h) / left, side = Math.min(w, h);
-      const row = [rest[0]];
-      let i = 1;
-      while (i < rest.length && worstAspect([...row, rest[i]], side, area) <= worstAspect(row, side, area)) row.push(rest[i++]);
-      const rowSum = sum(row, item => item.value), thick = rowSum * area / side;
-      let offset = 0;
-      row.forEach(item => {
-        const length = item.value * area / thick;
-        out.push(w >= h ? { ...item, x, y: y + offset, w: thick, h: length } : { ...item, x: x + offset, y, w: length, h: thick });
-        offset += length;
-      });
-      if (w >= h) { x += thick; w -= thick; } else { y += thick; h -= thick; }
-      left -= rowSum;
-      rest = rest.slice(row.length);
-    }
-    return `<div class="mr-tree" style="height:${H}px">${out.map(b => `<div style="left:${b.x / W * 100}%;top:${b.y}px;width:calc(${b.w / W * 100}% - 2px);height:${Math.max(b.h - 2, 1)}px;background:${b.color}">${b.w > 62 && b.h > 30 ? `<b>${esc(b.label)}</b><br>${decimal(b.value)}` : ''}</div>`).join('')}</div>`;
+  // One bar split in parts, then one row per part with its amount and share: the model's "where the time went".
+  function shareBar(items, { note = '', empty = 'Sin montos para mostrar.' } = {}) {
+    const parts = items.filter(item => num(item.value) > 0);
+    const total = sum(parts, item => item.value);
+    if (!total) return `<p class="mr-more">${esc(empty)}</p>`;
+    const share = item => `${Math.round(item.value / total * 100)} %`;
+    return `<div class="mr-share"><div class="mr-share-bar">${parts.map(item => `<i style="flex:${item.value} 1 0;background:${item.color}"></i>`).join('')}</div><div class="mr-share-list">${parts.map(item => `<div><span><i style="background:${item.color}"></i><b>${esc(item.label)}</b>${item.desc ? ` <small>${esc(item.desc)}</small>` : ''}</span><b class="num">${item.text ?? decimal(item.value)}</b><span class="num mr-more">${share(item)}</span></div>`).join('')}</div>${note ? `<p class="mr-more">${note}</p>` : ''}</div>`;
   }
 
   const shade = (value, max, hue) => {
@@ -139,10 +138,14 @@
   // The difference shown is what really remains; this says how much of the counted one was explained.
   const justifiedPart = item => num(item.cantidadJustificada) > 0 && num(item.diferenciaFinal ?? item.diferencia) !== 0 ? `Justificado ${qty(item.cantidadJustificada)} de ${qty(Math.abs(num(item.diferenciaContada)))}. ` : '';
 
+  // What the first count found, split in what the recount resolved and what remains at the close.
   function moneyPanel(title, first, close, unit, value, color) {
     const firstCost = num(first.cost), closeCost = num(close.cost), resolved = Math.max(0, firstCost - closeCost);
-    const max = Math.max(firstCost, closeCost, 1);
-    return panel(title, `<table class="mr-flat"><tbody><tr><td>Primer conteo</td><td>${hbar(firstCost, max, 150, color, decimal(firstCost))}</td></tr><tr><td>Resuelto</td><td>${hbar(resolved, max, 150, GRAY, decimal(resolved))}</td></tr><tr class="mr-strong"><td>Cierre</td><td>${hbar(closeCost, max, 150, color, decimal(closeCost))}</td></tr></tbody></table><div class="mr-figure"><b>${bs(closeCost)}</b><span>${qty(close.lines)} ${unit} · ${qty(close.units)} unidades · ${value > 0 ? pct(closeCost / value * 100) : 'No disponible'} del valor</span></div>`);
+    const bar = shareBar([
+      { label: 'Resuelto', desc: 'en el reconteo', value: resolved, color: GRAY, text: decimal(resolved) },
+      { label: 'Cierre', desc: 'sigue pendiente', value: closeCost, color, text: decimal(closeCost) }
+    ], { note: `Primer conteo: ${bs(firstCost)}`, empty: 'Sin montos en el primer conteo ni al cierre.' });
+    return panel(title, `${bar}<div class="mr-figure"><b>${bs(closeCost)}</b><span>${qty(close.lines)} ${unit} · ${qty(close.units)} unidades · ${value > 0 ? pct(closeCost / value * 100) : 'No disponible'} del valor</span></div>`);
   }
   function breakdownTable(first, groups, total) {
     const maxS = Math.max(...groups.map(g => g.shortage.cost), 1), maxP = Math.max(...groups.map(g => g.surplus.cost), 1);
@@ -188,7 +191,7 @@
     // Only the final result of each center: the lowest of its three indicators, without the breakdown.
     const resultOf = row => lowestOf(['units', 'codes', 'money'].map(key => valueOf(row, key)));
     const results = byCode.map(resultOf);
-    const series = [{ key: 'result', label: 'Resultado', color: '#a78bfa', labels: true, marks: true, width: 2.5, values: results,
+    const series = [{ key: 'result', label: 'Resultado', color: '#2a7de1', labels: true, marks: true, width: 2.5, values: results,
       tips: byCode.map((row, index) => `${row.name} · resultado: ${pct(results[index])}`) }];
     const chart = rows.length ? lineChart({ categories: byCode.map(row => row.code), series, height: 215 }) : '';
     const earlier = row => row.earlier.length
@@ -298,16 +301,16 @@
       <div class="mr-row mr-c3">
         ${moneyPanel('Faltantes · del primer conteo al cierre', c.firstCount.shortage, c.shortage, 'líneas', c.value, RED)}
         ${moneyPanel('Sobrantes · del primer conteo al cierre', c.firstCount.surplus, c.surplus, 'líneas', c.value, BLUE)}
-        ${panel('Averías · se informan aparte', `<table class="mr-flat"><tbody>${c.byWarehouse.map(g => `<tr><td class="mr-strong">${esc(g.name)}</td><td>${hbar(g.damage.cost, Math.max(...c.byWarehouse.map(w => w.damage.cost), 1), 95, AMBER, bs(g.damage.cost))}</td><td class="num">${qty(g.damage.lines)} lín. · ${qty(g.damage.units)} unid.</td></tr>`).join('')}</tbody></table><div class="mr-figure"><b>${bs(c.damage.cost)}</b><span>${qty(c.damage.lines)} líneas · ${qty(c.damage.units)} unidades</span></div>`)}
+        ${panel('Averías · se informan aparte', `${shareBar(c.byWarehouse.map((g, index) => ({ label: g.name, desc: `${qty(g.damage.lines)} lín. · ${qty(g.damage.units)} unid.`, value: g.damage.cost, color: PALETTE[index % PALETTE.length], text: decimal(g.damage.cost) })), { empty: 'Sin averías.' })}<div class="mr-figure"><b>${bs(c.damage.cost)}</b><span>${qty(c.damage.lines)} líneas · ${qty(c.damage.units)} unidades</span></div>`)}
       </div>
       <div class="mr-row mr-c2">
         ${panel('Unidades correctas en los últimos inventarios de este centro', historyTable(c, inv))}
         ${panel(`Qué pasó con las ${qty(c.flow.firstDifferences)} diferencias del primer conteo`, flowTable(c))}
       </div>
       <div class="mr-row mr-c2">
-        ${panel('Faltantes por código · cada bloque es su peso en Bs', treemap(codeBlocks(helpers.shortages, helpers.cost, c.shortage.cost, RED), 500, 104))}
-        ${panel('Sobrantes por código · cada bloque es su peso en Bs', treemap(codeBlocks(helpers.surpluses, helpers.cost, c.surplus.cost, BLUE), 500, 104))}
-      </div>`, 'Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%. Para alcanzar un nivel, unidades, códigos y valor deben cumplirlo los tres. ' + DURATION_NOTE, 'Resumen del centro', created);
+        ${panel('Faltantes por código · peso en Bs', shareBar(codeBlocks(helpers.shortages, helpers.cost, c.shortage.cost), { empty: 'Sin faltantes en este inventario.' }))}
+        ${panel('Sobrantes por código · peso en Bs', shareBar(codeBlocks(helpers.surpluses, helpers.cost, c.surplus.cost), { empty: 'Sin sobrantes en este inventario.' }))}
+      </div>`, 'Medidores: rojo bajo 95%, amarillo de 95% a menos de 98%, verde 98% o más; la aguja es el cierre y la marca exterior, el primer conteo. Para alcanzar un nivel, unidades, códigos y valor deben cumplirlo los tres. ' + DURATION_NOTE, 'Resumen del centro', created);
 
     const page2 = sheet('Dónde está el problema', small, `
       ${panel('Por almacén', breakdownTable('Almacén', c.byWarehouse, c), 'mr-plain')}
@@ -373,24 +376,33 @@
   function historyTable(c, inv) {
     const history = c.history || [];
     if (!history.length) return '<p class="mr-more">Sin inventarios cerrados en los datos cargados.</p>';
+    const valueOf = closure => ratio(closure.exactUnits, closure.totalUnits) ?? num(closure.eri);
+    const dateOf = closure => new Date(closure.date).toLocaleDateString('es-BO', { timeZone: 'America/La_Paz' });
     const rows = history.map((closure, index) => {
-      const value = ratio(closure.exactUnits, closure.totalUnits) ?? num(closure.eri);
       const last = index === history.length - 1;
-      return `<tr class="${last ? 'mr-strong' : ''}"><td>${esc(closure.name || closure.id)}</td><td>${esc(new Date(closure.date).toLocaleDateString('es-BO', { timeZone: 'America/La_Paz' }))}</td><td class="num">${qty(closure.exactUnits)}</td><td class="num">${qty(closure.totalUnits)}</td><td><div class="mr-ibar"><span class="mr-track"><i style="width:${Math.max(0, (value - 80) * 5)}%;background:${last ? NAVY : GRAY}"></i><u></u></span>${pct(value)}</div></td></tr>`;
+      return `<tr class="${last ? 'mr-strong' : ''}"><td>${esc(closure.name || closure.id)}</td><td>${esc(dateOf(closure))}</td><td class="num">${qty(closure.exactUnits)}</td><td class="num">${qty(closure.totalUnits)}</td><td class="num">${pct(valueOf(closure))}</td></tr>`;
     }).join('');
-    const note = history.length === 1 ? '<p class="mr-more">Este centro no tiene un inventario anterior con el que comparar.</p>' : '<p class="mr-more">La barra muestra el porcentaje; la marca oscura es el 95%.</p>';
-    return `<table class="mr-history"><thead><tr><th>Inventario</th><th>Cierre</th><th class="num">Correctas</th><th class="num">De</th><th>Porcentaje</th></tr></thead><tbody>${rows}</tbody></table>${note}`;
+    // The same line chart as the monthly report, one point per closure, with the 95% and 98% marks.
+    const shortDate = closure => new Date(closure.date).toLocaleDateString('es-BO', { timeZone: 'America/La_Paz', day: '2-digit', month: '2-digit' });
+    const chart = history.length > 1 ? lineChart({ categories: history.map(shortDate), width: 500, height: 150,
+      series: [{ key: 'history', label: 'Unidades correctas', color: BLUE, labels: true, marks: true, width: 2.5, values: history.map(valueOf),
+        tips: history.map(closure => `${closure.name || closure.id} · ${pct(valueOf(closure))}`) }] }) : '';
+    const note = history.length === 1 ? '<p class="mr-more">Este centro no tiene un inventario anterior con el que comparar.</p>' : '';
+    return `${chart}<table class="mr-history"><thead><tr><th>Inventario</th><th>Cierre</th><th class="num">Correctas</th><th class="num">De</th><th class="num">Porcentaje</th></tr></thead><tbody>${rows}</tbody></table>${note}`;
   }
   function flowTable(c) {
     const f = c.flow, total = f.firstDifferences;
-    const rows = [['Resueltas en reconteo', f.resolved, GRAY], ['Siguen en faltante', f.stillShort, RED], ['Siguen en sobrante', f.stillSurplus, BLUE]];
-    const max = Math.max(...rows.map(row => row[1]), 1);
-    return `<table><thead><tr><th>Resultado</th><th>Líneas</th><th class="num">% de ${qty(total)}</th></tr></thead><tbody>${rows.map(([label, value, color]) => `<tr><td>${label}</td><td>${hbar(value, max, 165, color, qty(value))}</td><td class="num">${total ? Math.round(value / total * 100) : 0}%</td></tr>`).join('')}</tbody><tfoot><tr><td>Primer conteo</td><td>${qty(total)} · ${qty(c.firstCount.shortage.lines)} faltantes y ${qty(c.firstCount.surplus.lines)} sobrantes</td><td class="num">${total ? '100' : '0'}%</td></tr></tfoot></table>${f.appeared ? `<p class="mr-more">Además, ${qty(f.appeared)} líneas sin diferencia en el primer conteo la tuvieron al cierre.</p>` : ''}`;
+    return shareBar([
+      { label: 'Resueltas', desc: 'en reconteo', value: f.resolved, color: GRAY, text: qty(f.resolved) },
+      { label: 'Siguen en faltante', value: f.stillShort, color: RED, text: qty(f.stillShort) },
+      { label: 'Siguen en sobrante', value: f.stillSurplus, color: BLUE, text: qty(f.stillSurplus) }
+    ], { note: `Primer conteo: ${qty(total)} líneas · ${qty(c.firstCount.shortage.lines)} faltantes y ${qty(c.firstCount.surplus.lines)} sobrantes${f.appeared ? `. Además, ${qty(f.appeared)} líneas sin diferencia en el primer conteo la tuvieron al cierre.` : '.'}`, empty: 'Sin diferencias en el primer conteo.' });
   }
-  const codeBlocks = (list, cost, total, color) => {
-    const top = list.slice(0, 5).map(item => ({ label: item.sku, value: cost(item), color }));
+  // The five heaviest codes, each with its color, and the rest together in gray.
+  const codeBlocks = (list, cost, total) => {
+    const top = list.slice(0, 5).map((item, index) => ({ label: item.sku, desc: String(item.descripcion || '').slice(0, 34), value: cost(item), color: PALETTE[index] }));
     const rest = Math.max(0, num(total) - sum(top, item => item.value));
-    if (rest > 0.005 && list.length > 5) top.push({ label: `${qty(list.length - 5)} líneas más`, value: rest, color: '#6f7888' });
+    if (rest > 0.005 && list.length > 5) top.push({ label: `${qty(list.length - 5)} líneas más`, value: rest, color: REST });
     return top;
   };
   function issueTable(issues) {
@@ -434,7 +446,7 @@
     const state = statusChart(byWorst.map(c => ({ code: c.center, name: c.name, lvl: c.lvl, lines: stateLines(c), earlier: earlierClosures(c), forcedLabel: (c.durations || []).map(row => row.forcedLabel).filter(Boolean).join(' · ') })), pending);
     const page1 = sheet(`Consolidado nacional · ${known} centros`, period, `
       <div class="mr-row mr-c4">
-        <div class="mr-kpi top-${count('no') ? 'no' : 'ok'}"><div class="mr-kpi-top"><span>Centros que alcanzan al menos el mínimo</span></div><strong>${met} de ${known}</strong><span class="mr-qty">${levelsLine}</span></div>
+        ${kpi({ label: 'Centros que alcanzan al menos el mínimo', value: `${met} de ${known}`, line: levelsLine })}
         ${kpi({ label: 'Unidades correctas', value: pct(i.units), status: level(i.units), pair: [i.units1, i.units], line: `${qty(total.unitsExact)} de ${qty(total.units)} unidades`, sub: `Primer conteo: ${qty(total.unitsExact1)} (${pct(i.units1)})` })}
         ${kpi({ label: 'Códigos correctos', value: pct(i.codes), status: level(i.codes), pair: [i.codes1, i.codes], line: `${qty(total.skusExact)} de ${qty(total.skus)} códigos`, sub: `Primer conteo: ${qty(total.skusExact1)} (${pct(i.codes1)})` })}
         ${kpi({ label: 'Valor correcto', value: pct(i.money), status: level(i.money), pair: [i.money1, i.money], line: `${bs(i.valueExact)} de ${bs(total.value)}`, sub: `Primer conteo: ${pct(i.money1)}` })}
@@ -445,7 +457,7 @@
         ${kpi({ label: 'Averías', value: bs(total.damage.cost), line: `${qty(total.damage.lines)} líneas · ${qty(total.damage.units)} unidades`, cls: 'top-damage' })}
         ${kpi({ label: 'Ubicación correcta (ERU)', value: pct(i.eru), line: `${qty(total.eru.exact)} de ${qty(total.eru.evaluated)} códigos por almacén`, cls: 'top-info' })}
       </div>
-      ${panel(`Estado por centro · ${levelsLine}`, state.chart, 'mr-interactive')}${panel('Cada centro', state.table, 'mr-plain')}`, 'Totales calculados sumando las bases de cada centro. Barra oscura: cierre · Barra clara: primer conteo · Marcas: 95% y 98%.', 'Resumen consolidado');
+      ${panel(`Estado por centro · ${levelsLine}`, state.chart, 'mr-interactive')}${panel('Cada centro', state.table, 'mr-plain')}`, 'Totales calculados sumando las bases de cada centro. Medidores: rojo bajo 95%, amarillo de 95% a menos de 98%, verde 98% o más; la aguja es el cierre y la marca exterior, el primer conteo.', 'Resumen consolidado');
 
     const kMoney = value => value >= 1e6 ? `${(value / 1e6).toLocaleString('es-BO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} M` : decimal(value);
     const cell = (value, quantity) => `<td class="mr-cell lvl-${level(value).key}">${pct(value)}<small>${quantity}</small></td>`;
@@ -481,7 +493,10 @@
       ${panel('Mayores sobrantes de todos los centros', globalTable(helpers.surpluses.slice(0, 8), BLUE, '+', total.surplus.cost), 'mr-plain')}`, 'Faltantes y sobrantes se muestran por separado; ninguno compensa al otro.');
     const page5 = sheet('Averías y cobertura', period, `
       <div class="mr-row mr-c2">
-        ${panel(`Averías por centro · ${bs(total.damage.cost)} · ${qty(total.damage.lines)} líneas`, `<table class="mr-flat"><tbody>${damageRows.slice(0, 6).map(c => `<tr><td>${esc(c.name)}</td><td>${hbar(c.damage.cost, Math.max(damageRows[0].damage.cost, 1), 110, AMBER, bs(c.damage.cost))}</td><td class="num">${qty(c.damage.lines)} lín.</td></tr>`).join('')}</tbody></table>${damageRows.length > 6 ? `<p class="mr-more">${damageRows.length - 6} centros más · ${bs(sum(damageRows.slice(6), c => c.damage.cost))}</p>` : ''}`)}
+        ${panel(`Averías por centro · ${bs(total.damage.cost)} · ${qty(total.damage.lines)} líneas`, shareBar([
+          ...damageRows.slice(0, 5).map((c, index) => ({ label: c.name, desc: `${qty(c.damage.lines)} lín.`, value: c.damage.cost, color: PALETTE[index], text: decimal(c.damage.cost) })),
+          { label: `${qty(Math.max(0, damageRows.length - 5))} centros más`, value: sum(damageRows.slice(5), c => c.damage.cost), color: REST, text: decimal(sum(damageRows.slice(5), c => c.damage.cost)) }
+        ], { empty: 'Sin averías.' }))}
         ${panel('Cobertura del corte', `<table class="mr-flat"><tbody><tr><td>Centros con cierre</td><td class="num mr-strong">${centers.length} de ${known}</td></tr><tr><td>Sin cierre</td><td class="num mr-strong mr-wrap">${pending.map(c => `${esc(c.code)} ${esc(c.name)}`).join(', ') || 'Ninguno'}</td></tr><tr><td>Inventarios incluidos</td><td class="num mr-strong">${qty(sum(centers, c => c.inventories.length))}</td></tr><tr><td>Centros con más de un inventario</td><td class="num mr-strong mr-wrap">${centers.filter(c => c.inventories.length > 1).map(c => `${esc(c.center)} (${c.inventories.length})`).join(', ') || 'Ninguno'}</td></tr><tr><td>Códigos revisados</td><td class="num mr-strong">${qty(total.skus)}</td></tr><tr><td>Inicio según sistema</td><td class="num mr-strong">${qty(total.units)} unid. · ${bs(total.value)}</td></tr><tr><td>Faltantes al cierre</td><td class="num mr-strong">${qty(total.shortage.units)} unid. · ${bs(total.shortage.cost)}</td></tr><tr><td>Sobrantes al cierre</td><td class="num mr-strong">${qty(total.surplus.units)} unid. · ${bs(total.surplus.cost)}</td></tr><tr><td>Cierre</td><td class="num mr-strong">${qty(closingUnits(total))} unid. · ${bs(closingValue(total))}</td></tr></tbody></table>`)}
       </div>
       ${panel('Del inicio según sistema al cierre · por centro', movementTable('Centro', centers, total), 'mr-plain')}`, MOVEMENT_NOTE);
@@ -519,16 +534,16 @@
   const lowestOf = i => [i.units, i.codes, i.money].some(value => value === null) ? null : Math.min(i.units, i.codes, i.money);
   const share = value => `${num(value).toLocaleString('es-BO', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
   const byCode = (a, b) => String(a.code).localeCompare(String(b.code), 'es', { numeric: true });
-  const CLASS_COLORS = { A: '#17305f', B: '#2a78d6', C: '#8fb8ea' };
-  const OTHER_COLORS = ['#eda100', '#6f7888', '#b7c0ce', '#a86400'];
+  const CLASS_COLORS = { A: '#2a7de1', B: '#f07030', C: '#0aa889' };
+  const OTHER_COLORS = ['#d89c00', '#e0559a', '#9aa3ae', '#7b5cd6'];
   const className = name => name === 'Sin almacén' || !String(name || '').trim() ? 'Sin clase' : String(name).trim();
   const interactiveNote = '<p class="mr-hint" data-html2canvas-ignore="true">Pase el cursor sobre un punto para ver el detalle, elija general o un centro y use la leyenda para mostrar u ocultar líneas. El PDF guarda la vista que quede en pantalla.</p>';
   const todayInBolivia = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 
   // Line chart drawn only with SVG attributes, never classes: the PDF capture redraws the SVG
   // on its own and would lose any color or visibility set from the stylesheet.
-  // Dark card, every series filled with a translucent area, hollow markers and slanted dates.
-  const CHART = { bg: '#1e2026', grid: '#363a44', text: '#a7adb9', mark: '#7a8090' };
+  // White card as in the NIBOL model: light grid, solid lines with filled dots, dotted marks for the goals.
+  const CHART = { bg: '#ffffff', grid: '#e6e6e6', text: '#6b6b6b', mark: '#3a3a3a', axis: '#bdbdbd' };
   function lineChart({ categories, series, height = 250, width = 1040, every = 1, low: floor = null }) {
     const values = series.flatMap(line => line.values).filter(value => value !== null && value !== undefined);
     if (!values.length) return '<p class="mr-more">Sin datos para graficar.</p>';
@@ -545,7 +560,7 @@
       grid.push(`<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" stroke="${CHART.grid}" stroke-width="1"/><text x="${left - 8}" y="${y(value) + 4}" text-anchor="end" font-size="11" fill="${CHART.text}" ${font}>${value}%</text>`);
     }
     const marks = series.some(line => line.marks) ? [[95, 'Mínimo 95%'], [98, 'Cumple 98%']].filter(([value]) => value > low).map(([value, label]) =>
-      `<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" stroke="${CHART.mark}" stroke-width="1" stroke-dasharray="4 4"/><text x="${width - right + 6}" y="${y(value) + 4}" font-size="10" fill="${CHART.text}" ${font}>${label}</text>`) : [];
+      `<line x1="${left}" x2="${width - right}" y1="${y(value)}" y2="${y(value)}" stroke="${CHART.mark}" stroke-width="1.3" stroke-dasharray="4 3"/><text x="${width - right + 6}" y="${y(value) + 4}" font-size="10" font-weight="700" fill="${CHART.mark}" ${font}>${label}</text>`) : [];
     // Drawing order: unlabelled lines first, then labelled ones; a higher `z` goes on top.
     const labelled = series.filter(line => line.labels).sort((a, b) => (a.z || 0) - (b.z || 0));
     const above = (line, index) => {
@@ -563,7 +578,7 @@
       const drawn = segments.filter(segment => segment.length);
       const path = drawn.map(segment => segment.map(([px, py], index) => `${index ? 'L' : 'M'}${px} ${py}`).join(' ')).join(' ');
       const base = y(low).toFixed(1);
-      const fill = line.area ?? 0.14;
+      const fill = line.area ?? 0;
       const area = fill ? drawn.map(segment => `<path d="M${segment[0][0]} ${base} ${segment.map(([px, py]) => `L${px} ${py}`).join(' ')} L${segment[segment.length - 1][0]} ${base} Z" fill="${line.color}" fill-opacity="${fill}" stroke="none"/>`).join('') : '';
       // Two labelled lines on the same value, that day or the next to it, show one label: the one drawn on top.
       const repeated = index => labelled.some(other => labelled.indexOf(other) > labelled.indexOf(line) && [index - 1, index, index + 1].some(near =>
@@ -571,7 +586,7 @@
         && (!other.labelAt || other.labelAt(near))));
       const showLabel = index => line.labels && (!line.labelAt || line.labelAt(index)) && !repeated(index);
       const points = line.values.map((value, index) => value === null || value === undefined ? '' :
-        `<circle cx="${x(index).toFixed(1)}" cy="${y(value).toFixed(1)}" r="${line.dot || 3.4}" fill="${CHART.bg}" stroke="${line.color}" stroke-width="2"><title>${esc(line.tips?.[index] || `${categories[index]} · ${line.label}: ${pct(value)}`)}</title></circle>`
+        `<circle cx="${x(index).toFixed(1)}" cy="${y(value).toFixed(1)}" r="${line.dot || 3.2}" fill="${line.color}" stroke="${CHART.bg}" stroke-width="1"><title>${esc(line.tips?.[index] || `${categories[index]} · ${line.label}: ${pct(value)}`)}</title></circle>`
         + (showLabel(index) ? `<text x="${x(index).toFixed(1)}" y="${(y(value) + (above(line, index) ? -8 : 16)).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="700" fill="${line.text || line.color}" ${font}>${Math.round(value)}%</text>` : '')).join('');
       return `<g data-series="${esc(line.key)}"${line.hidden ? ' style="display:none"' : ''}>${area}<path d="${path}" fill="none" stroke="${line.color}" stroke-width="${line.width || 2}"${line.dash ? ` stroke-dasharray="${line.dash}"` : ''} stroke-linejoin="round" stroke-linecap="round"/>${points}</g>`;
     }).join('');
@@ -579,7 +594,8 @@
     const axis = categories.map((name, index) => (slanted ? index % Math.max(1, Math.ceil(every / 2)) : index % every) && index !== categories.length - 1 ? '' : slanted
       ? `<text x="${x(index).toFixed(1)}" y="${axisY}" text-anchor="end" font-size="10.5" fill="${CHART.text}" transform="rotate(-45 ${x(index).toFixed(1)} ${axisY})" ${font}>${esc(name)}</text>`
       : `<text x="${x(index).toFixed(1)}" y="${height - 8}" text-anchor="middle" font-size="11" fill="${CHART.text}" ${font}>${esc(name)}</text>`).join('');
-    return `<svg class="mr-lines" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="${width}" height="${height}" rx="6" fill="${CHART.bg}"/>${grid.join('')}${marks.join('')}${lines}${axis}</svg>`;
+    const base = `<line x1="${left}" x2="${width - right}" y1="${y(low)}" y2="${y(low)}" stroke="${CHART.axis}" stroke-width="1.2"/>`;
+    return `<svg class="mr-lines" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="${width}" height="${height}" fill="${CHART.bg}"/>${grid.join('')}${base}${marks.join('')}${lines}${axis}</svg>`;
   }
   const lineLegend = series => `<span class="mr-toggles">${series.map(line => `<button type="button" class="mr-btn mr-key${line.hidden ? '' : ' mr-on'}" data-mr-toggle="${esc(line.key)}"><i class="mr-dot" style="background:${line.color}"></i>${esc(line.label)}</button>`).join('')}</span>`;
   const pickButtons = views => `<span class="mr-toggles mr-pick-list">${views.map((view, index) => `<button type="button" class="mr-btn${index ? '' : ' mr-on'}" data-mr-pick="${esc(view.code)}">${esc(view.name)}</button>`).join('')}</span>`;
@@ -637,9 +653,9 @@
     const tip = (values, daily, what, unit) => model.days.map((day, index) => values[index] === null ? '' :
       `${view.name} · ${dayLabel(day)}: ${share(values[index])} ${what} · ${qty(daily[index])} ${unit} ese día`);
     return [
-      { key: 'counted', label: 'Líneas contadas', color: '#5b9bf5', area: 0.22, labels: true, width: 2.5, dot: 2.4, z: 1, values: counted,
+      { key: 'counted', label: 'Líneas contadas', color: '#2a7de1', labels: true, width: 2.5, dot: 2.6, z: 1, values: counted,
         tips: tip(counted, dailyLines, 'de las líneas contadas', 'líneas'), labelAt: index => index === lastOf(counted) || (dailyLines[index] > 0 && index % 5 === 0) },
-      { key: 'closed', label: 'Inventarios cerrados', color: '#4fbf6a', area: 0.22, labels: true, width: 2.5, dot: 2.4, dash: '6 4', values: closed,
+      { key: 'closed', label: 'Inventarios cerrados', color: '#0aa889', labels: true, width: 2.5, dot: 2.6, values: closed,
         tips: tip(closed, dailyClosed, 'de los inventarios cerrados', 'cierres'), labelAt: index => index === lastOf(closed) || dailyClosed[index] > 0 }
     ];
   }
@@ -653,11 +669,11 @@
   }
 
   // Every center on one time axis, one line with markers each.
-  const CENTER_COLORS = ['#5b9bf5', '#e5534b', '#a78bfa', '#e9b949', '#2bb3c0', '#4fbf6a', '#f08c4b', '#e879c6', '#a0a4ad', '#8fd3ff', '#ffd166', '#c3e88d', '#ff8fa3', '#b5a1ff'];
+  const CENTER_COLORS = ['#2a7de1', '#f07030', '#0aa889', '#d89c00', '#e0559a', '#7b5cd6', '#e04040', '#18a53a', '#5b6b7f', '#00a3c4', '#b0662a', '#9c4fb0', '#7fa32a', '#c23b6e'];
   function centersChart(model) {
     const series = model.centers.map((c, index) => {
       const values = model.progress([c]);
-      return { key: `c-${c.code}`, label: c.name, color: CENTER_COLORS[index % CENTER_COLORS.length], width: 2, dot: 2.6, area: 0.07, values,
+      return { key: `c-${c.code}`, label: c.name, color: CENTER_COLORS[index % CENTER_COLORS.length], width: 2, dot: 2.6, values,
         tips: model.days.map((day, i) => values[i] === null ? '' : `${c.name} · ${dayLabel(day)}: ${share(values[i])} de las líneas contadas`) };
     });
     return `<div class="mr-controls">${lineLegend(series)}</div>${lineChart({ categories: model.days.map(dayLabel), series, height: 330, every: 2, low: 0 })}${interactiveNote}`;
@@ -677,10 +693,10 @@
         tips: values.map((value, index) => value === null ? '' : `${view.name} · ${dayLabel(model.days[index])} (${names[index]}) · ${label.toLowerCase()}: ${pct(value)}`) };
     };
     return [
-      line('result', 'Resultado', '#a78bfa', { labels: true, marks: true, width: 2.5 }),
-      line('units', 'Unidades correctas', '#5b9bf5'),
-      line('codes', 'Códigos correctos', '#e5534b'),
-      line('money', 'Valor correcto', '#e9b949', { hidden: !allVisible })
+      line('result', 'Resultado', '#2a7de1', { labels: true, marks: true, width: 2.5 }),
+      line('units', 'Unidades correctas', '#0aa889'),
+      line('codes', 'Códigos correctos', '#f07030'),
+      line('money', 'Valor correcto', '#d89c00', { hidden: !allVisible })
     ];
   }
   const closureLine = (model, view, { width = 1040, height = 215, every = 3, allVisible = false } = {}) => view.count
@@ -696,7 +712,7 @@
   function centerCharts(model) {
     const progress = progressViews(model).slice(1), closures = closureViews(model).slice(1);
     const keys = [...progressSeries(model, progress[0] || { entries: [], name: '' }), ...closureSeries(model, { perDay: [], code: '', name: '' }, { allVisible: true })];
-    const legend = `<div class="mr-legend">${keys.map(line => `<span><i style="background:${line.color}"></i>${esc(line.label)}</span>`).join('')}<span>Líneas punteadas: 95% y 98%.</span></div>`;
+    const legend = `<div class="mr-legend">${keys.map(line => `<span><i style="background:${line.color}"></i>${esc(line.label)}</span>`).join('')}<span>Líneas punteadas: metas de 95% y 98%.</span></div>`;
     const blocks = progress.map((view, index) => {
       const entry = view.entries[0];
       const line = `${qty(entry.counted)} de ${qty(entry.lines)} líneas contadas · ${qty(entry.closed)} de ${qty(entry.inventories)} inventarios cerrados`;
@@ -775,7 +791,7 @@
     const scope = 'Solo los inventarios seleccionados en el dashboard y creados en el mes, abiertos y cerrados.';
     const page1 = sheet(`Informe mensual · ${label}`, right, `
       <div class="mr-row mr-c4">
-        ${kpi({ label: 'Resultado del mes', value: result === null ? '—' : pct(result), status: level(result), line: model.report.length ? 'El menor de unidades, códigos y valor correctos' : 'Sin inventarios cerrados' })}
+        ${kpi({ label: 'Resultado del mes', value: result === null ? '—' : pct(result), status: level(result), pair: [null, result], line: model.report.length ? 'El menor de unidades, códigos y valor correctos' : 'Sin inventarios cerrados' })}
         ${kpi({ label: 'Avance del conteo', value: lines ? share(counted / lines * 100) : '—', line: `${qty(counted)} de ${qty(lines)} líneas contadas`, cls: 'top-info' })}
         ${kpi({ label: 'Inventarios cerrados', value: `${qty(closed)} de ${qty(inventories)}`, line: `${qty(inventories - closed)} todavía abiertos`, cls: 'top-info' })}
         ${kpi({ label: 'Códigos inventariados', value: qty(total.skus), line: `En ${qty(model.report.length)} ${model.report.length === 1 ? 'centro' : 'centros'} con cierre`, cls: 'top-info' })}

@@ -334,7 +334,7 @@ test('the state of all centers is a line chart of its final result and one row p
   // Only the final result, the centers on the horizontal axis.
   assert.deepEqual([...state.matchAll(/<g data-series="(\w+)"/g)].map(m => m[1]), ['result']);
   assert.doesNotMatch(state.slice(0, state.indexOf('<table')), /Unidades correctas|Códigos correctos|Valor correcto/);
-  assert.deepEqual([...state.matchAll(/text-anchor="middle" font-size="11" fill="#a7adb9"[^>]*>(\d{4})</g)].map(m => m[1]), ['1120', '1160']);
+  assert.deepEqual([...state.matchAll(/text-anchor="middle" font-size="11" fill="#6b6b6b"[^>]*>(\d{4})</g)].map(m => m[1]), ['1120', '1160']);
   const rows = stateRows(html);
   assert.equal(rows.length, 3, 'Two centers with a close and one without');
   const [worst, best, pending] = rows;
@@ -739,9 +739,11 @@ test('the monthly charts show the month in general and for each center, without 
   // The general progress ends at 7 of 8 lines; each closure is drawn by termination.
   const general = html.slice(html.indexOf('data-pick="ALL"'), html.indexOf('data-pick="1120"'));
   assert.match(general, />88%<\/text>/);
-  // Overlapping areas: lines counted and inventories closed, both filled under their line.
-  assert.match(general, /<g data-series="counted"><path d="M[^"]+Z" fill="#5b9bf5" fill-opacity="0.22"/);
-  assert.match(general, /<g data-series="closed"><path d="M[^"]+Z" fill="#4fbf6a" fill-opacity="0.22"/);
+  // White chart of the NIBOL model: solid lines with filled dots, no areas under them.
+  assert.match(general, /<g data-series="counted"><path d="M[^"Z]+" fill="none" stroke="#2a7de1"/);
+  assert.match(general, /<g data-series="closed"><path d="M[^"Z]+" fill="none" stroke="#0aa889"/);
+  assert.match(general, /<circle [^>]*fill="#2a7de1"/);
+  assert.doesNotMatch(general, /fill-opacity/);
   assert.match(general, />75%<\/text>/, '3 of 4 inventories closed');
   // One line with markers per center, and results on the day each inventory closed.
   const lines = html.slice(html.indexOf('<b>Avance de cada centro día a día</b>'), html.indexOf('<b>Resultado de cada inventario cerrado</b>'));
@@ -765,7 +767,7 @@ test('lines counted stay visible when they reach the same value as the closures,
   const start = html.indexOf('data-pick="1160"');
   const chart = html.slice(start, html.indexOf('</svg>', start));
   assert.ok(chart.indexOf('data-series="closed"') < chart.indexOf('data-series="counted"'), 'lines counted are drawn on top');
-  assert.match(chart, /<g data-series="closed">.*?stroke-dasharray="6 4"/s);
+  assert.doesNotMatch(chart.slice(chart.indexOf('data-series="closed"')), /stroke-dasharray/, 'only the goals are dotted');
   const labels = [...chart.matchAll(/<text x="([\d.]+)" y="[\d.]+" text-anchor="middle" font-size="11" font-weight="700"[^>]*>(\d+%)</g)].map(m => m[1]);
   assert.ok(labels.length > 0);
   assert.equal(new Set(labels).size, labels.length, 'never two value labels on the same day');
@@ -838,4 +840,23 @@ test('with one center the trend stays by inventory and the consolidated mode is 
   card.view.renderEriTrend(metrics);
   assert.equal(card.charts.at(-1).data.datasets[0].label, 'ERI Cantidad de Ítems (%)');
   assert.equal(card.at('btn-trend-mode-centers').disabled, true);
+});
+
+test('compliance indicators are gauges of the NIBOL scale and differences are split bars, as in the model', async () => {
+  const html = report.render({ name: 'Inventario' }, await load([mixedCenter()]));
+  const first = html.slice(0, html.indexOf('</section>'));
+  // Units, codes and value: one gauge each, red to 95, amber to 98, green from 98, with a needle.
+  assert.equal((first.match(/<svg class="mr-gauge-svg"/g) || []).length, 3);
+  const svg = first.slice(first.indexOf('<svg class="mr-gauge-svg"'), first.indexOf('</svg>') + 6);
+  assert.match(svg, /stroke="#e04040" stroke-width="16"/);
+  assert.match(svg, /stroke="#f5b400" stroke-width="16"/);
+  assert.match(svg, /stroke="#18a53a" stroke-width="16"/);
+  assert.match(svg, /stroke-linecap="round"\/><circle/);
+  assert.doesNotMatch(svg, /\sclass="(?!mr-gauge-svg")/, 'attributes only, for the PDF capture');
+  assert.match(first, /class="mr-status"><i style="background:#[0-9a-f]+"><\/i>(No cumple|Mínimo de cumplimiento|Cumplimiento|Perfecto cumplimiento)/);
+  // Shortages and surpluses by code: one bar split by code, with a row per code.
+  assert.doesNotMatch(html, /mr-tree|mr-bullet/);
+  const shortages = html.slice(html.indexOf('Faltantes por código'), html.indexOf('Sobrantes por código'));
+  assert.match(shortages, /class="mr-share-bar"/);
+  assert.match(shortages, /<b>SHORT<\/b>.*?<b class="num">300,00<\/b><span class="num mr-more">100 %<\/span>/s);
 });
